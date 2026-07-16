@@ -9,6 +9,7 @@ adapter overrides, tz wiring).
 import json
 import os
 import re
+import shutil
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -260,7 +261,11 @@ def test_ingest_empty_input_dir_reports_zero_files_exit_0(tmp_path: Path) -> Non
 
 def test_new_refuses_to_overwrite_existing_case(tmp_path: Path) -> None:
     """WR-03: re-running `new` must not silently repoint an existing case
-    at a different snapshot (mixed-snapshot corruption)."""
+    at a different snapshot (mixed-snapshot corruption).
+
+    Also the plan 02-02 acceptance pin: creating a case whose name already
+    exists exits 1 containing 'already exists' — Phase 1 behaviour preserved
+    at scale, no silent overwrite."""
     input_dir = _make_case(tmp_path)
     other_dir = tmp_path / "other-input"
     other_dir.mkdir()
@@ -356,6 +361,58 @@ def test_config_timezones_reach_adapter_and_events(tmp_path: Path) -> None:
     shown = runner.invoke(app, ["show", "demo", "events"])
     assert shown.exit_code == 0, shown.output
     assert "2026-01-15T09:00:00+00:00" in shown.output
+
+
+# --- plan 02-02: portability + progress regression (STORE-01, CLI-03) ------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="ingest does not yet close the store explicitly (WAL sidecars "
+    "survive); plan 02-02 task 2 adds the clean close",
+)
+def test_case_dir_contains_only_case_db_after_clean_run(tmp_path: Path) -> None:
+    """STORE-01 / Pitfall 4: after a clean CLI run no -wal/-shm sidecars
+    survive, so the case directory is the deletable unit."""
+    input_dir = _make_case(tmp_path)
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    case_dir = load_config().data_dir / "cases" / "demo"
+    assert sorted(p.name for p in case_dir.iterdir()) == ["case.db"]
+
+
+def test_deleting_case_directory_deletes_the_case(tmp_path: Path) -> None:
+    """STORE-01: rmtree of data_dir/cases/<name>/ removes the case entirely;
+    a subsequent show exits 1 with the does-not-exist error."""
+    input_dir = _make_case(tmp_path)
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    case_dir = load_config().data_dir / "cases" / "demo"
+    shutil.rmtree(case_dir)
+    assert not case_dir.exists()
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 1, shown.output
+    assert "does not exist" in shown.output
+
+
+def test_ingest_stdout_contract_unchanged_off_terminal(tmp_path: Path) -> None:
+    """CLI-03 regression guard: progress renders on stderr only, so on
+    non-TTY runs (CliRunner, CI, pipes) stdout keeps the per-file coverage
+    lines and the Total/Template-groups lines. Passes before AND after the
+    batched-streaming change — do not xfail."""
+    input_dir = _make_case(tmp_path)
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+
+    result = runner.invoke(app, ["ingest", "demo"])
+    assert result.exit_code == 0, result.output
+    assert re.search(
+        r"^app\.log  coverage \d+\.\d%  3 events  3 new$", result.output, re.MULTILINE
+    ), result.output
+    assert re.search(r"^Total: 3 new events$", result.output, re.MULTILINE)
+    assert re.search(r"^Template groups: \d+$", result.output, re.MULTILINE)
 
 
 # --- plan 02-01: show clusters (STORE-04, CLUS-01) -------------------------

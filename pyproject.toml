@@ -26,6 +26,12 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Pitfall 5: the default suite excludes 100 MB-scale gates; an explicit
+# `uv run pytest -m perf` on the command line overrides this addopts filter.
+addopts = "-m 'not perf'"
+markers = [
+    "perf: 100 MB-scale gates, run explicitly via -m perf",
+]
 
 [tool.ruff]
 target-version = "py312"
@@ -39,3 +45,9 @@ typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
 include = ["src", "tests"]
+
+# tests/perf is not a package: pytest prepend mode puts it on sys.path, so
+# `import generate_synthetic` resolves at runtime — mirror that for pyright.
+[[tool.pyright.executionEnvironments]]
+root = "tests/perf"
+extraPaths = ["tests/perf", "src"]
