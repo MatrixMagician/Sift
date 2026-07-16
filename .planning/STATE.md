@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Skeleton, Event Contract & genericlog Adapter
 status: executing
-stopped_at: Phase 1 context gathered
-last_updated: "2026-07-16T15:53:50.975Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-07-16T16:08:26.259Z"
 last_activity: 2026-07-16
-last_activity_desc: "Roadmap created (8 phases mapping 1:1 to SPEC.md milestones M1–M8; 44/44 requirements mapped)"
+last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 5
+  completed_plans: 1
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 
 ## Current Position
 
-Phase: 1 of 8 (Skeleton, Event Contract & genericlog Adapter)
-Plan: 0 of TBD in current phase
+Phase: 1 (Skeleton, Event Contract & genericlog Adapter) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-16 — Roadmap created (8 phases mapping 1:1 to SPEC.md milestones M1–M8; 44/44 requirements mapped)
+Last activity: 2026-07-16 — Phase 1 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 20%
 
 ## Performance Metrics
 
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 9min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -65,6 +70,8 @@ Recent decisions affecting current work:
 - [Roadmap]: Phases follow SPEC.md M1–M8 one-to-one; write path (Phases 1–2) built and tested before any LLM code exists
 - [Roadmap]: Phase 5 (domain adapters) may execute in parallel with Phase 4 — adapter Protocol frozen at Phase 1; acceptance gated sequentially
 - [Roadmap]: Research resolved SPEC open questions: Typer over argparse, WeasyPrint behind `sift[pdf]` extra, hand-rolled masking over drain3, `sklearn.cluster.HDBSCAN` over standalone package — record in `docs/decisions/` during Phase 1
+- [Phase ?]: 01-01: All six PyPI packages approved at blocking-human legitimacy checkpoint; exact versions pinned in uv.lock
+- [Phase ?]: 01-01: requirements-completed left empty — CLI-01 finishes in 01-04 (config precedence), INGST-01 when RED e2e test turns green in 01-02/01-05
 
 ### Pending Todos
 
@@ -86,6 +93,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T15:11:31.990Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-skeleton-event-contract-genericlog-adapter/01-CONTEXT.md
+Last session: 2026-07-16T16:08:26.253Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
