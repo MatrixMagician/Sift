@@ -9,8 +9,14 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from sift.adapters.base import ParseStats
-from sift.adapters.genericlog import GenericLogAdapter
+from sift.adapters.genericlog import (
+    MAX_EVENT_BYTES,
+    MAX_EVENT_LINES,
+    GenericLogAdapter,
+)
 from sift.models import Event
 
 
@@ -40,6 +46,33 @@ def run_parse(
 def set_mtime(path: Path, dt: datetime) -> None:
     ts = dt.timestamp()
     os.utime(path, (ts, ts))
+
+
+def assert_span_partition(events: list[Event], total_bytes: int) -> None:
+    """Event byte spans must partition the file: contiguous from 0,
+    non-overlapping, summing to the total decompressed byte count."""
+    pos = 0
+    for e in events:
+        assert int(e.attrs["byte_offset"]) == pos, (
+            f"gap/overlap at {e.event_id}: span starts at "
+            f"{e.attrs['byte_offset']}, expected {pos}"
+        )
+        pos += int(e.attrs["byte_len"])
+    assert pos == total_bytes
+
+
+# Two-event ASCII log reused across encoding variants.
+BASE_LOG = "2026-07-16T10:00:00Z INFO alpha\n2026-07-16T10:00:01Z ERROR beta\n"
+
+ENCODED_FIXTURES: dict[str, bytes] = {
+    "utf-8": BASE_LOG.encode("utf-8"),
+    "utf-8-sig": BASE_LOG.encode("utf-8-sig"),
+    "utf-16-le-bom": b"\xff\xfe" + BASE_LOG.encode("utf-16-le"),
+    "utf-16-be-bom": b"\xfe\xff" + BASE_LOG.encode("utf-16-be"),
+    "cp1252": "2026-07-16T10:00:00Z INFO caf\xe9\n".encode("cp1252"),
+    "invalid-bytes": b"2026-07-16T10:00:00Z INFO bad \x81\xffx\n",
+    "crlf": BASE_LOG.replace("\n", "\r\n").encode("utf-8"),
+}
 
 
 # ---------------------------------------------------------------- format ---
@@ -191,3 +224,169 @@ def test_timezone_exact_offset_ignores_override(tmp_path: Path) -> None:
     assert events[0].ts == datetime(2026, 7, 16, 12, 2, 3, tzinfo=UTC)
     assert events[0].ts_confidence == "exact"
     assert not any("America/New_York" in n for n in stats.notes)
+
+
+# ------------------------------------------------------------- multiline ---
+
+
+def test_multiline_stack_trace_is_one_event(tmp_path: Path) -> None:
+    trace = "".join(
+        f"\tat com.example.Worker.run(Worker.java:{n})\n" for n in range(11)
+    )
+    write_log(
+        tmp_path,
+        "app.log",
+        ("2026-07-16T10:00:00Z ERROR boom\n" + trace).encode("utf-8"),
+    )
+    events, stats = run_parse(tmp_path, "app.log")
+    assert len(events) == 1
+    assert events[0].line_end - events[0].line_start == 11
+    assert "com.example.Worker" in events[0].message
+    assert stats.coverage == 1.0  # continuation lines count as covered
+    assert_span_partition(events, stats.total_bytes)
+
+
+def test_multiline_cap_256_lines_splits(tmp_path: Path) -> None:
+    body = "".join(f"  continuation {n}\n" for n in range(299))
+    write_log(
+        tmp_path,
+        "app.log",
+        ("2026-07-16T10:00:00Z ERROR start\n" + body).encode("utf-8"),
+    )
+    events, stats = run_parse(tmp_path, "app.log")
+    assert len(events) == 2
+    first, spill = events
+    assert (first.line_start, first.line_end) == (1, MAX_EVENT_LINES)
+    assert (spill.line_start, spill.line_end) == (MAX_EVENT_LINES + 1, 300)
+    assert spill.ts is None
+    assert spill.ts_confidence == "missing"
+    assert spill.severity == "unknown"
+    assert_span_partition(events, stats.total_bytes)
+
+
+def test_multiline_cap_64kb_splits(tmp_path: Path) -> None:
+    # 70 continuation lines of 1 KiB each: byte cap trips before the line cap.
+    line = "x" * 1023 + "\n"
+    write_log(
+        tmp_path,
+        "app.log",
+        ("2026-07-16T10:00:00Z ERROR big\n" + line * 70).encode("utf-8"),
+    )
+    events, stats = run_parse(tmp_path, "app.log")
+    assert len(events) == 2
+    assert int(events[0].attrs["byte_len"]) <= MAX_EVENT_BYTES
+    assert events[1].ts is None
+    assert events[1].severity == "unknown"
+    assert_span_partition(events, stats.total_bytes)
+
+
+# -------------------------------------------------------------- coverage ---
+
+
+def test_coverage_leading_unknown_region_hand_computed(tmp_path: Path) -> None:
+    junk = b"no timestamp here\nstill nothing\n"
+    parsed = b"2026-07-16T10:00:00Z INFO fine\n"
+    write_log(tmp_path, "app.log", junk + parsed)
+    events, stats = run_parse(tmp_path, "app.log")
+    assert len(events) == 2
+    assert events[0].ts is None
+    assert events[0].severity == "unknown"
+    total = len(junk) + len(parsed)
+    assert stats.total_bytes == total
+    assert stats.unknown_fallback_bytes == len(junk)
+    assert stats.coverage == 1.0 - len(junk) / total
+    assert_span_partition(events, stats.total_bytes)
+
+
+def test_coverage_empty_file(tmp_path: Path) -> None:
+    write_log(tmp_path, "empty.log", b"")
+    events, stats = run_parse(tmp_path, "empty.log")
+    assert events == []
+    assert stats.total_bytes == 0
+    assert stats.coverage == 1.0
+
+
+def test_coverage_fully_parsed_file_is_one(tmp_path: Path) -> None:
+    write_log(tmp_path, "app.log", ENCODED_FIXTURES["utf-8"])
+    _, stats = run_parse(tmp_path, "app.log")
+    assert stats.coverage == 1.0
+
+
+@pytest.mark.parametrize("name", sorted(ENCODED_FIXTURES))
+def test_coverage_span_partition_invariant_all_encodings(
+    tmp_path: Path, name: str
+) -> None:
+    data = ENCODED_FIXTURES[name]
+    write_log(tmp_path, "app.log", data)
+    events, stats = run_parse(tmp_path, "app.log")
+    assert stats.total_bytes == len(data)
+    assert_span_partition(events, stats.total_bytes)
+
+
+# -------------------------------------------------------------- encoding ---
+
+
+def test_encoding_utf16le_bom_offsets_differ_messages_match(
+    tmp_path: Path,
+) -> None:
+    write_log(tmp_path, "u8.log", ENCODED_FIXTURES["utf-8"])
+    write_log(tmp_path, "u16.log", ENCODED_FIXTURES["utf-16-le-bom"])
+    u8_events, _ = run_parse(tmp_path, "u8.log")
+    u16_events, _ = run_parse(tmp_path, "u16.log")
+    assert [e.message for e in u16_events] == [e.message for e in u8_events]
+    assert [e.line_start for e in u16_events] == [e.line_start for e in u8_events]
+    # ASCII content: 2-byte units plus the 2-byte BOM shift every offset.
+    assert int(u16_events[0].attrs["byte_offset"]) == 0  # BOM in first span
+    assert int(u16_events[1].attrs["byte_offset"]) == (
+        2 * int(u8_events[1].attrs["byte_offset"]) + 2
+    )
+
+
+def test_encoding_utf16be_bom_parses(tmp_path: Path) -> None:
+    write_log(tmp_path, "u8.log", ENCODED_FIXTURES["utf-8"])
+    write_log(tmp_path, "u16be.log", ENCODED_FIXTURES["utf-16-be-bom"])
+    u8_events, _ = run_parse(tmp_path, "u8.log")
+    be_events, be_stats = run_parse(tmp_path, "u16be.log")
+    assert [e.message for e in be_events] == [e.message for e in u8_events]
+    assert [e.ts for e in be_events] == [e.ts for e in u8_events]
+    assert_span_partition(be_events, be_stats.total_bytes)
+
+
+def test_encoding_utf8_sig_bom_stripped_from_text(tmp_path: Path) -> None:
+    write_log(tmp_path, "sig.log", ENCODED_FIXTURES["utf-8-sig"])
+    events, stats = run_parse(tmp_path, "sig.log")
+    assert len(events) == 2
+    assert "﻿" not in events[0].message
+    assert events[0].ts == datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC)
+    assert stats.total_bytes == len(ENCODED_FIXTURES["utf-8-sig"])
+
+
+def test_encoding_cp1252_fallback(tmp_path: Path) -> None:
+    write_log(tmp_path, "cp.log", ENCODED_FIXTURES["cp1252"])
+    events, stats = run_parse(tmp_path, "cp.log")
+    assert len(events) == 1
+    assert "caf\xe9" in events[0].message  # 0xE9 decoded as é via cp1252
+    assert_span_partition(events, stats.total_bytes)
+
+
+def test_encoding_invalid_bytes_replaced_after_offsets_fixed(
+    tmp_path: Path,
+) -> None:
+    data = ENCODED_FIXTURES["invalid-bytes"]
+    write_log(tmp_path, "bad.log", data)
+    events, stats = run_parse(tmp_path, "bad.log")
+    assert len(events) == 1
+    assert events[0].ts == datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC)
+    assert "�" in events[0].message  # 0x81 has no cp1252 mapping
+    assert stats.total_bytes == len(data)  # replacement never shifts offsets
+    assert_span_partition(events, stats.total_bytes)
+
+
+def test_encoding_crlf_bytes_counted_text_stripped(tmp_path: Path) -> None:
+    data = ENCODED_FIXTURES["crlf"]
+    write_log(tmp_path, "crlf.log", data)
+    events, stats = run_parse(tmp_path, "crlf.log")
+    assert len(events) == 2
+    assert all("\r" not in e.message for e in events)
+    assert stats.total_bytes == len(data)
+    assert_span_partition(events, stats.total_bytes)

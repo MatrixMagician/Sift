@@ -3,7 +3,9 @@
 v1 scope (plan 01-03): full timestamp ladder (ISO 8601, syslog RFC3164 with
 mtime year inference, epoch seconds/millis, Apache CLF), UTC normalisation
 with ``ts_confidence`` and per-glob timezone overrides (D-05), continuation
-grouping per D-06.
+grouping with 256-line/64 KB safety caps (D-06), BOM/encoding-aware byte
+accounting (utf-8-sig, utf-16-le/be, cp1252 fallback), and the parse-coverage
+metric — every decompressed byte belongs to exactly one event.
 
 Byte offsets are computed on the raw decompressed byte stream, never on
 decoded text or via ``.tell()`` on a text wrapper — event_id determinism
@@ -14,6 +16,7 @@ Per-run configuration travels on the adapter instance (``input_root``,
 signature is frozen. Set by the ingest orchestrator before ``parse``.
 """
 
+import io
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -29,6 +32,13 @@ from sift.models import Event, event_id
 # 10/13-digit number is only a timestamp if it lands in a sane era).
 EPOCH_MIN = 946684800
 EPOCH_MAX = 4102444800
+
+# D-06 safety caps: on breach the current event closes and a new
+# severity-unknown continuation event opens (bounded memory, T-03-01).
+MAX_EVENT_LINES = 256
+MAX_EVENT_BYTES = 65536
+
+_CHUNK = 65536
 
 # Anchored ISO 8601 candidate: four-digit year, dashes, T-or-space separator,
 # HH:MM:SS, optional fractional seconds and offset/Z. The bounded slice is fed
@@ -190,6 +200,70 @@ def _match_ts(
     return None
 
 
+def _detect_encoding(head: bytes) -> tuple[str, bytes]:
+    """BOM sniff on the first decompressed bytes -> (encoding, newline bytes).
+
+    All line splitting and offset arithmetic happens at the byte level with
+    the encoding's own newline pattern (Pitfall 1); decoding happens per
+    record, after offsets are fixed.
+    """
+    if head.startswith(b"\xef\xbb\xbf"):
+        return "utf-8", b"\n"
+    if head.startswith(b"\xff\xfe"):
+        return "utf-16-le", b"\n\x00"
+    if head.startswith(b"\xfe\xff"):
+        return "utf-16-be", b"\x00\n"
+    return "utf-8", b"\n"
+
+
+def _decode(raw: bytes, encoding: str) -> str:
+    """Decode one record. errors="replace" can never corrupt offsets — they
+    were fixed at the byte level before this is called (T-03-02)."""
+    if encoding == "utf-8":
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return raw.decode("cp1252", errors="replace")
+    return raw.decode(encoding, errors="replace")
+
+
+def _byte_lines(
+    stream: io.BufferedIOBase, nl: bytes, initial: bytes
+) -> Iterator[bytes]:
+    """Yield byte lines (terminator included) split on ``nl``.
+
+    ``initial`` seeds the buffer with bytes already consumed for BOM
+    detection, so BOM bytes stay part of the first line's span (Pitfall 7).
+    A newline-less run longer than MAX_EVENT_BYTES is force-split so a single
+    monster line cannot slurp unbounded memory (T-03-01).
+    """
+    buf = initial
+    eof = False
+    while True:
+        i = buf.find(nl)
+        if 0 <= i and i + len(nl) <= MAX_EVENT_BYTES:
+            end = i + len(nl)
+            yield buf[:end]
+            buf = buf[end:]
+            continue
+        if len(buf) >= MAX_EVENT_BYTES:
+            # ponytail: force-split may bisect a 2-byte utf-16 newline at the
+            # exact cap boundary; acceptable — the cap already makes the
+            # region a severity-unknown continuation event.
+            yield buf[:MAX_EVENT_BYTES]
+            buf = buf[MAX_EVENT_BYTES:]
+            continue
+        if eof:
+            break
+        chunk = stream.read(_CHUNK)
+        if not chunk:
+            eof = True
+        else:
+            buf += chunk
+    if buf:
+        yield buf
+
+
 @dataclass
 class _Record:
     """Accumulator for one in-progress event."""
@@ -219,7 +293,9 @@ class GenericLogAdapter:
         # Low-but-nonzero so genericlog never outcompetes a domain adapter,
         # while the fallback rule still applies (Pattern 2). Any ladder entry
         # counts as a match.
-        head = read_head(path).decode("utf-8", errors="replace")
+        raw = read_head(path)
+        encoding, _ = _detect_encoding(raw[:4])
+        head = _decode(raw, encoding).removeprefix("\ufeff")
         mtime = path.stat().st_mtime
         return (
             0.1
@@ -266,16 +342,28 @@ class GenericLogAdapter:
                 thread=None,
                 session=None,
                 message="\n".join(rec.message_lines),
-                attrs={},
+                attrs={
+                    # Byte span on the decompressed stream: lets tests (and
+                    # later citation display) verify the span-partition
+                    # invariant without re-deriving offsets.
+                    "byte_offset": str(rec.offset),
+                    "byte_len": str(rec.byte_len),
+                },
                 raw="".join(rec.raw_parts),
             )
 
         with open_bytes(path) as stream:
-            for bline in stream:
+            head = stream.read(4)
+            encoding, nl = _detect_encoding(head)
+            for bline in _byte_lines(stream, nl, head):
                 line_offset = offset
-                offset += len(bline)  # every byte counted, newline included
+                offset += len(bline)  # every byte counted, newline and BOM too
                 line_no += 1
-                decoded = bline.decode("utf-8", errors="replace")
+                decoded = _decode(bline, encoding)
+                if line_no == 1:
+                    # BOM bytes stay in the first line's span (Pitfall 7) but
+                    # never in its text.
+                    decoded = decoded.removeprefix("\ufeff")
                 text = decoded.rstrip("\r\n")
                 parsed = _match_ts(text, mtime, override_tz, locked)
                 if parsed is not None:
@@ -295,7 +383,23 @@ class GenericLogAdapter:
                     )
                     current.message_lines.append(text[prefix_end:].lstrip())
                 elif current is not None:
-                    # Continuation (D-06): timestamp-less line appends.
+                    # Continuation (D-06): timestamp-less line appends —
+                    # unless a safety cap would be breached, in which case the
+                    # event closes and a severity-unknown continuation event
+                    # opens (bounded memory, T-03-01).
+                    lines_in_event = current.line_end - current.line_start + 1
+                    if (
+                        lines_in_event >= MAX_EVENT_LINES
+                        or current.byte_len + len(bline) > MAX_EVENT_BYTES
+                    ):
+                        yield finish(current)
+                        current = _Record(
+                            offset=line_offset,
+                            line_start=line_no,
+                            ts=None,
+                            ts_confidence="missing",
+                            severity="unknown",
+                        )
                     current.message_lines.append(text)
                 else:
                     # Leading unparseable region becomes its own event (D-06).
