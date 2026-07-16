@@ -72,7 +72,7 @@ Plans:
   4. Schema migrations run via `PRAGMA user_version`, and `raw` text > 4 KB is zstd-compressed transparently
   5. Long-running ingest shows progress feedback instead of a silent hang
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -86,6 +86,10 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 02-03-PLAN.md — Allowlisted `--filter` on `show events|clusters` + column-scoped streaming show (wave 3)
+
+**Gap closure** *(from 02-VERIFICATION.md, status gaps_found 20/24)*
+
+- [ ] 02-04-PLAN.md — Close verifier gaps: CR-01 per-file savepoint accounting, WR-01 whole-line show sanitisation, WR-05 duplicate --filter rejection, REQUIREMENTS.md partial-scope notes (+ WR-02/03/04, IN-03/04 ride-alongs) (wave 1)
 
 ### Phase 3: Inference Client, Doctor, Embeddings & Clustering
 
