@@ -125,6 +125,25 @@ def test_show_strips_terminal_escapes(tmp_path: Path) -> None:
     assert "red alert" in shown.output
 
 
+def test_hostile_filename_escapes_never_reach_terminal(tmp_path: Path) -> None:
+    """CR-02 / T-04-01: an ESC byte in a *filename* is stripped at render time
+    in both ingest and show output (filenames are untrusted bundle bytes)."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "\x1b[31mEVIL\x1b[0m.log").write_text(FIXTURE_LOG, encoding="utf-8")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+
+    ingested = runner.invoke(app, ["ingest", "demo"])
+    assert ingested.exit_code == 0, ingested.output
+    assert "\x1b" not in ingested.output
+    assert "EVIL" in ingested.output
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert "\x1b" not in shown.output
+    assert "EVIL" in shown.output
+
+
 def test_ingest_corrupt_compressed_file_fails_loudly_but_continues(
     tmp_path: Path,
 ) -> None:

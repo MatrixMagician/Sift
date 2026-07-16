@@ -159,8 +159,10 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
                 new_count = store.insert_events(events)
             except Exception as exc:
                 # A bad file never silently vanishes: loud error, keep going.
+                # T-04-01: relpath and exception text carry untrusted bundle
+                # bytes (filenames may contain ESC) — sanitise at render time.
                 failed.append(relpath)
-                print(f"ERROR {relpath}: {exc}")
+                print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
                 continue
             stats = (
                 file_adapter.last_stats
@@ -178,7 +180,7 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
             }
             total_new += new_count
             print(
-                f"{relpath}  coverage {cov * 100:.1f}%  "
+                f"{_sanitise(relpath)}  coverage {cov * 100:.1f}%  "
                 f"{event_count} events  {new_count} new"
             )
             for note in stats.notes if stats else []:
@@ -209,7 +211,7 @@ def show(case: str, what: str, data_dir: DataDirOption = None) -> None:
         message = _sanitise(e.message.replace("\n", " "))[:120]
         print(
             f"{e.event_id}  {ts}  {e.severity:<7}  "
-            f"{e.source_file}:{e.line_start}  {message}"
+            f"{_sanitise(e.source_file)}:{e.line_start}  {message}"
         )
 
 
