@@ -76,6 +76,19 @@ def test_missing_toml_tolerated() -> None:
     assert load_config().data_dir == Path(os.environ["XDG_DATA_HOME"]) / "sift"
 
 
+def test_unknown_config_key_is_a_loud_error_naming_the_key() -> None:
+    """WR-05 / T-04-02: a typo'd key never silently does nothing."""
+    _write_toml('data_dirr = "/tmp/typo"\n')
+    with pytest.raises(ValidationError, match="data_dirr"):
+        load_config()
+
+
+def test_unknown_config_section_is_a_loud_error() -> None:
+    _write_toml('[timezone]\n"node1/*" = "Europe/Berlin"\n')  # [timezones] typo
+    with pytest.raises(ValidationError, match="timezone"):
+        load_config()
+
+
 def test_malformed_toml_is_a_loud_error() -> None:
     cfg_path = _write_toml("data_dir = [unclosed\n")
     with pytest.raises(ValueError, match=str(cfg_path)):

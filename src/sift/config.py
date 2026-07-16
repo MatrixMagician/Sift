@@ -15,10 +15,13 @@ import tomllib
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class SiftConfig(BaseModel):
+    # T-04-02: a typo'd key must fail loudly, never be silently dropped.
+    model_config = ConfigDict(extra="forbid")
+
     data_dir: Path
     timezones: dict[str, str] = {}  # glob -> IANA zone name (D-05 override mechanism)
     adapters: dict[str, str] = {}  # glob -> adapter name (same semantics as --adapter)
