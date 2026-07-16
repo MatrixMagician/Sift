@@ -7,6 +7,7 @@ implemented command exposes ``--data-dir`` as the flags layer.
 """
 
 import json
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -30,14 +31,21 @@ def _sanitise(text: str) -> str:
     """Strip control characters (except newline and tab) from rendered text.
 
     T-04-01: hostile log bytes must never drive the operator's terminal.
-    Removes C0 controls (below 0x20), DEL (0x7f) and C1 controls (0x80-0x9f,
-    e.g. the single-byte CSI). Applied at render time only — stored raw and
-    message text stay verbatim for citation fidelity.
+    Removes C0 controls (below 0x20), DEL (0x7f), C1 controls (0x80-0x9f,
+    e.g. the single-byte CSI) and Unicode format characters (category Cf:
+    bidi overrides like U+202E, zero-width characters) that can visually
+    reorder or hide rendered triage output. Applied at render time only —
+    stored raw and message text stay verbatim for citation fidelity.
     """
     return "".join(
         ch
         for ch in text
-        if ch in "\n\t" or (ord(ch) >= 0x20 and not (0x7F <= ord(ch) <= 0x9F))
+        if ch in "\n\t"
+        or (
+            ord(ch) >= 0x20
+            and not (0x7F <= ord(ch) <= 0x9F)
+            and unicodedata.category(ch) != "Cf"
+        )
     )
 
 

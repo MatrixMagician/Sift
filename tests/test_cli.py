@@ -219,6 +219,28 @@ def test_failed_file_recorded_in_parse_coverage_meta(tmp_path: Path) -> None:
     assert entry["error"]  # non-empty failure description
 
 
+def test_show_strips_bidi_and_zero_width_characters(tmp_path: Path) -> None:
+    """WR-06 / T-04-01: Unicode format characters (bidi overrides, zero-width)
+    in log content must not reach the terminal — they can visually reorder or
+    hide rendered triage output."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(
+        "2026-07-16T10:00:00+00:00 ERROR \u202erevoked\u202c access"
+        " zero\u200bwidth\ufeff end\n",
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 0, shown.output
+    for ch in ("\u202e", "\u202c", "\u200b", "\ufeff"):
+        assert ch not in shown.output
+    assert "revoked" in shown.output
+    assert "zerowidth" in shown.output
+
+
 def test_new_warns_but_creates_on_empty_input_dir(tmp_path: Path) -> None:
     empty = tmp_path / "empty-input"
     empty.mkdir()
