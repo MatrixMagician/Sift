@@ -118,13 +118,56 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (populated by roadmap) | | |
+| INGST-01 | Phase 1 | Pending |
+| INGST-02 | Phase 1 | Pending |
+| INGST-03 | Phase 1 | Pending |
+| INGST-04 | Phase 1 | Pending |
+| INGST-05 | Phase 1 | Pending |
+| INGST-06 | Phase 1 | Pending |
+| INGST-10 | Phase 1 | Pending |
+| INGST-11 | Phase 1 | Pending |
+| CLI-01 | Phase 1 | Pending |
+| STORE-01 | Phase 2 | Pending |
+| STORE-02 | Phase 2 | Pending |
+| STORE-04 | Phase 2 | Pending |
+| CLUS-01 | Phase 2 | Pending |
+| CLI-03 | Phase 2 | Pending |
+| LLM-01 | Phase 3 | Pending |
+| LLM-02 | Phase 3 | Pending |
+| LLM-03 | Phase 3 | Pending |
+| LLM-04 | Phase 3 | Pending |
+| STORE-03 | Phase 3 | Pending |
+| CLUS-02 | Phase 3 | Pending |
+| CLUS-03 | Phase 3 | Pending |
+| RAG-05 | Phase 3 | Pending |
+| CLI-02 | Phase 3 | Pending |
+| EVAL-05 | Phase 3 | Pending |
+| RAG-01 | Phase 4 | Pending |
+| RAG-02 | Phase 4 | Pending |
+| RAG-03 | Phase 4 | Pending |
+| RAG-04 | Phase 4 | Pending |
+| RAG-06 | Phase 4 | Pending |
+| CLI-04 | Phase 4 | Pending |
+| INGST-07 | Phase 5 | Pending |
+| INGST-08 | Phase 5 | Pending |
+| INGST-09 | Phase 5 | Pending |
+| REPT-01 | Phase 6 | Pending |
+| REPT-02 | Phase 6 | Pending |
+| REPT-03 | Phase 6 | Pending |
+| REPT-04 | Phase 6 | Pending |
+| RAG-07 | Phase 6 | Pending |
+| EVAL-01 | Phase 7 | Pending |
+| EVAL-02 | Phase 7 | Pending |
+| EVAL-03 | Phase 7 | Pending |
+| EVAL-04 | Phase 7 | Pending |
+| PKG-01 | Phase 8 | Pending |
+| PKG-02 | Phase 8 | Pending |
 
 **Coverage:**
-- v1 requirements: 40 total
-- Mapped to phases: 0
-- Unmapped: 40 ⚠️ (pending roadmap)
+- v1 requirements: 44 total (previous "40" was a miscount; corrected during roadmap creation)
+- Mapped to phases: 44
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-07-16*
-*Last updated: 2026-07-16 after initial definition*
+*Last updated: 2026-07-16 after roadmap creation (traceability populated)*
