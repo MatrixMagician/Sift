@@ -12,11 +12,11 @@ Turn a directory of raw diagnostics into a structured, evidence-cited triage rep
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Deterministic ingestion pipeline via genericlog: canonical frozen Event schema, sniff-based auto-detection with `--adapter` override, idempotent re-ingest, per-file parse coverage, gzip/zstd streaming, UTC normalisation with `ts_confidence`, CLI config precedence — Phase 1 (M1, 2026-07-16; 108 tests, human-verified prohibitions incl. loud symlink skip)
 
 ### Active
 
-- [ ] Ingest heterogeneous diagnostic inputs through pluggable adapters (genericlog, journald, dsserrors, eustack) into a canonical Event schema
+- [ ] Ingest heterogeneous diagnostic inputs through the remaining domain adapters (journald, dsserrors, eustack) — Phase 5
 - [ ] Deduplicate and cluster events (template masking + local embeddings + HDBSCAN) so a 2 GB log becomes a few dozen signal groups
 - [ ] Generate root-cause hypotheses via RAG with enforced JSON output contract and hard citation validation against the case store
 - [ ] Produce deterministic, reviewable output: Markdown report (primary), JSON (machine-readable), optional PDF
@@ -82,4 +82,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-16 after initialization*
+*Last updated: 2026-07-16 after Phase 1 completion (M1: skeleton, Event contract, genericlog)*

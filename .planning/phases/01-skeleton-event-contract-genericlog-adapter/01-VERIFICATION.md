@@ -1,7 +1,8 @@
 ---
 phase: 01-skeleton-event-contract-genericlog-adapter
 verified: 2026-07-16T18:30:00Z
-status: human_needed
+status: passed
+human_verification_resolved: 2026-07-16 — all 4 flagged prohibitions signed off by user (see 01-UAT.md, 4/4 passed; symlink skip-with-record explicitly accepted as satisfying the no-silent-skips intent)
 score: 31/31 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
