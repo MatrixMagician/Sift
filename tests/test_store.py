@@ -433,3 +433,40 @@ def test_query_template_groups_unknown_key_raises_valueerror(tmp_path: Path) -> 
     _seed_groups(store)
     with pytest.raises(ValueError, match="min-count"):
         _groups(store, {"bogus": "1"})
+
+
+# --- plan 02-04: gap closure (WR-01, WR-02) ---------------------------------
+
+
+def test_query_template_groups_non_list_exemplar_json_coerced(
+    tmp_path: Path,
+) -> None:
+    """WR-01: tampered non-array exemplar_event_ids JSON is coerced to a
+    list[str] instead of poisoning TemplateGroup's type contract."""
+    store = CaseStore(tmp_path / "case.db")
+    _seed_groups(store)
+    store._conn.execute(  # pyright: ignore[reportPrivateUsage] — tampering fixture
+        "UPDATE template_groups SET exemplar_event_ids = ? "
+        "WHERE rowid = (SELECT rowid FROM template_groups LIMIT 1)",
+        ('{"a": 1}',),
+    )
+    groups = store.query_template_groups()
+    for g in groups:
+        assert isinstance(g.exemplar_event_ids, list)
+        assert all(isinstance(x, str) for x in g.exemplar_event_ids)
+    store.close()
+
+
+def test_migration_prints_stderr_notice(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """WR-02: applying a migration announces itself on stderr — `show` never
+    rewrites evidence files silently. Reopening at head is silent."""
+    db = tmp_path / "case.db"
+    CaseStore(db).close()
+    err = capsys.readouterr().err
+    assert "migrating case.db to schema v1" in err
+    assert "migrating case.db to schema v2" in err
+
+    CaseStore(db).close()  # already at head: no migration, no notice
+    assert "migrating" not in capsys.readouterr().err

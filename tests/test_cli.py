@@ -774,6 +774,104 @@ def test_ingest_truncated_gz_mid_stream_contributes_zero_rows(
     assert groups_total == n_events == cov_total
 
 
+def test_show_sanitises_every_db_sourced_field(tmp_path: Path) -> None:
+    """WR-01 / T-04-01: hostile bytes planted directly in the case DB (the
+    tampered-case.db trust boundary) never reach the terminal from ANY
+    rendered field — not just message/source_file/template. Only non-CHECK
+    columns are planted: severity CHECK rejects hostile values, and
+    whole-line sanitisation makes per-column coverage equivalent."""
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+    conn = sqlite3.connect(case_db_path(load_config().data_dir, "demo"))
+    try:
+        conn.execute(
+            "UPDATE template_groups SET first_ts = ?, exemplar_event_ids = ?",
+            (
+                "\x1b[31m2026-07-16\x1b[0m",
+                json.dumps(["\x1b]0;evil\x07id1", "\u202eid2"]),
+            ),
+        )
+        conn.execute(
+            "UPDATE events SET event_id = ?, ts = ?, message = ? "
+            "WHERE rowid = (SELECT rowid FROM events LIMIT 1)",
+            ("\x1b[2Jdeadbeef", "\x1b[31m2026-07-16T10:00:00", "\u202ehidden"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    for target in ("clusters", "events"):
+        shown = runner.invoke(app, ["show", "demo", target])
+        assert shown.exit_code == 0, shown.output
+        assert "\x1b" not in shown.output, f"raw ESC leaked from show {target}"
+        assert "\u202e" not in shown.output, f"bidi override leaked from {target}"
+
+
+def test_show_clusters_non_list_exemplar_json_renders_sanitised(
+    tmp_path: Path,
+) -> None:
+    """WR-01: a tampered non-array exemplar_event_ids JSON renders visibly
+    (sanitised) instead of crashing ' '.join with a traceback."""
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+    conn = sqlite3.connect(case_db_path(load_config().data_dir, "demo"))
+    try:
+        conn.execute(
+            "UPDATE template_groups SET exemplar_event_ids = ? "
+            "WHERE rowid = (SELECT rowid FROM template_groups LIMIT 1)",
+            ('"hostile"',),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    shown = runner.invoke(app, ["show", "demo", "clusters"])
+    assert shown.exit_code == 0, shown.output
+    assert "Traceback" not in shown.output
+    assert "hostile" in shown.output  # tampering stays visible to the operator
+
+
+def test_show_duplicate_filter_key_exits_2(tmp_path: Path) -> None:
+    """WR-05: a repeated --filter key fails loudly naming the key — never
+    silent last-wins (fail-loud prohibition)."""
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+    events = runner.invoke(
+        app,
+        [
+            "show", "demo", "events",
+            "--filter", "severity=error",
+            "--filter", "severity=warn",
+        ],
+    )
+    assert events.exit_code == 2, events.output
+    assert "duplicate filter key" in events.output
+    assert "severity" in events.output
+
+    clusters = runner.invoke(
+        app,
+        [
+            "show", "demo", "clusters",
+            "--filter", "min-count=1",
+            "--filter", "min-count=2",
+        ],
+    )
+    assert clusters.exit_code == 2, clusters.output
+    assert "duplicate filter key" in clusters.output
+    assert "min-count" in clusters.output
+
+
+def test_show_corrupt_case_db_exits_1_without_traceback(tmp_path: Path) -> None:
+    """WR-02: garbage bytes over case.db (corrupt evidence media) fail loudly
+    with a helpful message, never a Python traceback."""
+    _ingested_case(tmp_path)
+    case_db_path(load_config().data_dir, "demo").write_bytes(
+        b"not a sqlite database"
+    )
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 1, shown.output
+    assert "Error: cannot open case" in shown.output
+    assert "Traceback" not in shown.output
+    assert shown.exception is None or isinstance(shown.exception, SystemExit)
+
+
 def test_show_clusters_warns_when_template_groups_stale(tmp_path: Path) -> None:
     """WR-03: a crash between the event commit and the rebuild is detectable —
     show clusters warns on stderr while still rendering groups on stdout."""
