@@ -32,6 +32,8 @@ def _read_coverage_meta(case: str) -> dict[str, dict[str, object]]:
 
 runner = CliRunner()
 
+_RED = pytest.mark.xfail(strict=True, reason="RED until 02-01 task 2/3")
+
 # Three ISO 8601 timestamped entries (mixed severities in the message text),
 # with one indented continuation line under the second entry.
 FIXTURE_LOG = (
@@ -356,3 +358,99 @@ def test_config_timezones_reach_adapter_and_events(tmp_path: Path) -> None:
     shown = runner.invoke(app, ["show", "demo", "events"])
     assert shown.exit_code == 0, shown.output
     assert "2026-01-15T09:00:00+00:00" in shown.output
+
+
+# --- plan 02-01: show clusters (STORE-04, CLUS-01) -------------------------
+
+# Three lines differing only in a volatile number (one template group of
+# count 3) plus one distinct line (count 1).
+REPETITIVE_LOG = (
+    "2026-07-16T10:00:00+00:00 ERROR connection pool exhausted after 3 retries\n"
+    "2026-07-16T10:00:01+00:00 ERROR connection pool exhausted after 17 retries\n"
+    "2026-07-16T10:00:02+00:00 ERROR connection pool exhausted after 99 retries\n"
+    "2026-07-16T10:00:03+00:00 INFO service started\n"
+)
+
+
+@_RED
+def test_show_clusters_e2e(tmp_path: Path) -> None:
+    """new -> ingest -> show clusters renders template groups end-to-end."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(REPETITIVE_LOG, encoding="utf-8")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+
+    ingested = runner.invoke(app, ["ingest", "demo"])
+    assert ingested.exit_code == 0, ingested.output
+    assert re.search(r"^Template groups: \d+$", ingested.output, re.MULTILINE), (
+        f"expected a 'Template groups: N' line in ingest output: {ingested.output!r}"
+    )
+
+    shown = runner.invoke(app, ["show", "demo", "clusters"])
+    assert shown.exit_code == 0, shown.output
+    # A 16-hex template_id line carrying the count-3 group.
+    assert re.search(r"^[0-9a-f]{16}\s+3\s", shown.output, re.MULTILINE), shown.output
+    # An indented exemplars line with 16-hex event ids.
+    assert re.search(
+        r"^\s+exemplars: [0-9a-f]{16}( [0-9a-f]{16})*$", shown.output, re.MULTILINE
+    ), shown.output
+
+
+@_RED
+def test_show_clusters_empty_case_exits_0(tmp_path: Path) -> None:
+    """A case with zero events renders an empty listing — no crash."""
+    empty = tmp_path / "empty-input"
+    empty.mkdir()
+    assert runner.invoke(app, ["new", "demo", "--input", str(empty)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    shown = runner.invoke(app, ["show", "demo", "clusters"])
+    assert shown.exit_code == 0, shown.output
+    assert not re.search(r"\b[0-9a-f]{16}\b", shown.output)
+
+
+@_RED
+def test_show_clusters_ordering(tmp_path: Path) -> None:
+    """Groups render by count DESC, tie-break on template text ASC."""
+    lines: list[str] = []
+    second = 0
+    for msg, n in [
+        ("gamma repeated event", 3),
+        ("beta thing done", 2),
+        ("alpha thing done", 2),
+    ]:
+        for _ in range(n):
+            lines.append(f"2026-07-16T10:00:{second:02d}+00:00 INFO {msg}")
+            second += 1
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    shown = runner.invoke(app, ["show", "demo", "clusters"])
+    assert shown.exit_code == 0, shown.output
+    out = shown.output
+    assert (
+        out.index("gamma repeated event")
+        < out.index("alpha thing done")
+        < out.index("beta thing done")
+    ), out
+
+
+@_RED
+def test_show_clusters_strips_terminal_escapes(tmp_path: Path) -> None:
+    """T-02-02: hostile log bytes in templates never reach the terminal."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(
+        "2026-07-16T10:00:00+00:00 ERROR \x1b[31mred alert\x1b[0m\n",
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    shown = runner.invoke(app, ["show", "demo", "clusters"])
+    assert shown.exit_code == 0, shown.output
+    assert "\x1b" not in shown.output
+    assert "red alert" in shown.output
