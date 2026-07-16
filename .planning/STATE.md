@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Case Store & Template Dedup
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-07-16T18:57:29.652Z"
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-07-16T19:11:15.870Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 2 (Case Store & Template Dedup) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-16 — Phase 2 execution started
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -64,6 +64,7 @@ Progress: [████████░░] 75%
 | Phase 01 P04 | 10min | 3 tasks | 6 files |
 | Phase 01 P05 | 8min | 2 tasks | 5 files |
 | Phase 02 P01 | 14min | 3 tasks | 7 files |
+| Phase 02 P02 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 02-01: mask placeholders <TS>/<UUID>/<HEX>/<PATH>/<NUM> frozen; alternation order ts->uuid->hex->path->num is load-bearing; MASK_VERSION=1 in meta
 - [Phase ?]: 02-01: EXEMPLAR_K=5, template_id=sha256(template)[:16]; severity_max via explicit rank dict, never lexicographic
 - [Phase ?]: 02-01: _decode_raw is the single raw read path (128 MiB zstd-bomb cap); zstd compressor constructor defaults for deterministic frames
+- [Phase ?]: Batch size 5000 inside the single BEGIN IMMEDIATE ingest transaction; explicit store.close() on all ingest paths (STORE-01 clean case dir)
+- [Phase ?]: M2 gate measured: 100 MB ingest 19.3 s < 60 s (A4 retired); perf tests behind @pytest.mark.perf with addopts exclusion
+- [Phase ?]: CLI-03 ticked ingest-leg only; embedding/generation progress deferred to Phases 3-4
 
 ### Pending Todos
 
@@ -113,6 +117,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T18:57:29.647Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-07-16T19:11:15.865Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None

@@ -23,7 +23,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Case Store
 
-- [ ] **STORE-01**: Each case persists to a single portable SQLite database (`case.db`) with sqlite-vec for vectors; deleting the file deletes the case
+- [x] **STORE-01**: Each case persists to a single portable SQLite database (`case.db`) with sqlite-vec for vectors; deleting the file deletes the case
 - [x] **STORE-02**: Store owns schema migrations (PRAGMA user_version); `raw` text > 4 KB is zstd-compressed
 - [ ] **STORE-03**: Embedding model identity and dimension are recorded in `meta`; a mismatch on reload is a hard error
 - [x] **STORE-04**: User can inspect stored data via `sift show <case> events|clusters|hypotheses [--filter …]` before trusting any AI output
@@ -62,7 +62,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **CLI-01**: CLI exposes `new`, `ingest`, `analyze`, `report`, `show`, `eval`, `doctor` subcommands with config precedence: flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
 - [ ] **CLI-02**: All prompts live as versioned template files in the package; changing a prompt requires no Python changes
-- [ ] **CLI-03**: Long operations (ingest, embedding, generation) show progress feedback
+- [x] **CLI-03**: Long operations (ingest, embedding, generation) show progress feedback
 - [ ] **CLI-04**: Exit codes form a documented contract (success / degraded run / failure) so `sift` is scriptable in CI
 
 ### Evaluation
@@ -127,11 +127,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGST-10 | Phase 1 | Complete |
 | INGST-11 | Phase 1 | Complete |
 | CLI-01 | Phase 1 | Complete |
-| STORE-01 | Phase 2 | Pending |
+| STORE-01 | Phase 2 | Complete |
 | STORE-02 | Phase 2 | Complete |
 | STORE-04 | Phase 2 | Complete |
 | CLUS-01 | Phase 2 | Complete |
-| CLI-03 | Phase 2 | Pending |
+| CLI-03 | Phase 2 | Complete |
 | LLM-01 | Phase 3 | Pending |
 | LLM-02 | Phase 3 | Pending |
 | LLM-03 | Phase 3 | Pending |
