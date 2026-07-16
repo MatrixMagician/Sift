@@ -522,17 +522,16 @@ def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, str]:
 | A5 | Epoch plausibility window 2001–2100 is acceptable | Pattern 5 | Low — configurable constant; false negatives only outside the window |
 | A6 | zstd magic bytes `28 b5 2f fd` (RFC 8878) — not executed against a real zst file this session (zstandard not yet installed) | Pitfall 4, Code Example 3 | Very low — standardised constant; the gzip/zstd fixture tests verify it mechanically in Wave 0 |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`raw` column: compress-in-Phase-2 strategy**
+1. **RESOLVED — `raw` column: compress-in-Phase-2 strategy** → implemented as `raw TEXT` + STORE-02 pointer comment in `store.py` (plan 01-02 T2)
    - What we know: STORE-02 (Phase 2) zstd-compresses `raw` > 4 KB; SQLite type affinity accepts BLOBs in TEXT columns; zstd frames are magic-byte self-identifying.
    - What's unclear: whether Phase 2 will prefer a clean `raw BLOB` + flag column via migration 2.
    - Recommendation: ship `raw TEXT` now; leave a one-line comment in `store.py` pointing at STORE-02. No Phase 1 action.
-2. **Re-ingest semantics when the input dir has changed** (rotated/re-collected files)
+2. **RESOLVED — Re-ingest semantics when the input dir has changed** (rotated/re-collected files) → snapshot semantics documented in `sift ingest` help + README (plan 01-05 T1)
    - What we know: PITFALLS 10 — idempotency is defined for the *same snapshot*; cross-collection identity is v2 territory.
    - Recommendation: document in `sift ingest` help + README: "a case is one snapshot of artefacts; re-collect into a new case". New files in the dir simply add events (fine); renamed files add duplicates (documented limitation).
-3. **Should `sift new` fail or warn when the input dir is empty?**
-   - Recommendation: warn and create the case anyway (user may populate the dir before ingest); `sift ingest` on an empty dir reports 0 files, exit 0.
+3. **RESOLVED — Should `sift new` fail or warn when the input dir is empty?** → warn and create the case anyway; `sift ingest` on an empty dir reports 0 files, exit 0 (plan 01-04 T3)
 
 ## Environment Availability
 

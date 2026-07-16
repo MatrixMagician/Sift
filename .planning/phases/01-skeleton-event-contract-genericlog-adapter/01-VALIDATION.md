@@ -76,8 +76,8 @@ Requirement → test map from RESEARCH.md `## Validation Architecture`:
 ## Wave 0 Requirements
 
 - [ ] `pyproject.toml` — uv project with pytest/ruff/pyright configured
-- [ ] `tests/conftest.py` — shared fixtures (fixture logs, tmp XDG dirs)
-- [ ] `tests/fixtures/` — plain, gzip, zstd, multi-line, mixed-timezone, unparseable-region fixture logs
+- [ ] `tests/conftest.py` — isolation fixtures ONLY (tmp XDG dirs + autouse socket guard); owned by plan 01-01
+- [ ] Fixture logs (plain, gzip, zstd, multi-line, mixed-timezone, unparseable-region) are built in-file by each test module — no shared `tests/fixtures/` directory (keeps wave-3 plans 01-03/01-04 conflict-free)
 - [ ] Test stubs per the requirement map above
 
 ---
