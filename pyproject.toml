@@ -1,0 +1,41 @@
+[project]
+name = "sift"
+version = "0.1.0"
+description = "Fully local, privacy-preserving incident triage engine"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "pydantic>=2.13.4",
+    "typer>=0.27.0",
+    "zstandard>=0.25.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "ruff>=0.15.22",
+]
+
+[project.scripts]
+sift = "sift.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "DTZ"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests"]
