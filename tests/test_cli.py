@@ -504,8 +504,6 @@ def test_show_clusters_strips_terminal_escapes(tmp_path: Path) -> None:
 
 # --- plan 02-03: show --filter (STORE-04) -----------------------------------
 
-RED = pytest.mark.xfail(strict=True, reason="RED until 02-03 task 2")
-
 EVENT_FILTER_KEYS = ("severity", "source", "file", "since", "until", "limit")
 CLUSTER_FILTER_KEYS = ("severity", "min-count", "contains", "limit")
 SEVERITIES = ("fatal", "error", "warn", "info", "debug", "unknown")
@@ -544,7 +542,6 @@ def test_show_events_output_matches_query_events_rendering(tmp_path: Path) -> No
     assert shown.output.splitlines() == expected
 
 
-@RED
 def test_show_events_filter_severity(tmp_path: Path) -> None:
     _ingested_case(tmp_path)
     shown = runner.invoke(
@@ -556,7 +553,6 @@ def test_show_events_filter_severity(tmp_path: Path) -> None:
     assert "retrying with backoff" not in shown.output
 
 
-@RED
 def test_show_events_filters_and_combine(tmp_path: Path) -> None:
     """Two --filter options AND-combine (severity AND file)."""
     input_dir = tmp_path / "input"
@@ -582,7 +578,6 @@ def test_show_events_filters_and_combine(tmp_path: Path) -> None:
     assert "service started" not in shown.output
 
 
-@RED
 def test_show_events_filter_limit(tmp_path: Path) -> None:
     _ingested_case(tmp_path)
     shown = runner.invoke(app, ["show", "demo", "events", "--filter", "limit=1"])
@@ -590,7 +585,6 @@ def test_show_events_filter_limit(tmp_path: Path) -> None:
     assert len(re.findall(r"\b[0-9a-f]{16}\b", shown.output)) == 1
 
 
-@RED
 def test_show_events_filter_since_naive_treated_as_utc(tmp_path: Path) -> None:
     """A naive since/until value is treated as UTC and normalised before
     binding — 10:00:01 excludes only the 10:00:00 event."""
@@ -604,7 +598,6 @@ def test_show_events_filter_since_naive_treated_as_utc(tmp_path: Path) -> None:
     assert "retrying with backoff" in shown.output
 
 
-@RED
 def test_show_events_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> None:
     _ingested_case(tmp_path)
     shown = runner.invoke(app, ["show", "demo", "events", "--filter", "bogus=1"])
@@ -613,7 +606,6 @@ def test_show_events_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> 
         assert key in shown.output, f"{key!r} missing from: {shown.output!r}"
 
 
-@RED
 def test_show_clusters_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> None:
     _ingested_case(tmp_path)
     shown = runner.invoke(app, ["show", "demo", "clusters", "--filter", "bogus=1"])
@@ -622,7 +614,6 @@ def test_show_clusters_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -
         assert key in shown.output, f"{key!r} missing from: {shown.output!r}"
 
 
-@RED
 def test_show_clusters_filter_min_count(tmp_path: Path) -> None:
     _ingested_case(tmp_path, REPETITIVE_LOG)
     shown = runner.invoke(
@@ -633,7 +624,6 @@ def test_show_clusters_filter_min_count(tmp_path: Path) -> None:
     assert "service started" not in shown.output
 
 
-@RED
 def test_show_clusters_filter_contains_literal(tmp_path: Path) -> None:
     """contains matches template substrings literally — a LIKE-style %
     wildcard pattern matches nothing (instr semantics, T-02-08)."""
@@ -652,7 +642,6 @@ def test_show_clusters_filter_contains_literal(tmp_path: Path) -> None:
     assert not re.findall(r"\b[0-9a-f]{16}\b", wildcard.output)
 
 
-@RED
 def test_show_clusters_filter_severity(tmp_path: Path) -> None:
     _ingested_case(tmp_path, REPETITIVE_LOG)
     shown = runner.invoke(
@@ -663,7 +652,6 @@ def test_show_clusters_filter_severity(tmp_path: Path) -> None:
     assert "service started" not in shown.output
 
 
-@RED
 @pytest.mark.parametrize(
     ("target", "spec", "fragment"),
     [
@@ -684,7 +672,6 @@ def test_show_invalid_filter_values_exit_2(
     assert fragment in shown.output
 
 
-@RED
 def test_show_invalid_severity_exits_2_listing_vocabulary(tmp_path: Path) -> None:
     _ingested_case(tmp_path)
     shown = runner.invoke(
@@ -696,7 +683,6 @@ def test_show_invalid_severity_exits_2_listing_vocabulary(tmp_path: Path) -> Non
         assert sev in shown.output, f"{sev!r} missing from: {shown.output!r}"
 
 
-@RED
 def test_show_filter_injection_shaped_value_is_literal(tmp_path: Path) -> None:
     """T-02-08: a SQL-shaped filter VALUE binds as a literal — zero rows,
     exit 0, never a syntax error; the tables survive."""

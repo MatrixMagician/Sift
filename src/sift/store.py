@@ -9,7 +9,7 @@ a ``PRAGMA user_version`` runner (D-03); Phase 2 extends the same store.
 import json
 import re
 import sqlite3
-from collections.abc import Callable, Generator, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -149,6 +149,58 @@ _TEMPLATE_GROUP_COLUMNS = (
     "exemplar_event_ids"
 )
 
+# Allowlisted filter key -> fixed WHERE snippet (T-02-08). Filter VALUES are
+# only ever bound via ?; keys never reach SQL text — an unknown key raises
+# ValueError before any query is built. Substring keys use instr, not LIKE,
+# so % and _ in values stay literal. `limit` is handled separately as a
+# trailing "LIMIT ?" clause, never via these dicts.
+_EVENT_FILTER_SQL: dict[str, str] = {
+    "severity": "severity = ?",
+    "source": "source = ?",
+    "file": "instr(source_file, ?) > 0",
+    "since": "ts >= ?",
+    "until": "ts <= ?",
+}
+
+_CLUSTER_FILTER_SQL: dict[str, str] = {
+    "severity": "severity_max = ?",
+    "min-count": "count >= ?",
+    "contains": "instr(template, ?) > 0",
+}
+
+
+def _build_filter_clauses(
+    filters: Mapping[str, str | int] | None,
+    allowed: Mapping[str, str],
+) -> tuple[str, str, list[str | int]]:
+    """Return (where_sql, limit_sql, params) from allowlisted filters.
+
+    Defence in depth behind the CLI validation (T-02-08): an unknown key
+    raises ValueError naming the valid keys — it can never reach SQL text.
+    Snippets AND-combine; params line up with the chosen snippets, with the
+    LIMIT value (if any) appended last.
+    """
+    if not filters:
+        return "", "", []
+    snippets: list[str] = []
+    params: list[str | int] = []
+    limit: str | int | None = None
+    for key, value in filters.items():
+        if key == "limit":
+            limit = value
+            continue
+        if key not in allowed:
+            valid = ", ".join([*allowed, "limit"])
+            raise ValueError(f"unknown filter key {key!r}; valid keys: {valid}")
+        snippets.append(allowed[key])
+        params.append(value)
+    where_sql = f" WHERE {' AND '.join(snippets)}" if snippets else ""
+    limit_sql = ""
+    if limit is not None:
+        limit_sql = " LIMIT ?"
+        params.append(int(limit))
+    return where_sql, limit_sql, params
+
 
 @dataclass(frozen=True)
 class TemplateGroup:
@@ -273,6 +325,31 @@ class CaseStore:
         for row in cursor:
             yield (row[0], row[1], row[2], row[3])
 
+    def iter_event_rows(
+        self, filters: Mapping[str, str | int] | None = None
+    ) -> Iterator[tuple[str, str | None, str, str, int, str]]:
+        """Yield (event_id, ts, severity, source_file, line_start, message).
+
+        Exactly the six fields `show events` renders, in the canonical order,
+        streamed from the cursor — never fetchall, never selecting raw, so a
+        1M-event case renders without hydrating Events or decompressing zstd
+        (T-02-10, STORE-04). Filters are allowlisted keys mapped to fixed
+        ?-bound WHERE snippets (T-02-08).
+        """
+        where_sql, limit_sql, params = _build_filter_clauses(
+            filters, _EVENT_FILTER_SQL
+        )
+        cursor = self._conn.execute(
+            "SELECT event_id, ts, severity, source_file, line_start, message "
+            # S608 convention: where/limit SQL comes from the module-constant
+            # allowlist dicts; every value is ?-bound.
+            f"FROM events{where_sql} "  # noqa: S608
+            f"ORDER BY ts IS NULL, ts, source_file, line_start{limit_sql}",
+            params,
+        )
+        for row in cursor:
+            yield (row[0], row[1], row[2], row[3], row[4], row[5])
+
     def replace_template_groups(self, groups: Iterable[TemplateGroup]) -> None:
         """DELETE FROM template_groups then insert all groups (CLUS-01).
 
@@ -297,11 +374,21 @@ class CaseStore:
             ],
         )
 
-    def query_template_groups(self) -> list[TemplateGroup]:
-        """All template groups ordered by count DESC, template ASC (STORE-04)."""
+    def query_template_groups(
+        self, filters: Mapping[str, str | int] | None = None
+    ) -> list[TemplateGroup]:
+        """Template groups ordered by count DESC, template ASC (STORE-04).
+
+        Optional filters use the allowlisted _CLUSTER_FILTER_SQL snippets with
+        ?-bound values (T-02-08); an unknown key raises ValueError.
+        """
+        where_sql, limit_sql, params = _build_filter_clauses(
+            filters, _CLUSTER_FILTER_SQL
+        )
         rows = self._conn.execute(
-            f"SELECT {_TEMPLATE_GROUP_COLUMNS} FROM template_groups "  # noqa: S608 — column list is a module constant
-            "ORDER BY count DESC, template"
+            f"SELECT {_TEMPLATE_GROUP_COLUMNS} FROM template_groups"  # noqa: S608 — column list and WHERE snippets are module constants; values are all ?
+            f"{where_sql} ORDER BY count DESC, template{limit_sql}",
+            params,
         ).fetchall()
         return [
             TemplateGroup(

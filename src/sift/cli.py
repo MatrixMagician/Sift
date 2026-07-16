@@ -301,40 +301,141 @@ def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
         raise typer.Exit(1)
 
 
+# The six-severity vocabulary (store CHECK constraint) for filter validation.
+_SEVERITIES = ("fatal", "error", "warn", "info", "debug", "unknown")
+
+# Valid --filter keys per show target (STORE-04). Mirrors the allowlist
+# snippet dicts in store.py — the store re-validates as defence in depth.
+_FILTER_KEYS: dict[str, tuple[str, ...]] = {
+    "events": ("severity", "source", "file", "since", "until", "limit"),
+    "clusters": ("severity", "min-count", "contains", "limit"),
+}
+
+
+def _parse_filters(specs: list[str], target: str) -> dict[str, str | int]:
+    """Parse and validate repeated ``--filter key=value`` specs (typer-free).
+
+    Splits on the FIRST '=': filter keys are allowlisted names that never
+    contain '=', while values may (e.g. ``file=name=odd.log``). This is the
+    deliberate opposite of parse_adapter_overrides' last-'=' split, where the
+    '='-free side is the adapter name on the right. Raises ValueError on any
+    invalid key or value — bad input fails loudly, never an empty result set
+    that looks like 'no matches'. The CLI converts the error to exit 2.
+    """
+    valid_keys = _FILTER_KEYS[target]
+    filters: dict[str, str | int] = {}
+    for spec in specs:
+        key, sep, value = spec.partition("=")
+        if not sep or not key or not value:
+            raise ValueError(f"invalid filter {spec!r}; expected key=value")
+        if key not in valid_keys:
+            raise ValueError(
+                f"unknown filter key {key!r} for {target}; "
+                f"valid keys: {', '.join(valid_keys)}"
+            )
+        if key == "severity":
+            if value not in _SEVERITIES:
+                raise ValueError(
+                    f"invalid severity {value!r}; "
+                    f"valid severities: {', '.join(_SEVERITIES)}"
+                )
+            filters[key] = value
+        elif key in ("limit", "min-count"):
+            try:
+                number = int(value)
+            except ValueError:
+                raise ValueError(
+                    f"invalid {key} value {value!r}: not an integer"
+                ) from None
+            if number < 0:
+                raise ValueError(
+                    f"invalid {key} value {value!r}: must be non-negative"
+                )
+            filters[key] = number
+        elif key in ("since", "until"):
+            try:
+                moment = datetime.fromisoformat(value)
+            except ValueError:
+                raise ValueError(
+                    f"invalid {key} value {value!r}: not an ISO 8601 timestamp"
+                ) from None
+            if moment.tzinfo is None:
+                # Naive input is treated as UTC (documented in --help).
+                moment = moment.replace(tzinfo=UTC)
+            # Stored ts strings are UTC isoformat — normalise before binding
+            # so the string comparison in store.py is chronological.
+            filters[key] = moment.astimezone(UTC).isoformat()
+        else:
+            filters[key] = value
+    return filters
+
+
 @app.command()
-def show(case: str, what: str, data_dir: DataDirOption = None) -> None:
-    """Show events, clusters or hypotheses for a case."""
+def show(
+    case: str,
+    what: str,
+    # Typer reads the default once at import time; shared list is safe here.
+    filters: Annotated[
+        list[str], typer.Option("--filter", help="key=value filter (repeatable)")
+    ] = [],  # noqa: B006
+    data_dir: DataDirOption = None,
+) -> None:
+    """Show events, clusters or hypotheses for a case.
+
+    Filters (repeatable, AND-combined): --filter key=value
+
+    events keys: severity=<fatal|error|warn|info|debug|unknown>,
+    source=<adapter>, file=<source-file substring>, since=<ISO 8601>,
+    until=<ISO 8601>, limit=<N>.
+
+    clusters keys: severity=<max severity>, min-count=<N>,
+    contains=<template substring>, limit=<N>.
+
+    Substring matches (file, contains) are literal — no wildcards. Naive
+    since/until timestamps are treated as UTC; since/until exclude events
+    without a timestamp (a documented filter semantic, not silent loss).
+    """
     if what == "hypotheses":
         print("show hypotheses arrives in Phase 4 (M4)")
         raise typer.Exit(1)
     if what not in ("events", "clusters"):
         print(f"Error: unknown target {what!r}; expected events|clusters|hypotheses")
         raise typer.Exit(1)
+    try:
+        parsed = _parse_filters(filters, what)
+    except ValueError as exc:
+        # T-02-09: echoed filter values are untrusted input — sanitise.
+        print(f"Error: {_sanitise(str(exc))}")
+        raise typer.Exit(2) from None
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
-    if what == "clusters":
-        # STORE-04: template groups, count DESC then template ASC. Templates
-        # and exemplar text carry hostile log bytes — sanitise at render only
-        # (T-02-02); an empty table renders nothing and exits 0.
-        try:
-            for g in store.query_template_groups():
+    try:
+        if what == "clusters":
+            # STORE-04: template groups, count DESC then template ASC.
+            # Templates and exemplar text carry hostile log bytes — sanitise
+            # at render only (T-02-02); an empty table renders nothing, exit 0.
+            for g in store.query_template_groups(parsed or None):
                 template = _sanitise(g.template.replace("\n", " "))[:100]
                 print(
                     f"{g.template_id}  {g.count:>7}  {g.severity_max:<7}  "
                     f"{g.first_ts or '-'}  {g.last_ts or '-'}  {template}"
                 )
                 print(f"    exemplars: {' '.join(g.exemplar_event_ids)}")
-        finally:
-            # Close on this new path so WAL sidecars checkpoint (Pitfall 4).
-            store.close()
-        return
-    for e in store.query_events():
-        ts = e.ts.isoformat() if e.ts is not None else "-"
-        message = _sanitise(e.message.replace("\n", " "))[:120]
-        print(
-            f"{e.event_id}  {ts}  {e.severity:<7}  "
-            f"{_sanitise(e.source_file)}:{e.line_start}  {message}"
-        )
+            return
+        # T-02-10: stream column-scoped rows — no raw column, no zstd
+        # decompression, no full Event hydration. Lines stay byte-identical
+        # to the Phase 1 rendering (stored ts strings ARE isoformat output).
+        for event_id, ts, severity, source_file, line_start, message in (
+            store.iter_event_rows(parsed or None)
+        ):
+            rendered = _sanitise(message.replace("\n", " "))[:120]
+            print(
+                f"{event_id}  {ts if ts is not None else '-'}  {severity:<7}  "
+                f"{_sanitise(source_file)}:{line_start}  {rendered}"
+            )
+    finally:
+        # Close so WAL sidecars checkpoint on every show path (Pitfall 4).
+        store.close()
 
 
 @app.command()

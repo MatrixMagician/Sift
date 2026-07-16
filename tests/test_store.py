@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -271,21 +271,17 @@ def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
 
 # --- plan 02-03: filtered queries + streaming rows (STORE-04) ---------------
 
-RED = pytest.mark.xfail(strict=True, reason="RED until 02-03 task 2")
-
 
 def _rows(
     store: CaseStore, filters: dict[str, str | int] | None = None
-) -> list[tuple[Any, ...]]:
-    # cast-indirection: iter_event_rows does not exist until 02-03 task 2 —
-    # keeps strict pyright green while these tests are strict-xfailed.
-    return list(cast("Any", store).iter_event_rows(filters))
+) -> list[tuple[str, str | None, str, str, int, str]]:
+    return list(store.iter_event_rows(filters))
 
 
 def _groups(
     store: CaseStore, filters: dict[str, str | int] | None = None
 ) -> list[TemplateGroup]:
-    return cast("Any", store).query_template_groups(filters)
+    return store.query_template_groups(filters)
 
 
 def _seed_filter_events(store: CaseStore) -> None:
@@ -302,7 +298,6 @@ def _seed_filter_events(store: CaseStore) -> None:
     )
 
 
-@RED
 def test_iter_event_rows_yields_scoped_tuples(tmp_path: Path) -> None:
     """Rows are 6-tuples (event_id, ts, severity, source_file, line_start,
     message) in the canonical query_events order — arity proves raw is never
@@ -326,7 +321,6 @@ def test_iter_event_rows_yields_scoped_tuples(tmp_path: Path) -> None:
     assert rows == expected
 
 
-@RED
 def test_iter_event_rows_severity_filter(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_filter_events(store)
@@ -334,7 +328,6 @@ def test_iter_event_rows_severity_filter(tmp_path: Path) -> None:
     assert [r[2] for r in rows] == ["error", "error"]
 
 
-@RED
 def test_iter_event_rows_file_substring_filter(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_filter_events(store)
@@ -342,7 +335,6 @@ def test_iter_event_rows_file_substring_filter(tmp_path: Path) -> None:
     assert _rows(store, {"file": "nowhere"}) == []
 
 
-@RED
 def test_iter_event_rows_source_filter(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_filter_events(store)
@@ -350,7 +342,6 @@ def test_iter_event_rows_source_filter(tmp_path: Path) -> None:
     assert _rows(store, {"source": "journald"}) == []
 
 
-@RED
 def test_iter_event_rows_since_until_exclude_null_ts(tmp_path: Path) -> None:
     """since/until bound the ts range AND exclude NULL-ts rows — a documented
     filter semantic, not silent loss (recorded in --help)."""
@@ -362,7 +353,6 @@ def test_iter_event_rows_since_until_exclude_null_ts(tmp_path: Path) -> None:
     assert [r[5] for r in until] == ["boom", "fine"]  # NULL-ts row absent
 
 
-@RED
 def test_iter_event_rows_limit(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_filter_events(store)
@@ -370,7 +360,6 @@ def test_iter_event_rows_limit(tmp_path: Path) -> None:
     assert [r[5] for r in rows] == ["boom", "fine"]  # first 2 in canonical order
 
 
-@RED
 def test_iter_event_rows_filters_and_combine(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_filter_events(store)
@@ -378,7 +367,6 @@ def test_iter_event_rows_filters_and_combine(tmp_path: Path) -> None:
     assert [(r[2], r[3]) for r in rows] == [("error", "b.log")]
 
 
-@RED
 def test_iter_event_rows_unknown_key_raises_valueerror(tmp_path: Path) -> None:
     """Defence in depth behind the CLI validation (T-02-08)."""
     store = CaseStore(tmp_path / "case.db")
@@ -408,7 +396,6 @@ def _seed_groups(store: CaseStore) -> None:
     )
 
 
-@RED
 def test_query_template_groups_min_count_filter(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_groups(store)
@@ -416,7 +403,6 @@ def test_query_template_groups_min_count_filter(tmp_path: Path) -> None:
     assert [grp.count for grp in got] == [30, 5]
 
 
-@RED
 def test_query_template_groups_contains_is_literal_not_like(tmp_path: Path) -> None:
     """contains uses instr semantics: a % in the value matches only a literal
     % — never a LIKE wildcard (T-02-08)."""
@@ -433,7 +419,6 @@ def test_query_template_groups_contains_is_literal_not_like(tmp_path: Path) -> N
     assert _groups(store, {"contains": "d%full"}) == []
 
 
-@RED
 def test_query_template_groups_severity_and_limit_filters(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_groups(store)
@@ -443,7 +428,6 @@ def test_query_template_groups_severity_and_limit_filters(tmp_path: Path) -> Non
     assert [grp.count for grp in _groups(store, {"limit": 1})] == [30]
 
 
-@RED
 def test_query_template_groups_unknown_key_raises_valueerror(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     _seed_groups(store)
