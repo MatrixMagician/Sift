@@ -120,8 +120,12 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     except ValueError as exc:
         print(f"Error: {exc}")
         raise typer.Exit(2) from None
-    # config.adapters first, updated by --adapter specs: flags win per glob.
-    overrides = dict(config.adapters) | flag_overrides
+    # D-08 flags > config: detect() picks the FIRST matching glob in insertion
+    # order, so flag globs must come first — merging config first would let an
+    # overlapping (non-identical) config glob shadow the flag.
+    overrides = dict(flag_overrides) | {
+        g: n for g, n in config.adapters.items() if g not in flag_overrides
+    }
     unknown = sorted(
         {name for name in overrides.values() if name not in adapters.REGISTRY}
     )

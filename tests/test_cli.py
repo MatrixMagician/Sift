@@ -8,6 +8,7 @@ adapter overrides, tz wiring).
 
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from typer.testing import CliRunner
 from sift.adapters import REGISTRY
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.cli import app
+from sift.models import Event
 
 runner = CliRunner()
 
@@ -199,6 +201,47 @@ def test_unknown_adapter_name_fails_listing_registered(tmp_path: Path) -> None:
     )
     assert result.exit_code != 0
     assert "genericlog" in result.output
+
+
+def test_adapter_flag_beats_overlapping_config_glob(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WR-01 / D-08: --adapter wins over config.adapters even when the globs
+    overlap without being byte-identical (flag globs must match first)."""
+
+    class _RecordingAdapter:
+        name = "recording"
+
+        def __init__(self) -> None:
+            self.parsed: list[str] = []
+
+        def sniff(self, path: Path) -> float:
+            return 0.0
+
+        def parse(self, path: Path, case_id: str) -> Iterator[Event]:
+            self.parsed.append(path.name)
+            yield from ()
+
+    fake = _RecordingAdapter()
+    monkeypatch.setitem(REGISTRY, "recording", fake)
+
+    cfg_dir = Path(os.environ["XDG_CONFIG_HOME"]) / "sift"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.toml").write_text(
+        '[adapters]\n"*.log" = "genericlog"\n', encoding="utf-8"
+    )
+    input_dir = _make_case(tmp_path)
+    created = runner.invoke(
+        app,
+        ["new", "demo", "--input", str(input_dir), "--adapter", "app.log=recording"],
+    )
+    assert created.exit_code == 0, created.output
+
+    result = runner.invoke(app, ["ingest", "demo"])
+    assert result.exit_code == 0, result.output
+    assert fake.parsed == ["app.log"], (
+        "flag override lost to an overlapping config glob"
+    )
 
 
 def test_config_timezones_reach_adapter_and_events(tmp_path: Path) -> None:
