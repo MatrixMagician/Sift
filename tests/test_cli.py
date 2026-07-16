@@ -6,11 +6,14 @@ Plan 01-04 adds the CLI hardening tests (precedence, sanitisation, empty-input,
 adapter overrides, tz wiring).
 """
 
+import gzip
 import json
 import os
 import re
 import shutil
+import sqlite3
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -704,3 +707,95 @@ def test_show_filter_injection_shaped_value_is_literal(tmp_path: Path) -> None:
     clusters_again = runner.invoke(app, ["show", "demo", "clusters"])
     assert clusters_again.exit_code == 0, clusters_again.output
     assert re.findall(r"\b[0-9a-f]{16}\b", clusters_again.output)
+
+
+# --- plan 02-04: gap closure (CR-01, WR-01..WR-05) --------------------------
+
+
+def _query_scalar(case: str, sql: str, params: tuple[object, ...] = ()) -> int:
+    """One integer straight from the case DB (accounting identity checks)."""
+    conn = sqlite3.connect(case_db_path(load_config().data_dir, case))
+    try:
+        row = conn.execute(sql, params).fetchone()
+        return int(row[0])
+    finally:
+        conn.close()
+
+
+def test_ingest_truncated_gz_mid_stream_contributes_zero_rows(
+    tmp_path: Path,
+) -> None:
+    """CR-01: a file whose parse fails AFTER >=1 inserted batch contributes
+    exactly zero event rows, and the three-way accounting identity holds:
+    sum(template_groups.count) == count(events) == sum(coverage event_counts).
+    """
+    input_dir = _make_case(tmp_path)  # good app.log: 3 events
+    base = datetime(2026, 7, 15, 0, 0, 0, tzinfo=UTC)
+    lines = "".join(
+        f"{(base + timedelta(seconds=i)).isoformat()} INFO worker tick "
+        f"processed request in queue slot {i}\n"
+        for i in range(20_000)
+    )
+    compressed = gzip.compress(lines.encode("utf-8"))
+    truncated = compressed[: int(len(compressed) * 0.6)]
+    (input_dir / "big.log.gz").write_bytes(truncated)
+
+    # Pin the fixture as a MID-STREAM failure (not detect-time): the adapter
+    # yields well past one 5000-event insert batch before gzip gives up.
+    adapter = GenericLogAdapter()
+    adapter.input_root = input_dir
+    yielded = 0
+    with pytest.raises(Exception, match="[Cc]ompressed|[Ee]nd-of-stream|EOF"):
+        for _ in adapter.parse(input_dir / "big.log.gz", "demo"):
+            yielded += 1
+    assert yielded > 5000, (
+        f"fixture must cross at least one insert batch, yielded {yielded}"
+    )
+
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    result = runner.invoke(app, ["ingest", "demo"])
+    assert result.exit_code == 1, result.output
+    assert "file(s) failed to parse" in result.output
+    assert "ERROR big.log.gz" in result.output
+
+    # Zero rows from the failed file; the good file's events all present.
+    assert _query_scalar(
+        "demo", "SELECT COUNT(*) FROM events WHERE source_file = ?", ("big.log.gz",)
+    ) == 0
+    n_events = _query_scalar("demo", "SELECT COUNT(*) FROM events")
+    assert n_events == 3
+
+    cov = _read_coverage_meta("demo")
+    assert cov["big.log.gz"]["event_count"] == 0
+    cov_total = sum(int(str(entry["event_count"])) for entry in cov.values())
+    groups_total = _query_scalar(
+        "demo", "SELECT COALESCE(SUM(count), 0) FROM template_groups"
+    )
+    assert groups_total == n_events == cov_total
+
+
+def test_show_clusters_warns_when_template_groups_stale(tmp_path: Path) -> None:
+    """WR-03: a crash between the event commit and the rebuild is detectable —
+    show clusters warns on stderr while still rendering groups on stdout."""
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        assert store.get_meta("template_groups_stale") == "0"
+    finally:
+        store.close()
+    clean = runner.invoke(app, ["show", "demo", "clusters"])
+    assert clean.exit_code == 0, clean.output
+    assert "stale" not in clean.stderr
+
+    # Simulate a crash between the event transaction and the rebuild.
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        store.set_meta("template_groups_stale", "1")
+    finally:
+        store.close()
+    shown = runner.invoke(app, ["show", "demo", "clusters"])
+    assert shown.exit_code == 0, shown.output
+    assert "stale" in shown.stderr
+    assert "sift ingest" in shown.stderr
+    assert re.findall(r"\b[0-9a-f]{16}\b", shown.stdout), "groups still render"
