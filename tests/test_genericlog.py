@@ -5,11 +5,13 @@ Fixture logs are built with local helpers — tests/conftest.py is owned by
 plan 01-01 and must not grow fixtures for this module.
 """
 
+import gzip
 import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import zstandard
 
 from sift.adapters.base import ParseStats
 from sift.adapters.genericlog import (
@@ -390,3 +392,100 @@ def test_encoding_crlf_bytes_counted_text_stripped(tmp_path: Path) -> None:
     assert all("\r" not in e.message for e in events)
     assert stats.total_bytes == len(data)
     assert_span_partition(events, stats.total_bytes)
+
+
+# ------------------------------------------------------------ compressed ---
+
+# Three events, one with a continuation line — enough structure to expose a
+# truncated decompression (Pitfall 3: a lost frame would drop events).
+PLAIN_CONTENT = (
+    b"2026-07-16T10:00:00Z INFO service started\n"
+    b"2026-07-16T10:00:01Z ERROR pool exhausted\n"
+    b"    at pool.acquire (worker 7)\n"
+    b"2026-07-16T10:00:02Z WARN retrying\n"
+)
+
+
+def fingerprint(events: list[Event]) -> list[tuple[int, int, str]]:
+    """Per-event (byte_offset, line_start, message) on the decompressed stream."""
+    return [
+        (int(e.attrs["byte_offset"]), e.line_start, e.message) for e in events
+    ]
+
+
+def parse_variant(tmp_path: Path, relname: str, data: bytes) -> tuple[
+    list[Event], ParseStats
+]:
+    write_log(tmp_path, relname, data)
+    return run_parse(tmp_path, relname)
+
+
+def test_compressed_gzip_matches_plain(tmp_path: Path) -> None:
+    plain, plain_stats = parse_variant(tmp_path, "app.log", PLAIN_CONTENT)
+    gz, gz_stats = parse_variant(tmp_path, "app.log.gz", gzip.compress(PLAIN_CONTENT))
+    assert fingerprint(gz) == fingerprint(plain)
+    assert gz_stats.coverage == plain_stats.coverage
+    assert gz_stats.total_bytes == plain_stats.total_bytes  # decompressed bytes
+    # Only source_file (and therefore event_id) differs (D-07).
+    assert [e.event_id for e in gz] != [e.event_id for e in plain]
+    assert all(e.source_file == "app.log.gz" for e in gz)
+
+
+def test_compressed_gzip_multi_member_matches_plain(tmp_path: Path) -> None:
+    # Two concatenated gzip members, split mid-line: stdlib gzip must read
+    # across members transparently.
+    part1, part2 = PLAIN_CONTENT[:50], PLAIN_CONTENT[50:]
+    data = gzip.compress(part1) + gzip.compress(part2)
+    plain, _ = parse_variant(tmp_path, "app.log", PLAIN_CONTENT)
+    multi, stats = parse_variant(tmp_path, "app-multi.gz", data)
+    assert fingerprint(multi) == fingerprint(plain)
+    assert stats.total_bytes == len(PLAIN_CONTENT)
+    assert_span_partition(multi, stats.total_bytes)
+
+
+def test_compressed_zstd_matches_plain(tmp_path: Path) -> None:
+    data = zstandard.ZstdCompressor().compress(PLAIN_CONTENT)
+    plain, plain_stats = parse_variant(tmp_path, "app.log", PLAIN_CONTENT)
+    zst, zst_stats = parse_variant(tmp_path, "app.log.zst", data)
+    assert fingerprint(zst) == fingerprint(plain)
+    assert zst_stats.coverage == plain_stats.coverage
+    assert zst_stats.total_bytes == plain_stats.total_bytes
+
+
+def test_compressed_zstd_multi_frame_matches_plain(tmp_path: Path) -> None:
+    # Two concatenated zstd frames: without read_across_frames=True the
+    # second frame's events would vanish silently (Pitfall 3).
+    cctx = zstandard.ZstdCompressor()
+    part1, part2 = PLAIN_CONTENT[:50], PLAIN_CONTENT[50:]
+    data = cctx.compress(part1) + cctx.compress(part2)
+    plain, _ = parse_variant(tmp_path, "app.log", PLAIN_CONTENT)
+    multi, stats = parse_variant(tmp_path, "app-multi.zst", data)
+    assert fingerprint(multi) == fingerprint(plain)
+    assert len(multi) == 3
+    assert stats.total_bytes == len(PLAIN_CONTENT)
+    assert_span_partition(multi, stats.total_bytes)
+
+
+def test_compressed_magic_bytes_not_extension(tmp_path: Path) -> None:
+    # gzip content under a plain .log name still decompresses (D-07).
+    plain, _ = parse_variant(tmp_path, "app.log", PLAIN_CONTENT)
+    disguised, _ = parse_variant(tmp_path, "plain.log", gzip.compress(PLAIN_CONTENT))
+    assert fingerprint(disguised) == fingerprint(plain)
+
+
+def test_compressed_corrupt_zstd_raises(tmp_path: Path) -> None:
+    # Valid zstd magic followed by garbage: parse must raise loudly, never
+    # return a partial silent result (surfaced by the CLI per-file error path).
+    data = b"\x28\xb5\x2f\xfd" + b"this is not a valid zstd frame body"
+    path = write_log(tmp_path, "corrupt.zst", data)
+    adapter = GenericLogAdapter()
+    adapter.input_root = tmp_path
+    with pytest.raises((zstandard.ZstdError, ValueError)):
+        list(adapter.parse(path, "case1"))
+
+
+def test_compressed_sniff_on_decompressed_content(tmp_path: Path) -> None:
+    # Pitfall 4: a gzipped timestamped log must sniff as genericlog.
+    path = write_log(tmp_path, "app.log.gz", gzip.compress(PLAIN_CONTENT))
+    adapter = GenericLogAdapter()
+    assert adapter.sniff(path) == 0.1
