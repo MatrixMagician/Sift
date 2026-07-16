@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Skeleton, Event Contract & genericlog Adapter
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-07-16T16:08:26.259Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-07-16T16:22:26.767Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 1 (Skeleton, Event Contract & genericlog Adapter) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-16 — Phase 1 execution started
 
-Progress: [██░░░░░░░░] 20%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [██░░░░░░░░] 20%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 9min | 3 tasks | 9 files |
+| Phase 01 P02 | 15min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Research resolved SPEC open questions: Typer over argparse, WeasyPrint behind `sift[pdf]` extra, hand-rolled masking over drain3, `sklearn.cluster.HDBSCAN` over standalone package — record in `docs/decisions/` during Phase 1
 - [Phase ?]: 01-01: All six PyPI packages approved at blocking-human legitimacy checkpoint; exact versions pinned in uv.lock
 - [Phase ?]: 01-01: requirements-completed left empty — CLI-01 finishes in 01-04 (config precedence), INGST-01 when RED e2e test turns green in 01-02/01-05
+- [Phase ?]: event_id serialisation frozen: sha256(source_file + NUL + str(byte_offset))[:16]; golden value f7fdcb4b3de90265 pinned by test
+- [Phase ?]: CaseStore uses sqlite3 autocommit mode; all transactionality explicit via BEGIN IMMEDIATE (migration runner and transaction())
+- [Phase ?]: Per-run adapter configuration travels on the adapter instance (input_root, tz_overrides, last_stats) — Adapter Protocol frozen verbatim
 
 ### Pending Todos
 
@@ -93,6 +97,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T16:08:26.253Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-07-16T16:22:26.762Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None

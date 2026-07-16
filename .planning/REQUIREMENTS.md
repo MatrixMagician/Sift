@@ -9,8 +9,8 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Ingestion
 
-- [ ] **INGST-01**: User can create a case from a directory of artefacts (`sift new`) and ingest it (`sift ingest`), producing canonical Event records with deterministic IDs (`sha256(source_file, byte_offset)[:16]`)
-- [ ] **INGST-02**: Re-ingesting the same case adds zero new events (idempotent)
+- [x] **INGST-01**: User can create a case from a directory of artefacts (`sift new`) and ingest it (`sift ingest`), producing canonical Event records with deterministic IDs (`sha256(source_file, byte_offset)[:16]`)
+- [x] **INGST-02**: Re-ingesting the same case adds zero new events (idempotent)
 - [ ] **INGST-03**: Adapters auto-detect file formats via `sniff()` on first 64 KB; highest confidence ≥ 0.5 wins, fallback to genericlog; `--adapter glob=name` overrides
 - [ ] **INGST-04**: genericlog adapter parses timestamped line-based logs (ISO 8601, syslog, epoch) and groups continuation lines into the preceding event
 - [ ] **INGST-05**: Unparseable regions become `severity="unknown"` events (nothing dropped silently), and each file reports a parse-coverage metric (% of bytes attributed to events)
@@ -118,8 +118,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INGST-01 | Phase 1 | Pending |
-| INGST-02 | Phase 1 | Pending |
+| INGST-01 | Phase 1 | Complete |
+| INGST-02 | Phase 1 | Complete |
 | INGST-03 | Phase 1 | Pending |
 | INGST-04 | Phase 1 | Pending |
 | INGST-05 | Phase 1 | Pending |
@@ -164,6 +164,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PKG-02 | Phase 8 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 44 total (previous "40" was a miscount; corrected during roadmap creation)
 - Mapped to phases: 44
 - Unmapped: 0 ✓
