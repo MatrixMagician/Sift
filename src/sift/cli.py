@@ -181,7 +181,14 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
                 # A bad file never silently vanishes: loud error, keep going.
                 # T-04-01: relpath and exception text carry untrusted bundle
                 # bytes (filenames may contain ESC) — sanitise at render time.
+                # The failure is also persisted so a report generated later
+                # still shows the file existed and failed.
                 failed.append(relpath)
+                coverage[relpath] = {
+                    "error": str(exc),
+                    "event_count": 0,
+                    "coverage": 0.0,
+                }
                 print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
                 continue
             stats = (

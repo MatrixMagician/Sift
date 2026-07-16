@@ -203,6 +203,22 @@ def test_ingest_corrupt_compressed_file_fails_loudly_but_continues(
     assert "connection pool exhausted" in shown.output
 
 
+def test_failed_file_recorded_in_parse_coverage_meta(tmp_path: Path) -> None:
+    """WR-04: a failed file must appear in the persisted parse_coverage
+    record, not just in stdout — later phases read the meta, not the log."""
+    input_dir = _make_case(tmp_path)
+    (input_dir / "truncated.log.gz").write_bytes(b"\x1f\x8b\x08\x00cut")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 1
+
+    cov = _read_coverage_meta("demo")
+    assert "app.log" in cov  # the good file
+    entry = cov["truncated.log.gz"]
+    assert entry["event_count"] == 0
+    assert entry["coverage"] == 0.0
+    assert entry["error"]  # non-empty failure description
+
+
 def test_new_warns_but_creates_on_empty_input_dir(tmp_path: Path) -> None:
     empty = tmp_path / "empty-input"
     empty.mkdir()
