@@ -500,3 +500,221 @@ def test_show_clusters_strips_terminal_escapes(tmp_path: Path) -> None:
     assert shown.exit_code == 0, shown.output
     assert "\x1b" not in shown.output
     assert "red alert" in shown.output
+
+
+# --- plan 02-03: show --filter (STORE-04) -----------------------------------
+
+RED = pytest.mark.xfail(strict=True, reason="RED until 02-03 task 2")
+
+EVENT_FILTER_KEYS = ("severity", "source", "file", "since", "until", "limit")
+CLUSTER_FILTER_KEYS = ("severity", "min-count", "contains", "limit")
+SEVERITIES = ("fatal", "error", "warn", "info", "debug", "unknown")
+
+
+def _ingested_case(tmp_path: Path, content: str = FIXTURE_LOG) -> None:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(content, encoding="utf-8")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+
+def test_show_events_output_matches_query_events_rendering(tmp_path: Path) -> None:
+    """Safety net for the 02-03 streaming rewrite: unfiltered `show events`
+    lines must stay byte-identical to the rendering derived from
+    query_events(). Passes before AND after the rewrite — do not xfail."""
+    _ingested_case(tmp_path)
+
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        expected = [
+            (
+                f"{e.event_id}  "
+                f"{e.ts.isoformat() if e.ts is not None else '-'}  "
+                f"{e.severity:<7}  {e.source_file}:{e.line_start}  "
+                f"{e.message.replace(chr(10), ' ')[:120]}"
+            )
+            for e in store.query_events()
+        ]
+    finally:
+        store.close()
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert shown.output.splitlines() == expected
+
+
+@RED
+def test_show_events_filter_severity(tmp_path: Path) -> None:
+    _ingested_case(tmp_path)
+    shown = runner.invoke(
+        app, ["show", "demo", "events", "--filter", "severity=error"]
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "connection pool exhausted" in shown.output
+    assert "service started" not in shown.output
+    assert "retrying with backoff" not in shown.output
+
+
+@RED
+def test_show_events_filters_and_combine(tmp_path: Path) -> None:
+    """Two --filter options AND-combine (severity AND file)."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(FIXTURE_LOG, encoding="utf-8")
+    (input_dir / "other.log").write_text(
+        "2026-07-16T10:00:05+00:00 ERROR database on fire\n", encoding="utf-8"
+    )
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    shown = runner.invoke(
+        app,
+        [
+            "show", "demo", "events",
+            "--filter", "severity=error",
+            "--filter", "file=app",
+        ],
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "connection pool exhausted" in shown.output
+    assert "database on fire" not in shown.output
+    assert "service started" not in shown.output
+
+
+@RED
+def test_show_events_filter_limit(tmp_path: Path) -> None:
+    _ingested_case(tmp_path)
+    shown = runner.invoke(app, ["show", "demo", "events", "--filter", "limit=1"])
+    assert shown.exit_code == 0, shown.output
+    assert len(re.findall(r"\b[0-9a-f]{16}\b", shown.output)) == 1
+
+
+@RED
+def test_show_events_filter_since_naive_treated_as_utc(tmp_path: Path) -> None:
+    """A naive since/until value is treated as UTC and normalised before
+    binding — 10:00:01 excludes only the 10:00:00 event."""
+    _ingested_case(tmp_path)
+    shown = runner.invoke(
+        app, ["show", "demo", "events", "--filter", "since=2026-07-16T10:00:01"]
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "service started" not in shown.output
+    assert "connection pool exhausted" in shown.output
+    assert "retrying with backoff" in shown.output
+
+
+@RED
+def test_show_events_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> None:
+    _ingested_case(tmp_path)
+    shown = runner.invoke(app, ["show", "demo", "events", "--filter", "bogus=1"])
+    assert shown.exit_code == 2, shown.output
+    for key in EVENT_FILTER_KEYS:
+        assert key in shown.output, f"{key!r} missing from: {shown.output!r}"
+
+
+@RED
+def test_show_clusters_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> None:
+    _ingested_case(tmp_path)
+    shown = runner.invoke(app, ["show", "demo", "clusters", "--filter", "bogus=1"])
+    assert shown.exit_code == 2, shown.output
+    for key in CLUSTER_FILTER_KEYS:
+        assert key in shown.output, f"{key!r} missing from: {shown.output!r}"
+
+
+@RED
+def test_show_clusters_filter_min_count(tmp_path: Path) -> None:
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+    shown = runner.invoke(
+        app, ["show", "demo", "clusters", "--filter", "min-count=2"]
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "connection pool exhausted" in shown.output
+    assert "service started" not in shown.output
+
+
+@RED
+def test_show_clusters_filter_contains_literal(tmp_path: Path) -> None:
+    """contains matches template substrings literally — a LIKE-style %
+    wildcard pattern matches nothing (instr semantics, T-02-08)."""
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+    shown = runner.invoke(
+        app, ["show", "demo", "clusters", "--filter", "contains=pool"]
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "connection pool exhausted" in shown.output
+    assert "service started" not in shown.output
+
+    wildcard = runner.invoke(
+        app, ["show", "demo", "clusters", "--filter", "contains=connection%retries"]
+    )
+    assert wildcard.exit_code == 0, wildcard.output
+    assert not re.findall(r"\b[0-9a-f]{16}\b", wildcard.output)
+
+
+@RED
+def test_show_clusters_filter_severity(tmp_path: Path) -> None:
+    _ingested_case(tmp_path, REPETITIVE_LOG)
+    shown = runner.invoke(
+        app, ["show", "demo", "clusters", "--filter", "severity=error"]
+    )
+    assert shown.exit_code == 0, shown.output
+    assert "connection pool exhausted" in shown.output
+    assert "service started" not in shown.output
+
+
+@RED
+@pytest.mark.parametrize(
+    ("target", "spec", "fragment"),
+    [
+        ("events", "limit=abc", "abc"),
+        ("events", "since=notatime", "notatime"),
+        ("clusters", "min-count=abc", "abc"),
+        ("clusters", "min-count=-1", "-1"),
+    ],
+)
+def test_show_invalid_filter_values_exit_2(
+    tmp_path: Path, target: str, spec: str, fragment: str
+) -> None:
+    """Invalid values fail loudly naming the offending value — never an
+    empty result set that looks like 'no matches'."""
+    _ingested_case(tmp_path)
+    shown = runner.invoke(app, ["show", "demo", target, "--filter", spec])
+    assert shown.exit_code == 2, shown.output
+    assert fragment in shown.output
+
+
+@RED
+def test_show_invalid_severity_exits_2_listing_vocabulary(tmp_path: Path) -> None:
+    _ingested_case(tmp_path)
+    shown = runner.invoke(
+        app, ["show", "demo", "events", "--filter", "severity=catastrophic"]
+    )
+    assert shown.exit_code == 2, shown.output
+    assert "catastrophic" in shown.output
+    for sev in SEVERITIES:
+        assert sev in shown.output, f"{sev!r} missing from: {shown.output!r}"
+
+
+@RED
+def test_show_filter_injection_shaped_value_is_literal(tmp_path: Path) -> None:
+    """T-02-08: a SQL-shaped filter VALUE binds as a literal — zero rows,
+    exit 0, never a syntax error; the tables survive."""
+    _ingested_case(tmp_path)
+    inj = "file='; DROP TABLE events;--"
+    shown = runner.invoke(app, ["show", "demo", "events", "--filter", inj])
+    assert shown.exit_code == 0, shown.output
+    assert not re.findall(r"\b[0-9a-f]{16}\b", shown.output)
+
+    inj2 = "contains=' OR 1=1; DROP TABLE template_groups;--"
+    clusters = runner.invoke(app, ["show", "demo", "clusters", "--filter", inj2])
+    assert clusters.exit_code == 0, clusters.output
+    assert not re.findall(r"\b[0-9a-f]{16}\b", clusters.output)
+
+    # Both tables are intact afterwards: unfiltered listings still render.
+    events_again = runner.invoke(app, ["show", "demo", "events"])
+    assert events_again.exit_code == 0, events_again.output
+    assert len(set(re.findall(r"\b[0-9a-f]{16}\b", events_again.output))) == 3
+    clusters_again = runner.invoke(app, ["show", "demo", "clusters"])
+    assert clusters_again.exit_code == 0, clusters_again.output
+    assert re.findall(r"\b[0-9a-f]{16}\b", clusters_again.output)

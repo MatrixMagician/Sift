@@ -3,13 +3,14 @@
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from sift.models import Event, event_id
 from sift.store import (
     CaseStore,
+    TemplateGroup,
     _migration_1,  # pyright: ignore[reportPrivateUsage] — builds a v1 fixture db
     case_db_path,
     validate_case_name,
@@ -22,6 +23,8 @@ def _ev(
     ts: datetime | None = datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC),
     line_start: int = 1,
     raw: str = "raw",
+    severity: str | None = None,
+    message: str = "msg",
 ) -> Event:
     return Event(
         event_id=event_id(source_file, offset),
@@ -32,11 +35,11 @@ def _ev(
         source_file=source_file,
         line_start=line_start,
         line_end=line_start,
-        severity="info" if ts is not None else "unknown",
+        severity=severity or ("info" if ts is not None else "unknown"),
         component=None,
         thread=None,
         session=None,
-        message="msg",
+        message=message,
         attrs={},
         raw=raw,
     )
@@ -264,3 +267,185 @@ def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
     assert first[0] == 2
     CaseStore(db).close()
     assert snapshot() == first
+
+
+# --- plan 02-03: filtered queries + streaming rows (STORE-04) ---------------
+
+RED = pytest.mark.xfail(strict=True, reason="RED until 02-03 task 2")
+
+
+def _rows(
+    store: CaseStore, filters: dict[str, str | int] | None = None
+) -> list[tuple[Any, ...]]:
+    # cast-indirection: iter_event_rows does not exist until 02-03 task 2 —
+    # keeps strict pyright green while these tests are strict-xfailed.
+    return list(cast("Any", store).iter_event_rows(filters))
+
+
+def _groups(
+    store: CaseStore, filters: dict[str, str | int] | None = None
+) -> list[TemplateGroup]:
+    return cast("Any", store).query_template_groups(filters)
+
+
+def _seed_filter_events(store: CaseStore) -> None:
+    def t(second: int) -> datetime:
+        return datetime(2026, 7, 16, 10, 0, second, tzinfo=UTC)
+
+    store.insert_events(
+        [
+            _ev("a.log", offset=0, ts=t(0), severity="error", message="boom"),
+            _ev("a.log", offset=50, ts=t(1), line_start=2, message="fine"),
+            _ev("b.log", offset=0, ts=t(2), severity="error", message="boom too"),
+            _ev("b.log", offset=50, ts=None, line_start=2, message="lost in time"),
+        ]
+    )
+
+
+@RED
+def test_iter_event_rows_yields_scoped_tuples(tmp_path: Path) -> None:
+    """Rows are 6-tuples (event_id, ts, severity, source_file, line_start,
+    message) in the canonical query_events order — arity proves raw is never
+    selected (T-02-10)."""
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    rows = _rows(store)
+    assert len(rows) == 4
+    assert all(isinstance(r, tuple) and len(r) == 6 for r in rows)
+    expected = [
+        (
+            e.event_id,
+            e.ts.isoformat() if e.ts is not None else None,
+            e.severity,
+            e.source_file,
+            e.line_start,
+            e.message,
+        )
+        for e in store.query_events()
+    ]
+    assert rows == expected
+
+
+@RED
+def test_iter_event_rows_severity_filter(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    rows = _rows(store, {"severity": "error"})
+    assert [r[2] for r in rows] == ["error", "error"]
+
+
+@RED
+def test_iter_event_rows_file_substring_filter(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    assert {r[3] for r in _rows(store, {"file": "a."})} == {"a.log"}
+    assert _rows(store, {"file": "nowhere"}) == []
+
+
+@RED
+def test_iter_event_rows_source_filter(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    assert len(_rows(store, {"source": "genericlog"})) == 4
+    assert _rows(store, {"source": "journald"}) == []
+
+
+@RED
+def test_iter_event_rows_since_until_exclude_null_ts(tmp_path: Path) -> None:
+    """since/until bound the ts range AND exclude NULL-ts rows — a documented
+    filter semantic, not silent loss (recorded in --help)."""
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    since = _rows(store, {"since": "2026-07-16T10:00:01+00:00"})
+    assert [r[5] for r in since] == ["fine", "boom too"]  # NULL-ts row absent
+    until = _rows(store, {"until": "2026-07-16T10:00:01+00:00"})
+    assert [r[5] for r in until] == ["boom", "fine"]  # NULL-ts row absent
+
+
+@RED
+def test_iter_event_rows_limit(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    rows = _rows(store, {"limit": 2})
+    assert [r[5] for r in rows] == ["boom", "fine"]  # first 2 in canonical order
+
+
+@RED
+def test_iter_event_rows_filters_and_combine(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    rows = _rows(store, {"severity": "error", "file": "b."})
+    assert [(r[2], r[3]) for r in rows] == [("error", "b.log")]
+
+
+@RED
+def test_iter_event_rows_unknown_key_raises_valueerror(tmp_path: Path) -> None:
+    """Defence in depth behind the CLI validation (T-02-08)."""
+    store = CaseStore(tmp_path / "case.db")
+    _seed_filter_events(store)
+    with pytest.raises(ValueError, match="severity"):
+        _rows(store, {"bogus": "1"})
+
+
+def _seed_groups(store: CaseStore) -> None:
+    def g(template: str, count: int, severity_max: str) -> TemplateGroup:
+        return TemplateGroup(
+            template_id=template[:16].ljust(16, "0"),
+            template=template,
+            count=count,
+            first_ts=None,
+            last_ts=None,
+            severity_max=severity_max,
+            exemplar_event_ids=[],
+        )
+
+    store.replace_template_groups(
+        [
+            g("connection pool exhausted after <NUM> retries", 30, "error"),
+            g("disk <NUM>% full", 5, "warn"),
+            g("service started", 1, "info"),
+        ]
+    )
+
+
+@RED
+def test_query_template_groups_min_count_filter(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_groups(store)
+    got = _groups(store, {"min-count": 5})
+    assert [grp.count for grp in got] == [30, 5]
+
+
+@RED
+def test_query_template_groups_contains_is_literal_not_like(tmp_path: Path) -> None:
+    """contains uses instr semantics: a % in the value matches only a literal
+    % — never a LIKE wildcard (T-02-08)."""
+    store = CaseStore(tmp_path / "case.db")
+    _seed_groups(store)
+    assert [grp.template for grp in _groups(store, {"contains": "pool"})] == [
+        "connection pool exhausted after <NUM> retries"
+    ]
+    # Literal-% positive match...
+    assert [grp.template for grp in _groups(store, {"contains": "<NUM>% full"})] == [
+        "disk <NUM>% full"
+    ]
+    # ...and a LIKE-style wildcard pattern matches nothing.
+    assert _groups(store, {"contains": "d%full"}) == []
+
+
+@RED
+def test_query_template_groups_severity_and_limit_filters(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_groups(store)
+    assert [grp.severity_max for grp in _groups(store, {"severity": "error"})] == [
+        "error"
+    ]
+    assert [grp.count for grp in _groups(store, {"limit": 1})] == [30]
+
+
+@RED
+def test_query_template_groups_unknown_key_raises_valueerror(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    _seed_groups(store)
+    with pytest.raises(ValueError, match="min-count"):
+        _groups(store, {"bogus": "1"})
