@@ -163,6 +163,23 @@ def test_mask_plain_number() -> None:
     assert mask("retried 17 times") == "retried <NUM> times"
 
 
+def test_mask_pure_decimal_long_runs_are_num_not_hex() -> None:
+    """WR-04: pure-decimal 8+ digit runs (epoch seconds/millis, large ids)
+    are numbers, not hex — templates must not shatter by magnitude."""
+    mask = dedup.mask
+    assert mask("id 1234567890123 end") == "id <NUM> end"  # 13-digit epoch ms
+    assert mask("retried 12345678 times") == "retried <NUM> times"  # 8 digits
+
+
+def test_mask_letter_bearing_hex_still_hex() -> None:
+    """A hex run containing at least one letter still masks to <HEX>; the
+    0x prefix always masks to <HEX> regardless of letters."""
+    mask = dedup.mask
+    assert mask("token deadbeef01 raised") == "token <HEX> raised"
+    assert mask("code 0xDEADBEEF raised") == "code <HEX> raised"
+    assert mask("code 0x12345678 raised") == "code <HEX> raised"
+
+
 def test_mask_compound_timestamp_not_shattered() -> None:
     """Pitfall 1: a timestamp full of digits must mask to ONE <TS> token."""
     mask = dedup.mask
