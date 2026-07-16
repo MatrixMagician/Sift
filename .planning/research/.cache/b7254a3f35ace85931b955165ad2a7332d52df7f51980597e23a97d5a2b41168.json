@@ -1,0 +1,1 @@
+{"content":"python-zstandard 0.25.0 (2025-09-14), maintained (Gregory Szorc). Python 3.14 added stdlib compression.zstd; a project targeting 3.12+ still needs the zstandard package. Migration path: swap to stdlib once floor is 3.14.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-07-16T14:54:52.121Z","ttl":86400000,"kind":"web"}
