@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 1
 current_phase_name: Skeleton, Event Contract & genericlog Adapter
-status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-07-16T16:51:44.672Z"
+status: verifying
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-07-16T17:00:27.638Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 
 Phase: 1 (Skeleton, Event Contract & genericlog Adapter) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-16 — Phase 1 execution started
 
-Progress: [████████░░] 80%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████░░] 80%
 | Phase 01 P02 | 15min | 3 tasks | 10 files |
 | Phase 01 P03 | 14min | 3 tasks | 2 files |
 | Phase 01 P04 | 10min | 3 tasks | 6 files |
+| Phase 01 P05 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Recent decisions affecting current work:
 - [Phase ?]: parse_adapter_overrides splits on the LAST '=' — adapter names never contain '=', so last-split lets globs containing '=' survive (plan's own acceptance criterion)
 - [Phase ?]: _sanitise strips C0+DEL+C1 control chars at render only; stored raw/message stay verbatim for citation fidelity (T-04-01)
 - [Phase ?]: Malformed config.toml raises ValueError naming the file — never silent fall-back to defaults (T-04-02)
+- [Phase ?]: ADRs 0001-0003 recorded in docs/decisions/: Typer over argparse, WeasyPrint behind sift[pdf] extra (Phase 6), hand-rolled masking over drain3 (D-02, SPEC §10)
+- [Phase ?]: M1 acceptance coverage assertion is bounded (>=99.0 and <100.0) via a <1% unparseable preamble — metric provably computed, never vacuous
+- [Phase ?]: Snapshot contract documented in sift ingest --help: renamed files duplicate events, new files add events (INGST-02 accepted limitation)
 
 ### Pending Todos
 
@@ -105,6 +109,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T16:51:44.667Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-07-16T17:00:15.093Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
