@@ -11,7 +11,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **INGST-01**: User can create a case from a directory of artefacts (`sift new`) and ingest it (`sift ingest`), producing canonical Event records with deterministic IDs (`sha256(source_file, byte_offset)[:16]`)
 - [x] **INGST-02**: Re-ingesting the same case adds zero new events (idempotent)
-- [ ] **INGST-03**: Adapters auto-detect file formats via `sniff()` on first 64 KB; highest confidence ≥ 0.5 wins, fallback to genericlog; `--adapter glob=name` overrides
+- [x] **INGST-03**: Adapters auto-detect file formats via `sniff()` on first 64 KB; highest confidence ≥ 0.5 wins, fallback to genericlog; `--adapter glob=name` overrides
 - [x] **INGST-04**: genericlog adapter parses timestamped line-based logs (ISO 8601, syslog, epoch) and groups continuation lines into the preceding event
 - [x] **INGST-05**: Unparseable regions become `severity="unknown"` events (nothing dropped silently), and each file reports a parse-coverage metric (% of bytes attributed to events)
 - [x] **INGST-06**: Multi-line records (stack traces, MCM contract blocks, thread frames) are captured as one event, not one per line
@@ -60,7 +60,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### CLI & UX
 
-- [ ] **CLI-01**: CLI exposes `new`, `ingest`, `analyze`, `report`, `show`, `eval`, `doctor` subcommands with config precedence: flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
+- [x] **CLI-01**: CLI exposes `new`, `ingest`, `analyze`, `report`, `show`, `eval`, `doctor` subcommands with config precedence: flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
 - [ ] **CLI-02**: All prompts live as versioned template files in the package; changing a prompt requires no Python changes
 - [ ] **CLI-03**: Long operations (ingest, embedding, generation) show progress feedback
 - [ ] **CLI-04**: Exit codes form a documented contract (success / degraded run / failure) so `sift` is scriptable in CI
@@ -120,13 +120,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | INGST-01 | Phase 1 | Complete |
 | INGST-02 | Phase 1 | Complete |
-| INGST-03 | Phase 1 | Pending |
+| INGST-03 | Phase 1 | Complete |
 | INGST-04 | Phase 1 | Complete |
 | INGST-05 | Phase 1 | Complete |
 | INGST-06 | Phase 1 | Complete |
 | INGST-10 | Phase 1 | Complete |
 | INGST-11 | Phase 1 | Complete |
-| CLI-01 | Phase 1 | Pending |
+| CLI-01 | Phase 1 | Complete |
 | STORE-01 | Phase 2 | Pending |
 | STORE-02 | Phase 2 | Pending |
 | STORE-04 | Phase 2 | Pending |

@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Skeleton, Event Contract & genericlog Adapter
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-07-16T16:40:15.213Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-07-16T16:51:44.672Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 1 (Skeleton, Event Contract & genericlog Adapter) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-16 — Phase 1 execution started
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [██████░░░░] 60%
 | Phase 01 P01 | 9min | 3 tasks | 9 files |
 | Phase 01 P02 | 15min | 3 tasks | 10 files |
 | Phase 01 P03 | 14min | 3 tasks | 2 files |
+| Phase 01 P04 | 10min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase ?]: genericlog exposes byte_offset/byte_len in Event.attrs so span-partition invariant and compressed parity are mechanically checkable
 - [Phase ?]: syslog timestamps parsed by hand (regex + month lookup), not strptime — year-1900 default rejects Feb 29; year inferred from mtime with minus-one rule
 - [Phase ?]: A2 confirmed: token-less timestamped lines keep severity 'unknown'; cap-overflow events count as unknown-fallback for coverage
+- [Phase ?]: parse_adapter_overrides splits on the LAST '=' — adapter names never contain '=', so last-split lets globs containing '=' survive (plan's own acceptance criterion)
+- [Phase ?]: _sanitise strips C0+DEL+C1 control chars at render only; stored raw/message stay verbatim for citation fidelity (T-04-01)
+- [Phase ?]: Malformed config.toml raises ValueError naming the file — never silent fall-back to defaults (T-04-02)
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T16:40:15.207Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-07-16T16:51:44.667Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None
