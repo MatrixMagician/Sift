@@ -24,13 +24,13 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Case Store
 
 - [ ] **STORE-01**: Each case persists to a single portable SQLite database (`case.db`) with sqlite-vec for vectors; deleting the file deletes the case
-- [ ] **STORE-02**: Store owns schema migrations (PRAGMA user_version); `raw` text > 4 KB is zstd-compressed
+- [x] **STORE-02**: Store owns schema migrations (PRAGMA user_version); `raw` text > 4 KB is zstd-compressed
 - [ ] **STORE-03**: Embedding model identity and dimension are recorded in `meta`; a mismatch on reload is a hard error
-- [ ] **STORE-04**: User can inspect stored data via `sift show <case> events|clusters|hypotheses [--filter …]` before trusting any AI output
+- [x] **STORE-04**: User can inspect stored data via `sift show <case> events|clusters|hypotheses [--filter …]` before trusting any AI output
 
 ### Dedup & Clustering
 
-- [ ] **CLUS-01**: Template dedup masks volatile tokens (numbers, hex, UUIDs, SIDs, paths, timestamps) and groups events by normalised template with count, first/last seen, and exemplars — no ML required
+- [x] **CLUS-01**: Template dedup masks volatile tokens (numbers, hex, UUIDs, SIDs, paths, timestamps) and groups events by normalised template with count, first/last seen, and exemplars — no ML required
 - [ ] **CLUS-02**: Semantic clustering embeds one exemplar per template group and merges synonymous groups via HDBSCAN (L2-normalised; agglomerative fallback from config; noise points become singleton clusters)
 - [ ] **CLUS-03**: Each cluster gets a short LLM-generated human-readable label from exemplars only, under a strict token budget
 
@@ -128,9 +128,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGST-11 | Phase 1 | Complete |
 | CLI-01 | Phase 1 | Complete |
 | STORE-01 | Phase 2 | Pending |
-| STORE-02 | Phase 2 | Pending |
-| STORE-04 | Phase 2 | Pending |
-| CLUS-01 | Phase 2 | Pending |
+| STORE-02 | Phase 2 | Complete |
+| STORE-04 | Phase 2 | Complete |
+| CLUS-01 | Phase 2 | Complete |
 | CLI-03 | Phase 2 | Pending |
 | LLM-01 | Phase 3 | Pending |
 | LLM-02 | Phase 3 | Pending |

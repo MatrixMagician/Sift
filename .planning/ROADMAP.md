@@ -72,12 +72,12 @@ Plans:
   4. Schema migrations run via `PRAGMA user_version`, and `raw` text > 4 KB is zstd-compressed transparently
   5. Long-running ingest shows progress feedback instead of a silent hang
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Store v2 (migration 2, transparent zstd) + pipeline/dedup masking + `show clusters` end-to-end slice (wave 1)
+- [x] 02-01-PLAN.md — Store v2 (migration 2, transparent zstd) + pipeline/dedup masking + `show clusters` end-to-end slice (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -186,7 +186,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
-| 2. Case Store & Template Dedup | 0/TBD | Not started | - |
+| 2. Case Store & Template Dedup | 1/3 | In Progress|  |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 0/TBD | Not started | - |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 0/TBD | Not started | - |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |

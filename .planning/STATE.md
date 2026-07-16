@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Case Store & Template Dedup
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-07-16T18:33:59.327Z"
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-07-16T18:57:29.652Z"
 last_activity: 2026-07-16
-last_activity_desc: Phase 1 complete, transitioned to Phase 2
+last_activity_desc: Phase 2 execution started
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-16)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 1 — Skeleton, Event Contract & genericlog Adapter
+**Current focus:** Phase 2 — Case Store & Template Dedup
 
 ## Current Position
 
-Phase: 2 — Case Store & Template Dedup
-Plan: Not started
+Phase: 2 (Case Store & Template Dedup) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-16 — Phase 1 complete, transitioned to Phase 2
+Last activity: 2026-07-16 — Phase 2 execution started
 
-Progress: [██████████] 100%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [██████████] 100%
 | Phase 01 P03 | 14min | 3 tasks | 2 files |
 | Phase 01 P04 | 10min | 3 tasks | 6 files |
 | Phase 01 P05 | 8min | 2 tasks | 5 files |
+| Phase 02 P01 | 14min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Recent decisions affecting current work:
 - [Phase ?]: ADRs 0001-0003 recorded in docs/decisions/: Typer over argparse, WeasyPrint behind sift[pdf] extra (Phase 6), hand-rolled masking over drain3 (D-02, SPEC §10)
 - [Phase ?]: M1 acceptance coverage assertion is bounded (>=99.0 and <100.0) via a <1% unparseable preamble — metric provably computed, never vacuous
 - [Phase ?]: Snapshot contract documented in sift ingest --help: renamed files duplicate events, new files add events (INGST-02 accepted limitation)
+- [Phase ?]: 02-01: mask placeholders <TS>/<UUID>/<HEX>/<PATH>/<NUM> frozen; alternation order ts->uuid->hex->path->num is load-bearing; MASK_VERSION=1 in meta
+- [Phase ?]: 02-01: EXEMPLAR_K=5, template_id=sha256(template)[:16]; severity_max via explicit rank dict, never lexicographic
+- [Phase ?]: 02-01: _decode_raw is the single raw read path (128 MiB zstd-bomb cap); zstd compressor constructor defaults for deterministic frames
 
 ### Pending Todos
 
@@ -109,6 +113,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T17:00:15.093Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-07-16T18:57:29.647Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
