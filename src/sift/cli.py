@@ -71,6 +71,11 @@ def new(
     except ValueError as exc:
         print(f"Error: {exc}")
         raise typer.Exit(1) from None
+    if db_path.exists():
+        # A case is one snapshot: silently repointing input_dir would mix
+        # events from two snapshots and poison the coverage meta.
+        print(f"Error: case {case_name!r} already exists at {db_path.parent}")
+        raise typer.Exit(1)
     try:
         # Validate glob=name specs now so a typo fails at `new`, not mid-ingest.
         adapters.parse_adapter_overrides(adapter)

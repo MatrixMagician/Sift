@@ -220,6 +220,20 @@ def test_ingest_empty_input_dir_reports_zero_files_exit_0(tmp_path: Path) -> Non
     assert "0 files" in result.output
 
 
+def test_new_refuses_to_overwrite_existing_case(tmp_path: Path) -> None:
+    """WR-03: re-running `new` must not silently repoint an existing case
+    at a different snapshot (mixed-snapshot corruption)."""
+    input_dir = _make_case(tmp_path)
+    other_dir = tmp_path / "other-input"
+    other_dir.mkdir()
+    (other_dir / "b.log").write_text(FIXTURE_LOG, encoding="utf-8")
+
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    second = runner.invoke(app, ["new", "demo", "--input", str(other_dir)])
+    assert second.exit_code == 1, second.output
+    assert "already exists" in second.output
+
+
 def test_new_missing_input_dir_exits_1(tmp_path: Path) -> None:
     result = runner.invoke(
         app, ["new", "demo", "--input", str(tmp_path / "does-not-exist")]
