@@ -366,11 +366,6 @@ def test_config_timezones_reach_adapter_and_events(tmp_path: Path) -> None:
 # --- plan 02-02: portability + progress regression (STORE-01, CLI-03) ------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="ingest does not yet close the store explicitly (WAL sidecars "
-    "survive); plan 02-02 task 2 adds the clean close",
-)
 def test_case_dir_contains_only_case_db_after_clean_run(tmp_path: Path) -> None:
     """STORE-01 / Pitfall 4: after a clean CLI run no -wal/-shm sidecars
     survive, so the case directory is the deletable unit."""

@@ -9,10 +9,19 @@ implemented command exposes ``--data-dir`` as the flags layer.
 import json
 import unicodedata
 from datetime import UTC, datetime
+from itertools import batched
 from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from sift import adapters
 from sift.adapters.genericlog import GenericLogAdapter
@@ -119,6 +128,17 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     """
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
+    try:
+        _ingest(case, config, store)
+    finally:
+        # STORE-01 / Pitfall 4: a clean close checkpoints the WAL, so the
+        # case directory holds only case.db afterwards — deleting the
+        # directory is deleting the case.
+        store.close()
+
+
+def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
+    """Ingest body; the caller owns the store lifecycle (clean close)."""
     input_dir_s = store.get_meta("input_dir")
     if input_dir_s is None:
         print(f"Error: case {case!r} has no recorded input directory")
@@ -157,71 +177,120 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     failed: list[str] = []
     coverage: dict[str, dict[str, object]] = {}
     total_new = 0
-    # One transaction for all inserts plus the coverage meta write: an
-    # interrupted ingest leaves either the complete result or nothing.
-    with store.transaction():
-        for path in files:
-            relpath = path.relative_to(input_dir).as_posix()
-            if path.is_symlink():
-                # Trust boundary: a hostile bundle must never select files
-                # outside itself for ingestion. Skip loudly and record it so
-                # the persisted coverage meta shows the file existed.
-                print(f"SKIP {_sanitise(relpath)}: symlink (not followed)")
+    # CLI-03: live progress on stderr only — stdout stays scriptable and
+    # byte-identical to Phase 1. disable= makes non-TTY runs (CliRunner, CI,
+    # pipes) render nothing, deterministically.
+    err_console = Console(stderr=True)
+    sizes = {path: path.stat().st_size for path in files}
+    done_bytes = 0
+    with Progress(
+        # T-02-06: the description is a STATIC string — untrusted filenames
+        # never enter rich renderables; per-file names keep flowing through
+        # the existing _sanitise'd stdout prints.
+        TextColumn("Ingesting"),
+        BarColumn(),
+        DownloadColumn(),
+        TimeElapsedColumn(),
+        console=err_console,
+        transient=True,
+        disable=not err_console.is_terminal,
+    ) as progress:
+        ptask = progress.add_task("ingest", total=sum(sizes.values()))
+        # One transaction for all inserts plus the coverage meta write: an
+        # interrupted ingest leaves either the complete result or nothing.
+        with store.transaction():
+            for path in files:
+                file_size = sizes[path]
+                relpath = path.relative_to(input_dir).as_posix()
+                if path.is_symlink():
+                    # Trust boundary: a hostile bundle must never select files
+                    # outside itself for ingestion. Skip loudly and record it
+                    # so the persisted coverage meta shows the file existed.
+                    print(f"SKIP {_sanitise(relpath)}: symlink (not followed)")
+                    coverage[relpath] = {
+                        "skipped": "symlink (not followed)",
+                        "event_count": 0,
+                        "coverage": 0.0,
+                    }
+                    done_bytes += file_size
+                    progress.update(ptask, completed=done_bytes)
+                    continue
+                try:
+                    # Detection reads (and decompresses) file heads, so a
+                    # corrupt archive can raise here too — it must hit the
+                    # same loud per-file error path as a parse failure,
+                    # never abort the run.
+                    file_adapter = adapters.detect(path, relpath, overrides)
+                    # Per-run configuration travels on the adapter instance —
+                    # the frozen Protocol has no config attributes (01-02
+                    # pattern). D-05: config.timezones reaches the adapter.
+                    if isinstance(file_adapter, GenericLogAdapter):
+                        file_adapter.input_root = input_dir
+                        file_adapter.tz_overrides = dict(config.timezones)
+                    # T-02-05: stream events in bounded batches — a 100 MB
+                    # file never materialises all its Event objects at once.
+                    # Decompressed-stream offsets do not map to on-disk bytes
+                    # for .gz/.zst, so those advance whole-file on completion.
+                    track_offsets = isinstance(
+                        file_adapter, GenericLogAdapter
+                    ) and path.suffix not in (".gz", ".zst")
+                    new_count = 0
+                    parsed_count = 0
+                    for batch in batched(file_adapter.parse(path, case), 5000):
+                        new_count += store.insert_events(batch)
+                        parsed_count += len(batch)
+                        if track_offsets:
+                            attrs = batch[-1].attrs
+                            offset = int(attrs.get("byte_offset", "0")) + int(
+                                attrs.get("byte_len", "0")
+                            )
+                            progress.update(
+                                ptask,
+                                completed=done_bytes + min(offset, file_size),
+                            )
+                except Exception as exc:
+                    # A bad file never silently vanishes: loud error, keep
+                    # going. T-04-01: relpath and exception text carry
+                    # untrusted bundle bytes (filenames may contain ESC) —
+                    # sanitise at render time. The failure is also persisted
+                    # so a report generated later still shows the file
+                    # existed and failed.
+                    failed.append(relpath)
+                    coverage[relpath] = {
+                        "error": str(exc),
+                        "event_count": 0,
+                        "coverage": 0.0,
+                    }
+                    print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
+                    done_bytes += file_size
+                    progress.update(ptask, completed=done_bytes)
+                    continue
+                stats = (
+                    file_adapter.last_stats
+                    if isinstance(file_adapter, GenericLogAdapter)
+                    else None
+                )
+                cov = stats.coverage if stats else 1.0
+                event_count = stats.event_count if stats else parsed_count
                 coverage[relpath] = {
-                    "skipped": "symlink (not followed)",
-                    "event_count": 0,
-                    "coverage": 0.0,
+                    "total_bytes": stats.total_bytes if stats else 0,
+                    "unknown_fallback_bytes": (
+                        stats.unknown_fallback_bytes if stats else 0
+                    ),
+                    "event_count": event_count,
+                    "coverage": cov,
+                    "notes": stats.notes if stats else [],
                 }
-                continue
-            try:
-                # Detection reads (and decompresses) file heads, so a corrupt
-                # archive can raise here too — it must hit the same loud
-                # per-file error path as a parse failure, never abort the run.
-                file_adapter = adapters.detect(path, relpath, overrides)
-                # Per-run configuration travels on the adapter instance — the
-                # frozen Protocol has no config attributes (01-02 pattern).
-                # D-05: config.timezones reaches the adapter here.
-                if isinstance(file_adapter, GenericLogAdapter):
-                    file_adapter.input_root = input_dir
-                    file_adapter.tz_overrides = dict(config.timezones)
-                events = list(file_adapter.parse(path, case))
-                new_count = store.insert_events(events)
-            except Exception as exc:
-                # A bad file never silently vanishes: loud error, keep going.
-                # T-04-01: relpath and exception text carry untrusted bundle
-                # bytes (filenames may contain ESC) — sanitise at render time.
-                # The failure is also persisted so a report generated later
-                # still shows the file existed and failed.
-                failed.append(relpath)
-                coverage[relpath] = {
-                    "error": str(exc),
-                    "event_count": 0,
-                    "coverage": 0.0,
-                }
-                print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
-                continue
-            stats = (
-                file_adapter.last_stats
-                if isinstance(file_adapter, GenericLogAdapter)
-                else None
-            )
-            cov = stats.coverage if stats else 1.0
-            event_count = stats.event_count if stats else len(events)
-            coverage[relpath] = {
-                "total_bytes": stats.total_bytes if stats else 0,
-                "unknown_fallback_bytes": stats.unknown_fallback_bytes if stats else 0,
-                "event_count": event_count,
-                "coverage": cov,
-                "notes": stats.notes if stats else [],
-            }
-            total_new += new_count
-            print(
-                f"{_sanitise(relpath)}  coverage {cov * 100:.1f}%  "
-                f"{event_count} events  {new_count} new"
-            )
-            for note in stats.notes if stats else []:
-                print(f"  note: {note}")
-        store.set_meta("parse_coverage", json.dumps(coverage, sort_keys=True))
+                total_new += new_count
+                print(
+                    f"{_sanitise(relpath)}  coverage {cov * 100:.1f}%  "
+                    f"{event_count} events  {new_count} new"
+                )
+                for note in stats.notes if stats else []:
+                    print(f"  note: {note}")
+                done_bytes += file_size
+                progress.update(ptask, completed=done_bytes)
+            store.set_meta("parse_coverage", json.dumps(coverage, sort_keys=True))
     # Recompute template groups AFTER the event transaction commits, so the
     # groups always reflect the store's actual contents (CLUS-01, Pitfall 6).
     n_groups = dedup.rebuild_template_groups(store)

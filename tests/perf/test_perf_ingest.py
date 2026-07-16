@@ -40,6 +40,8 @@ def test_100mb_ingest_under_60s(tmp_path: Path) -> None:
     result = runner.invoke(app, ["ingest", "big"])
     elapsed = time.perf_counter() - start
 
+    # Visible with `-s`: the measured seconds are the M2 acceptance evidence.
+    print(f"\n100 MB ingest took {elapsed:.1f} s (budget 60 s)")
     assert result.exit_code == 0, result.output[-2000:]
     assert elapsed < 60.0, f"100 MB ingest took {elapsed:.1f} s (budget 60 s)"
     assert "Template groups:" in result.output
