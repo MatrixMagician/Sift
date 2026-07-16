@@ -148,6 +148,17 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     with store.transaction():
         for path in files:
             relpath = path.relative_to(input_dir).as_posix()
+            if path.is_symlink():
+                # Trust boundary: a hostile bundle must never select files
+                # outside itself for ingestion. Skip loudly and record it so
+                # the persisted coverage meta shows the file existed.
+                print(f"SKIP {_sanitise(relpath)}: symlink (not followed)")
+                coverage[relpath] = {
+                    "skipped": "symlink (not followed)",
+                    "event_count": 0,
+                    "coverage": 0.0,
+                }
+                continue
             try:
                 # Detection reads (and decompresses) file heads, so a corrupt
                 # archive can raise here too — it must hit the same loud

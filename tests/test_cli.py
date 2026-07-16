@@ -6,6 +6,7 @@ Plan 01-04 adds the CLI hardening tests (precedence, sanitisation, empty-input,
 adapter overrides, tz wiring).
 """
 
+import json
 import os
 import re
 from collections.abc import Iterator
@@ -17,7 +18,17 @@ from typer.testing import CliRunner
 from sift.adapters import REGISTRY
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.cli import app
+from sift.config import load_config
 from sift.models import Event
+from sift.store import CaseStore, case_db_path
+
+
+def _read_coverage_meta(case: str) -> dict[str, dict[str, object]]:
+    store = CaseStore(case_db_path(load_config().data_dir, case))
+    try:
+        return json.loads(store.get_meta("parse_coverage") or "{}")
+    finally:
+        store.close()
 
 runner = CliRunner()
 
@@ -125,6 +136,30 @@ def test_show_strips_terminal_escapes(tmp_path: Path) -> None:
     assert shown.exit_code == 0, shown.output
     assert "\x1b" not in shown.output
     assert "red alert" in shown.output
+
+
+def test_ingest_skips_symlinks_loudly_never_follows(tmp_path: Path) -> None:
+    """WR-02: a symlink inside the bundle must never pull outside content
+    into the case DB; the skip is loud and lands in the coverage meta."""
+    input_dir = _make_case(tmp_path)
+    secret = tmp_path / "outside-secret.log"
+    secret.write_text(
+        "2026-07-16T10:00:00+00:00 ERROR super secret outside content\n",
+        encoding="utf-8",
+    )
+    (input_dir / "link.log").symlink_to(secret)
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+
+    result = runner.invoke(app, ["ingest", "demo"])
+    assert result.exit_code == 0, result.output
+    assert "SKIP link.log: symlink (not followed)" in result.output
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert "super secret" not in shown.output
+
+    cov = _read_coverage_meta("demo")
+    assert cov["link.log"]["skipped"] == "symlink (not followed)"
 
 
 def test_hostile_filename_escapes_never_reach_terminal(tmp_path: Path) -> None:
