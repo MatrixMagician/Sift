@@ -228,7 +228,7 @@ def _decode(raw: bytes, encoding: str) -> str:
 
 
 def _byte_lines(
-    stream: io.BufferedIOBase, nl: bytes, initial: bytes
+    stream: io.BufferedIOBase, nl: bytes, initial: bytes, unit: int = 1
 ) -> Iterator[bytes]:
     """Yield byte lines (terminator included) split on ``nl``.
 
@@ -236,21 +236,33 @@ def _byte_lines(
     detection, so BOM bytes stay part of the first line's span (Pitfall 7).
     A newline-less run longer than MAX_EVENT_BYTES is force-split so a single
     monster line cannot slurp unbounded memory (T-03-01).
+
+    ``unit`` is the encoding's code-unit width in bytes (2 for UTF-16): a
+    newline match only counts at a unit-aligned offset from the stream start,
+    so non-ASCII UTF-16 content (e.g. U+0A41 then U+0100, encoding
+    ``... 41 0A 00 01 ...``) can never fake a newline straddling two
+    characters and misalign every subsequent line.
     """
     buf = initial
+    consumed = 0  # bytes already yielded; keeps alignment to the stream start
     eof = False
     while True:
         i = buf.find(nl)
+        while i >= 0 and (consumed + i) % unit:
+            i = buf.find(nl, i + 1)
         if 0 <= i and i + len(nl) <= MAX_EVENT_BYTES:
             end = i + len(nl)
             yield buf[:end]
+            consumed += end
             buf = buf[end:]
             continue
         if len(buf) >= MAX_EVENT_BYTES:
             # ponytail: force-split may bisect a 2-byte utf-16 newline at the
             # exact cap boundary; acceptable — the cap already makes the
-            # region a severity-unknown continuation event.
+            # region a severity-unknown continuation event. (MAX_EVENT_BYTES
+            # is even, so unit alignment survives the force-split.)
             yield buf[:MAX_EVENT_BYTES]
+            consumed += MAX_EVENT_BYTES
             buf = buf[MAX_EVENT_BYTES:]
             continue
         if eof:
@@ -355,7 +367,9 @@ class GenericLogAdapter:
         with open_bytes(path) as stream:
             head = stream.read(4)
             encoding, nl = _detect_encoding(head)
-            for bline in _byte_lines(stream, nl, head):
+            # The newline pattern's width doubles as the code-unit width:
+            # 2 bytes for UTF-16 (alignment enforced), 1 for UTF-8.
+            for bline in _byte_lines(stream, nl, head, unit=len(nl)):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline and BOM too
                 line_no += 1

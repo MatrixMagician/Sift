@@ -344,6 +344,26 @@ def test_encoding_utf16le_bom_offsets_differ_messages_match(
     )
 
 
+def test_encoding_utf16le_fake_newline_across_char_boundary_not_split(
+    tmp_path: Path,
+) -> None:
+    """WR-07: a ``0A 00`` byte pair straddling two UTF-16-LE characters
+    (U+0A41 then U+0100 encodes ``... 41 0A 00 01 ...``) is NOT a newline —
+    matching it would misalign every subsequent line of the file."""
+    text = (
+        "2026-07-16T10:00:00Z INFO a\u0a41\u0100b\n"
+        "2026-07-16T10:00:01Z ERROR beta\n"
+    )
+    data = b"\xff\xfe" + text.encode("utf-16-le")
+    write_log(tmp_path, "u16-fake-nl.log", data)
+    events, stats = run_parse(tmp_path, "u16-fake-nl.log")
+    assert len(events) == 2
+    assert events[0].message.endswith("a\u0a41\u0100b")
+    assert events[1].message.endswith("beta")
+    assert events[1].ts == datetime(2026, 7, 16, 10, 0, 1, tzinfo=UTC)
+    assert_span_partition(events, stats.total_bytes)
+
+
 def test_encoding_utf16be_bom_parses(tmp_path: Path) -> None:
     write_log(tmp_path, "u8.log", ENCODED_FIXTURES["utf-8"])
     write_log(tmp_path, "u16be.log", ENCODED_FIXTURES["utf-16-be-bom"])
