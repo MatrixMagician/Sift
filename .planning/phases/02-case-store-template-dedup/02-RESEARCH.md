@@ -409,16 +409,19 @@ The unmeasured remainder is the Phase 1 genericlog parse loop (regex ladder with
 | A3 | SQLite TEXT-affinity column preserves BLOBs unmodified | Pattern 1 | Low — cited from sqlite.org datatype3; covered by the `typeof(raw)` test either way |
 | A4 | Phase-1 genericlog parse throughput leaves the 60 s budget intact (only Phase-2 stages were benchmarked) | Benchmark | Medium — mitigate by running the perf test in the FIRST plan wave, not the last |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does ticking CLI-03 in REQUIREMENTS.md require embedding/generation progress too?**
    - What we know: CLI-03 text covers "ingest, embedding, generation"; this phase can only deliver the ingest leg.
    - Recommendation: implement ingest progress here; leave CLI-03 unticked in REQUIREMENTS.md (or tick with a note) and finish it in Phase 3/4 — verifier should confirm the intended convention.
+   - RESOLVED: ingest-leg scope only this phase (plan 02-02). Tick CLI-03 with a partial-scope note — embedding/generation progress arrive in Phases 3–4.
 2. **Should `show clusters` gain `--filter` parity now or minimal keys?**
    - What we know: SPEC shows `[--filter …]` without specification; STORE-04 only demands inspectability.
    - Recommendation: ship the small allowlist above; more keys are cheap follow-ups. Record the filter grammar in `--help`.
+   - RESOLVED: minimal allowlisted key set adopted (plan 02-03); the grammar is recorded in `sift show --help`.
 3. **Where does dedup re-run when `mask_version` changes?**
    - Recommendation: `sift ingest` compares `meta.mask_version` and rebuilds groups when stale — no new subcommand needed in v1.
+   - RESOLVED: mooted — `rebuild_template_groups` runs unconditionally on every ingest (plan 02-01), so groups can never be stale; no staleness check needed.
 
 ## Environment Availability
 
