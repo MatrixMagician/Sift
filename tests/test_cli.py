@@ -23,6 +23,32 @@ FIXTURE_LOG = (
 )
 
 
+def _make_case(tmp_path: Path) -> Path:
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(FIXTURE_LOG, encoding="utf-8")
+    return input_dir
+
+
+def test_reingest_adds_zero_events(tmp_path: Path) -> None:
+    input_dir = _make_case(tmp_path)
+    result = runner.invoke(app, ["new", "demo", "--input", str(input_dir)])
+    assert result.exit_code == 0, result.output
+
+    first = runner.invoke(app, ["ingest", "demo"])
+    assert first.exit_code == 0, first.output
+    assert "3 new" in first.output
+
+    second = runner.invoke(app, ["ingest", "demo"])
+    assert second.exit_code == 0, second.output
+    assert "0 new" in second.output
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 0, shown.output
+    event_ids = set(re.findall(r"\b[0-9a-f]{16}\b", shown.output))
+    assert len(event_ids) == 3, "row count changed after re-ingest"
+
+
 def test_walking_skeleton_happy_path(tmp_path: Path) -> None:
     input_dir = tmp_path / "input"
     input_dir.mkdir()
