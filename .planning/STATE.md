@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 2
 current_phase_name: Case Store & Template Dedup
-status: executing
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-07-16T19:11:15.870Z"
+status: verifying
+stopped_at: Completed 02-03-PLAN.md
+last_updated: "2026-07-16T19:32:29.799Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 
 Phase: 2 (Case Store & Template Dedup) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-16 — Phase 2 execution started
 
-Progress: [█████████░] 88%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Progress: [█████████░] 88%
 | Phase 01 P05 | 8min | 2 tasks | 5 files |
 | Phase 02 P01 | 14min | 3 tasks | 7 files |
 | Phase 02 P02 | 9min | 2 tasks | 6 files |
+| Phase 02 P03 | ~16min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Batch size 5000 inside the single BEGIN IMMEDIATE ingest transaction; explicit store.close() on all ingest paths (STORE-01 clean case dir)
 - [Phase ?]: M2 gate measured: 100 MB ingest 19.3 s < 60 s (A4 retired); perf tests behind @pytest.mark.perf with addopts exclusion
 - [Phase ?]: CLI-03 ticked ingest-leg only; embedding/generation progress deferred to Phases 3-4
+- [Phase ?]: show --filter splits on FIRST '=' (keys allowlisted, values may contain '='), deliberate opposite of parse_adapter_overrides' last-'=' split
+- [Phase ?]: Filter key vocabulary frozen: events severity/source/file/since/until/limit, clusters severity/min-count/contains/limit; instr over LIKE so SQL wildcards stay literal
+- [Phase ?]: STORE-04 ticked partial-scope: events+clusters targets delivered, hypotheses inspection arrives Phase 4 (mirrors CLI-03 convention)
 
 ### Pending Todos
 
@@ -117,6 +121,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T19:11:15.865Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-07-16T19:32:29.779Z
+Stopped at: Completed 02-03-PLAN.md
 Resume file: None
