@@ -125,6 +125,28 @@ def test_show_strips_terminal_escapes(tmp_path: Path) -> None:
     assert "red alert" in shown.output
 
 
+def test_ingest_corrupt_compressed_file_fails_loudly_but_continues(
+    tmp_path: Path,
+) -> None:
+    """CR-01: a corrupt archive errors per-file; other files still ingest.
+
+    Detection decompresses file heads, so a truncated .gz raises during
+    detect — that must not abort the whole run and roll back good files.
+    """
+    input_dir = _make_case(tmp_path)
+    (input_dir / "truncated.log.gz").write_bytes(b"\x1f\x8b\x08\x00cut")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+
+    result = runner.invoke(app, ["ingest", "demo"])
+    assert result.exit_code == 1, result.output
+    assert "ERROR truncated.log.gz" in result.output
+    assert "3 new" in result.output  # the good file's events survive
+
+    shown = runner.invoke(app, ["show", "demo", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert "connection pool exhausted" in shown.output
+
+
 def test_new_warns_but_creates_on_empty_input_dir(tmp_path: Path) -> None:
     empty = tmp_path / "empty-input"
     empty.mkdir()

@@ -144,14 +144,17 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     with store.transaction():
         for path in files:
             relpath = path.relative_to(input_dir).as_posix()
-            file_adapter = adapters.detect(path, relpath, overrides)
-            # Per-run configuration travels on the adapter instance — the
-            # frozen Protocol has no config attributes (01-02 pattern). D-05:
-            # config.timezones reaches the adapter here.
-            if isinstance(file_adapter, GenericLogAdapter):
-                file_adapter.input_root = input_dir
-                file_adapter.tz_overrides = dict(config.timezones)
             try:
+                # Detection reads (and decompresses) file heads, so a corrupt
+                # archive can raise here too — it must hit the same loud
+                # per-file error path as a parse failure, never abort the run.
+                file_adapter = adapters.detect(path, relpath, overrides)
+                # Per-run configuration travels on the adapter instance — the
+                # frozen Protocol has no config attributes (01-02 pattern).
+                # D-05: config.timezones reaches the adapter here.
+                if isinstance(file_adapter, GenericLogAdapter):
+                    file_adapter.input_root = input_dir
+                    file_adapter.tz_overrides = dict(config.timezones)
                 events = list(file_adapter.parse(path, case))
                 new_count = store.insert_events(events)
             except Exception as exc:
