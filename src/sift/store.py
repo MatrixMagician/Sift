@@ -9,11 +9,13 @@ a ``PRAGMA user_version`` runner (D-03); Phase 2 extends the same store.
 import json
 import re
 import sqlite3
+import sys
 from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 import zstandard
 
@@ -235,6 +237,10 @@ class CaseStore:
         row = self._conn.execute("PRAGMA user_version").fetchone()
         current = int(row[0])
         for version in sorted(v for v in _MIGRATIONS if v > current):
+            # WR-02: opening a case never rewrites evidence files silently —
+            # announce on stderr (stdout stays scriptable) when a migration
+            # actually applies.
+            print(f"note: migrating case.db to schema v{version}", file=sys.stderr)
             self._conn.execute("BEGIN IMMEDIATE")
             try:
                 _MIGRATIONS[version](self._conn)
@@ -430,18 +436,30 @@ class CaseStore:
             f"{where_sql} ORDER BY count DESC, template{limit_sql}",
             params,
         ).fetchall()
-        return [
-            TemplateGroup(
-                template_id=r[0],
-                template=r[1],
-                count=r[2],
-                first_ts=r[3],
-                last_ts=r[4],
-                severity_max=r[5],
-                exemplar_event_ids=json.loads(r[6]),
+        groups: list[TemplateGroup] = []
+        for r in rows:
+            # WR-01: a tampered case.db can hold ANY JSON here. Guard while
+            # the value is still typed Any (pyright strict forbids a
+            # redundant isinstance on the list[str] dataclass field later):
+            # wrap non-arrays as a single element and coerce all elements to
+            # str, so the tampering stays visible to the operator and
+            # render-time sanitisation strips hostile bytes.
+            loaded: object = json.loads(r[6])
+            if not isinstance(loaded, list):
+                loaded = [loaded]
+            items = cast("list[object]", loaded)
+            groups.append(
+                TemplateGroup(
+                    template_id=r[0],
+                    template=r[1],
+                    count=r[2],
+                    first_ts=r[3],
+                    last_ts=r[4],
+                    severity_max=r[5],
+                    exemplar_event_ids=[str(x) for x in items],
+                )
             )
-            for r in rows
-        ]
+        return groups
 
     def get_meta(self, key: str) -> str | None:
         row = self._conn.execute(

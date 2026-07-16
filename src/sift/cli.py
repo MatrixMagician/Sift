@@ -7,6 +7,7 @@ implemented command exposes ``--data-dir`` as the flags layer.
 """
 
 import json
+import sqlite3
 import sys
 import unicodedata
 from datetime import UTC, datetime
@@ -70,7 +71,14 @@ def _case_store(case: str, config: SiftConfig) -> CaseStore:
     if not db_path.exists():
         print(f"Error: case {case!r} does not exist; create it with 'sift new'")
         raise typer.Exit(1)
-    return CaseStore(db_path)
+    try:
+        return CaseStore(db_path)
+    except sqlite3.Error as exc:
+        # WR-02: corrupt or read-only evidence media fails loudly with a
+        # message, never a Python traceback. Exception text can echo
+        # attacker-controlled db bytes — sanitise (T-04-01).
+        print(f"Error: cannot open case {case!r}: {_sanitise(str(exc))}")
+        raise typer.Exit(1) from None
 
 
 @app.command()
@@ -355,6 +363,12 @@ def _parse_filters(specs: list[str], target: str) -> dict[str, str | int]:
                 f"unknown filter key {key!r} for {target}; "
                 f"valid keys: {', '.join(valid_keys)}"
             )
+        if key in filters:
+            # WR-05: never silent last-wins — a repeated key is a mistake the
+            # operator must hear about (fail-loud prohibition).
+            raise ValueError(
+                f"duplicate filter key {key!r}; each key may appear once"
+            )
         if key == "severity":
             if value not in _SEVERITIES:
                 raise ValueError(
@@ -444,25 +458,31 @@ def show(
             # STORE-04: template groups, count DESC then template ASC.
             # Templates and exemplar text carry hostile log bytes — sanitise
             # at render only (T-02-02); an empty table renders nothing, exit 0.
+            # WR-01: EVERY DB-sourced field (ids, counts, timestamps,
+            # severities, exemplars) is attacker-controlled in a shared
+            # case.db — sanitise the COMPLETE rendered line, not per field.
             for g in store.query_template_groups(parsed or None):
-                template = _sanitise(g.template.replace("\n", " "))[:100]
-                print(
+                template = g.template.replace("\n", " ")[:100]
+                print(_sanitise(
                     f"{g.template_id}  {g.count:>7}  {g.severity_max:<7}  "
                     f"{g.first_ts or '-'}  {g.last_ts or '-'}  {template}"
-                )
-                print(f"    exemplars: {' '.join(g.exemplar_event_ids)}")
+                ))
+                print(_sanitise(
+                    f"    exemplars: {' '.join(map(str, g.exemplar_event_ids))}"
+                ))
             return
         # T-02-10: stream column-scoped rows — no raw column, no zstd
         # decompression, no full Event hydration. Lines stay byte-identical
         # to the Phase 1 rendering (stored ts strings ARE isoformat output).
+        # WR-01: whole-line sanitisation covers event_id/ts/severity too.
         for event_id, ts, severity, source_file, line_start, message in (
             store.iter_event_rows(parsed or None)
         ):
-            rendered = _sanitise(message.replace("\n", " "))[:120]
-            print(
+            rendered = message.replace("\n", " ")[:120]
+            print(_sanitise(
                 f"{event_id}  {ts if ts is not None else '-'}  {severity:<7}  "
-                f"{_sanitise(source_file)}:{line_start}  {rendered}"
-            )
+                f"{source_file}:{line_start}  {rendered}"
+            ))
     finally:
         # Close so WAL sidecars checkpoint on every show path (Pitfall 4).
         store.close()
