@@ -34,7 +34,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Unknown or low-confidence files fall back to genericlog automatically, and `--adapter glob=name` overrides detection; unparseable regions surface as `severity="unknown"` events rather than vanishing
   4. Multi-line records (stack traces, continuation lines) ingest as single events, and gzip/zstd-compressed inputs work without manual decompression
   5. Timestamps normalise to UTC with `ts_confidence` recorded (per-node timezone override supported), and CLI config resolves flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Package legitimacy checkpoint, uv/Typer scaffold, quality gates, RED walking-skeleton e2e test (wave 1)
+- [ ] 01-02-PLAN.md — Frozen Event/Adapter contracts, CaseStore, genericlog v0, e2e GREEN (wave 2)
+- [ ] 01-03-PLAN.md — genericlog depth: timestamp ladder, encodings, caps, coverage, gzip/zstd, UTC/tz (wave 3)
+- [ ] 01-04-PLAN.md — Config precedence, sniff auto-detection + `--adapter` override, CLI hardening (wave 3)
+- [ ] 01-05-PLAN.md — docs/decisions ADRs + M1 acceptance suite (≥99% coverage, idempotency, determinism) (wave 4)
 
 ### Phase 2: Case Store & Template Dedup
 **Goal**: The full write path works at production scale with zero LLM dependency — a 100 MB log collapses into inspectable template groups in a single portable file
@@ -129,7 +136,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Skeleton, Event Contract & genericlog Adapter | 0/TBD | Not started | - |
+| 1. Skeleton, Event Contract & genericlog Adapter | 0/5 | Not started | - |
 | 2. Case Store & Template Dedup | 0/TBD | Not started | - |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 0/TBD | Not started | - |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 0/TBD | Not started | - |

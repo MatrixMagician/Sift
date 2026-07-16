@@ -40,7 +40,20 @@ created: 2026-07-16
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| (populated by planner) | | | INGST-01..06, 10, 11, CLI-01 | — | | | | ❌ W0 | ⬜ pending |
+| 01-01-T1 | 01-01 | 1 | — (supply chain gate) | T-01-SC | six [SUS] PyPI packages human-approved before install | checkpoint | — (blocking-human) | — | ⬜ pending |
+| 01-01-T2 | 01-01 | 1 | CLI-01 | T-01-05 | no HTTP dependency installed | smoke + gates | `uv run sift --help && uv run ruff check && uv run pyright` | ❌ W0 | ⬜ pending |
+| 01-01-T3 | 01-01 | 1 | INGST-01 (RED contract) | T-01-05 | socket-guard autouse fixture active | integration (CliRunner, RED) | `! uv run pytest tests/test_cli.py::test_walking_skeleton_happy_path -x -q` | ❌ W0 | ⬜ pending |
+| 01-02-T1 | 01-02 | 2 | INGST-01 | — | — | unit | `uv run pytest tests/test_models.py -x -q` | ❌ W0 | ⬜ pending |
+| 01-02-T2 | 01-02 | 2 | INGST-02 | T-02-01, T-02-02 | case-name allowlist; parameterised SQL only | unit | `uv run pytest tests/test_store.py::test_reingest_idempotent -x` | ❌ W0 | ⬜ pending |
+| 01-02-T3 | 01-02 | 2 | INGST-01, INGST-02 | T-02-03 | streaming parse, no slurp | integration (CliRunner, GREEN) | `uv run pytest tests/test_cli.py -x -q` | ❌ W0 | ⬜ pending |
+| 01-03-T1 | 01-03 | 3 | INGST-04, INGST-11 | — | no fabricated severities/timestamps | unit | `uv run pytest tests/test_genericlog.py -k "timezone or format" -x -q` | ❌ W0 | ⬜ pending |
+| 01-03-T2 | 01-03 | 3 | INGST-05, INGST-06 | T-03-01, T-03-02 | 256-line/64 KB caps bound memory; decode after offsets fixed | unit | `uv run pytest tests/test_genericlog.py -k "multiline or coverage or encoding" -x -q` | ❌ W0 | ⬜ pending |
+| 01-03-T3 | 01-03 | 3 | INGST-10 | T-03-01 | streaming decompression; corrupt input errors loudly | unit | `uv run pytest tests/test_genericlog.py -k compressed -x -q` | ❌ W0 | ⬜ pending |
+| 01-04-T1 | 01-04 | 3 | CLI-01 | T-04-02 | tz names validated at config time | unit | `uv run pytest tests/test_config.py -x -q` | ❌ W0 | ⬜ pending |
+| 01-04-T2 | 01-04 | 3 | INGST-03 | — | deterministic detection order | unit | `uv run pytest tests/test_adapters_detect.py -x -q` | ❌ W0 | ⬜ pending |
+| 01-04-T3 | 01-04 | 3 | CLI-01, INGST-03 | T-04-01 | control chars stripped from show output | integration | `uv run pytest tests/test_cli.py -x -q` | ❌ W0 | ⬜ pending |
+| 01-05-T1 | 01-05 | 4 | — (D-02 ADRs) | T-05-01 | decisions auditable in-repo | smoke | `uv run sift ingest --help \| grep -i snapshot` | ❌ W0 | ⬜ pending |
+| 01-05-T2 | 01-05 | 4 | INGST-01, INGST-02, INGST-05 | — | — | acceptance (M1 gate) | `uv run pytest tests/test_acceptance.py -x -q && uv run pytest -q && uv run ruff check && uv run pyright` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
