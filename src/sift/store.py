@@ -9,12 +9,42 @@ a ``PRAGMA user_version`` runner (D-03); Phase 2 extends the same store.
 import json
 import re
 import sqlite3
-from collections.abc import Callable, Generator, Iterable
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import zstandard
+
 from sift.models import Event
+
+_RAW_ZSTD_THRESHOLD = 4096  # UTF-8 encoded bytes (STORE-02)
+_MAX_RAW_BYTES = 128 * 2**20  # zstd-bomb cap for tampered case files (T-02-01)
+# Constructor defaults: level 3, single-threaded. Never pass threads= — frames
+# must be deterministic per library version (RESEARCH A1).
+_CCTX = zstandard.ZstdCompressor()
+_DCTX = zstandard.ZstdDecompressor()
+
+
+def _encode_raw(raw: str) -> str | bytes:
+    """Compress raw whose UTF-8 encoding exceeds the 4 KB threshold (STORE-02).
+
+    The threshold counts encoded bytes, not characters (Pitfall 3).
+    """
+    data = raw.encode("utf-8")
+    return _CCTX.compress(data) if len(data) > _RAW_ZSTD_THRESHOLD else raw
+
+
+def _decode_raw(value: str | bytes) -> str:
+    """SINGLE read path for raw: transparently decompress zstd BLOBs (STORE-02).
+
+    max_output_size caps decompression because a shared case.db is untrusted
+    input (T-02-01 zstd bomb).
+    """
+    if isinstance(value, bytes):
+        return _DCTX.decompress(value, max_output_size=_MAX_RAW_BYTES).decode("utf-8")
+    return value
 
 _CASE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -68,8 +98,44 @@ def _migration_1(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
 
 
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """Add template_groups and zstd-compress oversized raw in place (STORE-02).
+
+    Runs inside the BEGIN IMMEDIATE migration runner, so a concurrent opener
+    never observes a half-migrated schema.
+    """
+    conn.execute(
+        """
+        CREATE TABLE template_groups (
+            template_id  TEXT PRIMARY KEY,      -- sha256(template)[:16]
+            template     TEXT NOT NULL UNIQUE,  -- masked message (CLUS-01)
+            count        INTEGER NOT NULL,
+            first_ts     TEXT,                  -- ISO 8601, NULL if all ts missing
+            last_ts      TEXT,
+            severity_max TEXT NOT NULL
+                CHECK (severity_max IN
+                    ('fatal','error','warn','info','debug','unknown')),
+            exemplar_event_ids TEXT NOT NULL    -- JSON array, canonical order
+        )
+        """
+    )
+    # Compress pre-existing Phase-1 oversized rows in place (Pitfall 7). The
+    # SQL predicate counts UTF-8 encoded bytes, matching _encode_raw exactly.
+    rows = conn.execute(
+        "SELECT event_id, raw FROM events WHERE length(CAST(raw AS BLOB)) > ?",
+        (_RAW_ZSTD_THRESHOLD,),
+    ).fetchall()
+    for eid, raw in rows:
+        if isinstance(raw, str):
+            conn.execute(
+                "UPDATE events SET raw = ? WHERE event_id = ?",
+                (_CCTX.compress(raw.encode("utf-8")), eid),
+            )
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migration_1,
+    2: _migration_2,
 }
 
 _EVENT_COLUMNS = (
@@ -77,6 +143,24 @@ _EVENT_COLUMNS = (
     "line_start, line_end, severity, component, thread, session, "
     "message, attrs, raw"
 )
+
+_TEMPLATE_GROUP_COLUMNS = (
+    "template_id, template, count, first_ts, last_ts, severity_max, "
+    "exemplar_event_ids"
+)
+
+
+@dataclass(frozen=True)
+class TemplateGroup:
+    """One template dedup group (CLUS-01), persisted in template_groups."""
+
+    template_id: str  # sha256(template)[:16], mirrors the event_id idiom
+    template: str  # masked message
+    count: int
+    first_ts: str | None  # ISO 8601 string or None
+    last_ts: str | None
+    severity_max: str  # six-severity CHECK vocabulary
+    exemplar_event_ids: list[str]
 
 
 class CaseStore:
@@ -137,7 +221,7 @@ class CaseStore:
                 e.session,
                 e.message,
                 json.dumps(e.attrs, sort_keys=True),
-                e.raw,
+                _encode_raw(e.raw),  # zstd BLOB when > 4 KB encoded (STORE-02)
             )
             for e in events
         ]
@@ -171,7 +255,63 @@ class CaseStore:
                 session=r[11],
                 message=r[12],
                 attrs=json.loads(r[13]),
-                raw=r[14],
+                raw=_decode_raw(r[14]),  # single raw read path (Pitfall 2)
+            )
+            for r in rows
+        ]
+
+    def iter_event_summaries(self) -> Iterator[tuple[str, str | None, str, str]]:
+        """Yield (event_id, ts, severity, message) in canonical order (CLUS-01).
+
+        Streams rows from the cursor — never fetchall — and never selects
+        raw, so nothing is decompressed during dedup.
+        """
+        cursor = self._conn.execute(
+            "SELECT event_id, ts, severity, message FROM events "
+            "ORDER BY ts IS NULL, ts, source_file, line_start"
+        )
+        for row in cursor:
+            yield (row[0], row[1], row[2], row[3])
+
+    def replace_template_groups(self, groups: Iterable[TemplateGroup]) -> None:
+        """DELETE FROM template_groups then insert all groups (CLUS-01).
+
+        The CALLER owns the transaction — rebuild_template_groups wraps this
+        together with the mask_version meta write.
+        """
+        self._conn.execute("DELETE FROM template_groups")
+        self._conn.executemany(
+            f"INSERT INTO template_groups ({_TEMPLATE_GROUP_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    g.template_id,
+                    g.template,
+                    g.count,
+                    g.first_ts,
+                    g.last_ts,
+                    g.severity_max,
+                    json.dumps(g.exemplar_event_ids),
+                )
+                for g in groups
+            ],
+        )
+
+    def query_template_groups(self) -> list[TemplateGroup]:
+        """All template groups ordered by count DESC, template ASC (STORE-04)."""
+        rows = self._conn.execute(
+            f"SELECT {_TEMPLATE_GROUP_COLUMNS} FROM template_groups "  # noqa: S608 — column list is a module constant
+            "ORDER BY count DESC, template"
+        ).fetchall()
+        return [
+            TemplateGroup(
+                template_id=r[0],
+                template=r[1],
+                count=r[2],
+                first_ts=r[3],
+                last_ts=r[4],
+                severity_max=r[5],
+                exemplar_event_ids=json.loads(r[6]),
             )
             for r in rows
         ]

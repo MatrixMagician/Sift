@@ -15,8 +15,6 @@ from sift.store import (
     validate_case_name,
 )
 
-_RED = pytest.mark.xfail(strict=True, reason="RED until 02-01 task 2/3")
-
 
 def _ev(
     source_file: str = "app.log",
@@ -50,7 +48,6 @@ def test_fresh_store_applies_migration_1(tmp_path: Path) -> None:
     store.close()
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
         tables = {
             row[0]
             for row in conn.execute(
@@ -140,7 +137,6 @@ def test_case_db_path_layout(tmp_path: Path) -> None:
 # --- plan 02-01: migration 2 + transparent zstd (STORE-02) -----------------
 
 
-@_RED
 def test_fresh_store_reaches_user_version_2(tmp_path: Path) -> None:
     db = tmp_path / "case.db"
     CaseStore(db).close()
@@ -158,7 +154,6 @@ def test_fresh_store_reaches_user_version_2(tmp_path: Path) -> None:
     assert "template_groups" in tables
 
 
-@_RED
 def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
     """Pitfall 7: a Phase-1 case.db reopened with Phase 2 code migrates to
     user_version 2 with oversized raw compressed in place and still readable."""
@@ -205,7 +200,6 @@ def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
         conn.close()
 
 
-@_RED
 def test_raw_zstd_threshold_boundary(tmp_path: Path) -> None:
     """STORE-02 boundary: 0 and exactly 4096 encoded bytes stay TEXT;
     4097 encoded bytes becomes a zstd BLOB; all round-trip verbatim."""
@@ -230,7 +224,6 @@ def test_raw_zstd_threshold_boundary(tmp_path: Path) -> None:
     assert types[event_id("app.log", 2)] == "blob"
 
 
-@_RED
 def test_zstd_threshold_measured_in_encoded_bytes(tmp_path: Path) -> None:
     """Pitfall 3: the 4 KB threshold counts UTF-8 encoded bytes, not chars."""
     payload = "é" * 2500  # 2,500 chars but 5,000 UTF-8 bytes
@@ -248,7 +241,6 @@ def test_zstd_threshold_measured_in_encoded_bytes(tmp_path: Path) -> None:
         conn.close()
 
 
-@_RED
 def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
     """Migration idempotency: reopening a v2 store leaves user_version at 2
     and stored row bytes unchanged."""
