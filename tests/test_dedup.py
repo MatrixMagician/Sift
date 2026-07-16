@@ -1,11 +1,5 @@
-"""Template dedup tests (CLUS-01, ADR 0003): masking, grouping, determinism.
+"""Template dedup tests (CLUS-01, ADR 0003): masking, grouping, determinism."""
 
-RED at the end of 02-01 task 1: ``sift.pipeline.dedup`` and the new store
-methods do not exist yet, so every test is strict-xfail. Task 3 removes the
-markers and switches the importlib indirection to a direct import.
-"""
-
-import importlib
 import random
 import sqlite3
 import time
@@ -13,22 +7,13 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import ModuleType
-from typing import Any, cast
-
-import pytest
+from typing import Any
 
 from sift.models import Event, event_id
+from sift.pipeline import dedup
 from sift.store import CaseStore
 
-_RED = pytest.mark.xfail(strict=True, reason="RED until 02-01 task 2/3")
-
 _BASE = datetime(2026, 7, 16, 8, 0, 0, tzinfo=UTC)
-
-
-def _dedup() -> ModuleType:
-    """Import the not-yet-existing module inside tests so collection succeeds."""
-    return importlib.import_module("sift.pipeline.dedup")
 
 
 def _dev(
@@ -141,77 +126,67 @@ def _tg_rows(db: Path) -> list[Any]:
 # --- mask token classes ----------------------------------------------------
 
 
-@_RED
 def test_mask_timestamp() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     assert (
         mask("started at 2026-07-16T10:00:01+00:00 ok") == "started at <TS> ok"
     )
     assert mask("at 2026-07-16 10:00:02.123Z done") == "at <TS> done"
 
 
-@_RED
 def test_mask_uuid() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     assert (
         mask("id 550e8400-e29b-41d4-a716-446655440000 done") == "id <UUID> done"
     )
 
 
-@_RED
 def test_mask_0x_hex() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     assert mask("code 0xDEADBEEF raised") == "code <HEX> raised"
 
 
-@_RED
 def test_mask_bare_long_hex_sid() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     sid = "0123456789abcdef0123456789abcdef"  # 32-hex MSTR SID shape
     assert mask(f"session {sid} end") == "session <HEX> end"
 
 
-@_RED
 def test_mask_path_posix_and_windows() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     assert mask("read /var/log/app.log now") == "read <PATH> now"
     assert mask(r"open C:\Windows\System32 now") == "open <PATH> now"
 
 
-@_RED
 def test_mask_plain_number() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     assert mask("retried 17 times") == "retried <NUM> times"
 
 
-@_RED
 def test_mask_compound_timestamp_not_shattered() -> None:
     """Pitfall 1: a timestamp full of digits must mask to ONE <TS> token."""
-    mask = _dedup().mask
+    mask = dedup.mask
     assert (
         mask("at 2026-07-16T10:00:02+00:00 attempt 3") == "at <TS> attempt <NUM>"
     )
 
 
-@_RED
 def test_mask_path_with_hex_segments_stays_path() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     out = mask("load /opt/0123456789abcdef/data end")
     assert out == "load <PATH> end"
     assert "<HEX>" not in out
 
 
-@_RED
 def test_mask_deterministic() -> None:
-    mask = _dedup().mask
+    mask = dedup.mask
     msgs = _corpus()[:200]
     assert [mask(m) for m in msgs] == [mask(m) for m in msgs]
 
 
-@_RED
 def test_mask_redos_pathological_input() -> None:
     """T-02-03: 64 KB of hostile runs must complete well under a second."""
-    mask = _dedup().mask
+    mask = dedup.mask
     line = ("a" * 512 + "1" * 512) * 64  # 64 KiB
     start = time.perf_counter()
     mask(line)
@@ -221,18 +196,16 @@ def test_mask_redos_pathological_input() -> None:
 # --- grouping via the store ------------------------------------------------
 
 
-@_RED
 def test_reduction(tmp_path: Path) -> None:
     """CLUS-01 / M2 gate: distinct groups / events <= 0.10 on the fixture,
     and every group's count/first_ts/last_ts/exemplars are correct."""
-    dedup = _dedup()
     messages = _corpus()
     events = [_dev(i, m) for i, m in enumerate(messages)]
     store = CaseStore(tmp_path / "case.db")
     store.insert_events(events)
     n_groups = dedup.rebuild_template_groups(store)
 
-    groups = cast(Any, store).query_template_groups()
+    groups = store.query_template_groups()
     assert n_groups == len(groups)
     assert len(groups) / len(events) <= 0.10
 
@@ -265,10 +238,8 @@ def test_reduction(tmp_path: Path) -> None:
     store.close()
 
 
-@_RED
 def test_reingest_rebuild_idempotent(tmp_path: Path) -> None:
     """Pitfall 6: ingest twice + rebuild twice -> byte-identical rows."""
-    dedup = _dedup()
     events = [_dev(i, m) for i, m in enumerate(_corpus()[:400])]
     db = tmp_path / "case.db"
     store = CaseStore(db)
@@ -283,11 +254,9 @@ def test_reingest_rebuild_idempotent(tmp_path: Path) -> None:
     assert first == second
 
 
-@_RED
 def test_accounting_every_event_counted_once(tmp_path: Path) -> None:
     """Nothing disappears silently: sum of group counts == events row count,
     including severity='unknown' rows."""
-    dedup = _dedup()
     events = [
         _dev(0, "alpha 1"),
         _dev(1, "alpha 2"),
@@ -297,22 +266,20 @@ def test_accounting_every_event_counted_once(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     store.insert_events(events)
     dedup.rebuild_template_groups(store)
-    groups = cast(Any, store).query_template_groups()
+    groups = store.query_template_groups()
     assert sum(g.count for g in groups) == len(events)
     store.close()
 
 
-@_RED
 def test_exemplar_cap(tmp_path: Path) -> None:
     """min(count, 5) exemplar ids in canonical store order."""
-    dedup = _dedup()
     small = [_dev(i, "small group event") for i in range(3)]
     big = [_dev(10 + i, "big group event") for i in range(8)]
     store = CaseStore(tmp_path / "case.db")
     store.insert_events(small + big)
     dedup.rebuild_template_groups(store)
     by_template = {
-        g.template: g for g in cast(Any, store).query_template_groups()
+        g.template: g for g in store.query_template_groups()
     }
     assert by_template["small group event"].exemplar_event_ids == [
         e.event_id for e in small
@@ -323,11 +290,9 @@ def test_exemplar_cap(tmp_path: Path) -> None:
     store.close()
 
 
-@_RED
 def test_severity_max_uses_rank_not_lexicographic(tmp_path: Path) -> None:
     """A group holding info+error+unknown reports 'error' (rank order,
     never string comparison — 'unknown' > 'error' lexicographically)."""
-    dedup = _dedup()
     events = [
         _dev(0, "same event text", severity="info"),
         _dev(1, "same event text", severity="error"),
@@ -336,7 +301,7 @@ def test_severity_max_uses_rank_not_lexicographic(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     store.insert_events(events)
     dedup.rebuild_template_groups(store)
-    groups = cast(Any, store).query_template_groups()
+    groups = store.query_template_groups()
     assert len(groups) == 1
     assert groups[0].severity_max == "error"
     store.close()

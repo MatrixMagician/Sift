@@ -17,6 +17,7 @@ import typer
 from sift import adapters
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.config import SiftConfig, load_config
+from sift.pipeline import dedup
 from sift.store import CaseStore, case_db_path
 
 app = typer.Typer(no_args_is_help=True)
@@ -221,7 +222,11 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
             for note in stats.notes if stats else []:
                 print(f"  note: {note}")
         store.set_meta("parse_coverage", json.dumps(coverage, sort_keys=True))
+    # Recompute template groups AFTER the event transaction commits, so the
+    # groups always reflect the store's actual contents (CLUS-01, Pitfall 6).
+    n_groups = dedup.rebuild_template_groups(store)
     print(f"Total: {total_new} new events")
+    print(f"Template groups: {n_groups}")
     if failed:
         print(f"Error: {len(failed)} file(s) failed to parse")
         raise typer.Exit(1)
@@ -230,17 +235,30 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
 @app.command()
 def show(case: str, what: str, data_dir: DataDirOption = None) -> None:
     """Show events, clusters or hypotheses for a case."""
-    if what == "clusters":
-        print("show clusters arrives in Phase 2 (M2)")
-        raise typer.Exit(1)
     if what == "hypotheses":
         print("show hypotheses arrives in Phase 4 (M4)")
         raise typer.Exit(1)
-    if what != "events":
+    if what not in ("events", "clusters"):
         print(f"Error: unknown target {what!r}; expected events|clusters|hypotheses")
         raise typer.Exit(1)
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
+    if what == "clusters":
+        # STORE-04: template groups, count DESC then template ASC. Templates
+        # and exemplar text carry hostile log bytes — sanitise at render only
+        # (T-02-02); an empty table renders nothing and exits 0.
+        try:
+            for g in store.query_template_groups():
+                template = _sanitise(g.template.replace("\n", " "))[:100]
+                print(
+                    f"{g.template_id}  {g.count:>7}  {g.severity_max:<7}  "
+                    f"{g.first_ts or '-'}  {g.last_ts or '-'}  {template}"
+                )
+                print(f"    exemplars: {' '.join(g.exemplar_event_ids)}")
+        finally:
+            # Close on this new path so WAL sidecars checkpoint (Pitfall 4).
+            store.close()
+        return
     for e in store.query_events():
         ts = e.ts.isoformat() if e.ts is not None else "-"
         message = _sanitise(e.message.replace("\n", " "))[:120]

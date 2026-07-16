@@ -32,8 +32,6 @@ def _read_coverage_meta(case: str) -> dict[str, dict[str, object]]:
 
 runner = CliRunner()
 
-_RED = pytest.mark.xfail(strict=True, reason="RED until 02-01 task 2/3")
-
 # Three ISO 8601 timestamped entries (mixed severities in the message text),
 # with one indented continuation line under the second entry.
 FIXTURE_LOG = (
@@ -372,7 +370,6 @@ REPETITIVE_LOG = (
 )
 
 
-@_RED
 def test_show_clusters_e2e(tmp_path: Path) -> None:
     """new -> ingest -> show clusters renders template groups end-to-end."""
     input_dir = tmp_path / "input"
@@ -396,7 +393,6 @@ def test_show_clusters_e2e(tmp_path: Path) -> None:
     ), shown.output
 
 
-@_RED
 def test_show_clusters_empty_case_exits_0(tmp_path: Path) -> None:
     """A case with zero events renders an empty listing — no crash."""
     empty = tmp_path / "empty-input"
@@ -409,7 +405,6 @@ def test_show_clusters_empty_case_exits_0(tmp_path: Path) -> None:
     assert not re.search(r"\b[0-9a-f]{16}\b", shown.output)
 
 
-@_RED
 def test_show_clusters_ordering(tmp_path: Path) -> None:
     """Groups render by count DESC, tie-break on template text ASC."""
     lines: list[str] = []
@@ -438,7 +433,6 @@ def test_show_clusters_ordering(tmp_path: Path) -> None:
     ), out
 
 
-@_RED
 def test_show_clusters_strips_terminal_escapes(tmp_path: Path) -> None:
     """T-02-02: hostile log bytes in templates never reach the terminal."""
     input_dir = tmp_path / "input"
