@@ -98,7 +98,10 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     """Parse the case's input directory and store canonical events.
 
     A case is one snapshot of artefacts: re-ingesting the same snapshot adds
-    zero events (idempotent); re-collect changed artefacts into a new case.
+    zero events (idempotent); re-collect changed inputs into a new case.
+    New files appearing in the directory simply add events, and renamed
+    files produce duplicate events (a documented limitation — event identity
+    is source_file + byte_offset within one snapshot).
     """
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
