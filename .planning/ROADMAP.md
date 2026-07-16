@@ -72,7 +72,20 @@ Plans:
   4. Schema migrations run via `PRAGMA user_version`, and `raw` text > 4 KB is zstd-compressed transparently
   5. Long-running ingest shows progress feedback instead of a silent hang
 
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 02-01-PLAN.md — Store v2 (migration 2, transparent zstd) + pipeline/dedup masking + `show clusters` end-to-end slice (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md — Batched streaming ingest + stderr progress, 100 MB generator + < 60 s perf gate, STORE-01 portability (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 02-03-PLAN.md — Allowlisted `--filter` on `show events|clusters` + column-scoped streaming show (wave 3)
 
 ### Phase 3: Inference Client, Doctor, Embeddings & Clustering
 
