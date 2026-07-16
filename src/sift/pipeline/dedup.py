@@ -13,18 +13,26 @@ import re
 
 from sift.store import CaseStore, TemplateGroup
 
-MASK_VERSION = 1  # bump whenever mask rules change; groups recompute cheaply
+MASK_VERSION = 2  # bump whenever mask rules change; groups recompute cheaply
 
 # Most-specific-first order is load-bearing (Pitfall 1): ts before num (else
 # dates shatter into <NUM>-<NUM>-<NUM>), uuid before hex (else the 8-hex
 # prefix wins), hex before num (else 0x1A2B splits). Every alternative is a
 # linear scan — no nested quantifiers, no overlapping optionals (T-02-03).
+# The bare-hex lookaheads are bounded linear scans over one word-delimited
+# run, anchored at \b, so the no-ReDoS property holds.
+# WR-04 (MASK_VERSION 2): a bare hex run must contain at least one hex
+# LETTER — pure-decimal 8+ digit runs (epoch seconds/millis, large ids)
+# fall through to <NUM> instead of shattering templates by magnitude.
 _MASK = re.compile(
     r"""
     (?P<ts>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)
   | (?P<uuid>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
              -[0-9a-fA-F]{4}-[0-9a-fA-F]{12})
-  | (?P<hex>0[xX][0-9a-fA-F]+|\b[0-9a-fA-F]{8,}\b)   # 32-hex SIDs land here
+  | (?P<hex>0[xX][0-9a-fA-F]+                        # 0x-prefixed always hex
+            |\b(?=[0-9a-fA-F]{8,}\b)                 # length/charset gate
+             (?=[0-9]*[a-fA-F])                      # at least one hex letter
+             [0-9a-fA-F]+)                           # 32-hex SIDs land here
   | (?P<path>(?:/[\w.\-]+){2,}|(?:[A-Za-z]:)?(?:\\[\w.\-]+){2,})
   | (?P<num>\b\d+\b)
     """,
