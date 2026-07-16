@@ -72,7 +72,7 @@ Plans:
   4. Schema migrations run via `PRAGMA user_version`, and `raw` text > 4 KB is zstd-compressed transparently
   5. Long-running ingest shows progress feedback instead of a silent hang
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -89,7 +89,7 @@ Plans:
 
 **Gap closure** *(from 02-VERIFICATION.md, status gaps_found 20/24)*
 
-- [ ] 02-04-PLAN.md — Close verifier gaps: CR-01 per-file savepoint accounting, WR-01 whole-line show sanitisation, WR-05 duplicate --filter rejection, REQUIREMENTS.md partial-scope notes (+ WR-02/03/04, IN-03/04 ride-alongs) (wave 1)
+- [x] 02-04-PLAN.md — Close verifier gaps: CR-01 per-file savepoint accounting, WR-01 whole-line show sanitisation, WR-05 duplicate --filter rejection, REQUIREMENTS.md partial-scope notes (+ WR-02/03/04, IN-03/04 ride-alongs) (wave 1)
 
 ### Phase 3: Inference Client, Doctor, Embeddings & Clustering
 
@@ -190,7 +190,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
-| 2. Case Store & Template Dedup | 3/3 | In Progress|  |
+| 2. Case Store & Template Dedup | 4/4 | In Progress|  |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 0/TBD | Not started | - |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 0/TBD | Not started | - |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |

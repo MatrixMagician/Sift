@@ -100,3 +100,7 @@ All three tasks followed RED→GREEN with gate commits:
 ## Deferred ride-alongs (from plan, unchanged)
 
 IN-01 (severity vocabulary), IN-02 (migration 2 fetchall), IN-05 (dir-symlink silence), IN-06 (ZstdError context) — reasons recorded in 02-04-PLAN.md. Human-verification items (TTY progress, idle-machine perf re-run, migration-concurrency/interrupted-ingest backstops, prohibition sign-off) proceed to end-of-phase UAT.
+
+## Self-Check: PASSED
+
+All 7 modified files and REQUIREMENTS.md verified on disk; all 7 commits (a78ac6f, 47a39e6, 2d52d1d, d74a400, 9e465f1, 7d80a07, 9bd64d8) verified in git log.

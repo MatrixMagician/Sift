@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 2
-current_phase_name: Case Store & Template Dedup
+current_phase: 02
+current_phase_name: case-store-template-dedup
 status: executing
-stopped_at: Completed 02-03-PLAN.md
-last_updated: "2026-07-16T21:58:27.349Z"
+stopped_at: Completed 02-04-PLAN.md
+last_updated: "2026-07-16T22:15:47.060Z"
 last_activity: 2026-07-16
-last_activity_desc: Phase 2 execution started
+last_activity_desc: Phase 02 execution started
 progress:
   total_phases: 2
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 9
+  completed_plans: 9
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-16)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 2 — Case Store & Template Dedup
+**Current focus:** Phase 02 — case-store-template-dedup
 
 ## Current Position
 
-Phase: 2 (Case Store & Template Dedup) — EXECUTING
-Plan: 3 of 3
+Phase: 02 (case-store-template-dedup) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-16 — Phase 2 execution started
+Last activity: 2026-07-16 — Phase 02 execution started
 
 Progress: [██████████] 100%
 
@@ -66,6 +66,7 @@ Progress: [██████████] 100%
 | Phase 02 P01 | 14min | 3 tasks | 7 files |
 | Phase 02 P02 | 9min | 2 tasks | 6 files |
 | Phase 02 P03 | ~16min | 2 tasks | 4 files |
+| Phase 02 P04 | 14min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,10 @@ Recent decisions affecting current work:
 - [Phase ?]: show --filter splits on FIRST '=' (keys allowlisted, values may contain '='), deliberate opposite of parse_adapter_overrides' last-'=' split
 - [Phase ?]: Filter key vocabulary frozen: events severity/source/file/since/until/limit, clusters severity/min-count/contains/limit; instr over LIKE so SQL wildcards stay literal
 - [Phase ?]: STORE-04 ticked partial-scope: events+clusters targets delivered, hypotheses inspection arrives Phase 4 (mirrors CLI-03 convention)
+- [Phase ?]: 02-04: CaseStore.savepoint() with code-constant name _SAVEPOINT_INGEST_FILE nests inside the BEGIN IMMEDIATE ingest transaction; failed file rolls back to zero rows (CR-01)
+- [Phase ?]: 02-04: template_groups_stale contract — ingest sets 1 in event transaction, rebuild clears 0 in rebuild transaction, show clusters warns on stderr
+- [Phase ?]: 02-04: MASK_VERSION 2 — bare hex requires a hex letter; pure-decimal 8+ digit runs mask to <NUM>; groups recompute on next ingest, no migration
+- [Phase ?]: 02-04: show render paths sanitise the COMPLETE line — every DB-sourced field covered; duplicate --filter keys exit 2; corrupt case.db exits 1 without traceback
 
 ### Pending Todos
 
@@ -121,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T19:32:29.779Z
-Stopped at: Completed 02-03-PLAN.md
+Last session: 2026-07-16T22:15:47.054Z
+Stopped at: Completed 02-04-PLAN.md
 Resume file: None
