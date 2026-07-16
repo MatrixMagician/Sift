@@ -7,6 +7,7 @@ implemented command exposes ``--data-dir`` as the flags layer.
 """
 
 import json
+import sys
 import unicodedata
 from datetime import UTC, datetime
 from itertools import batched
@@ -181,7 +182,14 @@ def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
     # byte-identical to Phase 1. disable= makes non-TTY runs (CliRunner, CI,
     # pipes) render nothing, deterministically.
     err_console = Console(stderr=True)
-    sizes = {path: path.stat().st_size for path in files}
+    sizes: dict[Path, int] = {}
+    for path in files:
+        try:
+            sizes[path] = path.stat().st_size
+        except OSError:
+            # IN-04: a file vanishing between rglob and stat must fail loudly
+            # in the per-file loop below, not abort the run with a traceback.
+            sizes[path] = 0
     done_bytes = 0
     with Progress(
         # T-02-06: the description is a STATIC string — untrusted filenames
@@ -216,38 +224,48 @@ def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
                     progress.update(ptask, completed=done_bytes)
                     continue
                 try:
-                    # Detection reads (and decompresses) file heads, so a
-                    # corrupt archive can raise here too — it must hit the
-                    # same loud per-file error path as a parse failure,
-                    # never abort the run.
-                    file_adapter = adapters.detect(path, relpath, overrides)
-                    # Per-run configuration travels on the adapter instance —
-                    # the frozen Protocol has no config attributes (01-02
-                    # pattern). D-05: config.timezones reaches the adapter.
-                    if isinstance(file_adapter, GenericLogAdapter):
-                        file_adapter.input_root = input_dir
-                        file_adapter.tz_overrides = dict(config.timezones)
-                    # T-02-05: stream events in bounded batches — a 100 MB
-                    # file never materialises all its Event objects at once.
-                    # Decompressed-stream offsets do not map to on-disk bytes
-                    # for .gz/.zst, so those advance whole-file on completion.
-                    track_offsets = isinstance(
-                        file_adapter, GenericLogAdapter
-                    ) and path.suffix not in (".gz", ".zst")
-                    new_count = 0
-                    parsed_count = 0
-                    for batch in batched(file_adapter.parse(path, case), 5000):
-                        new_count += store.insert_events(batch)
-                        parsed_count += len(batch)
-                        if track_offsets:
-                            attrs = batch[-1].attrs
-                            offset = int(attrs.get("byte_offset", "0")) + int(
-                                attrs.get("byte_len", "0")
-                            )
-                            progress.update(
-                                ptask,
-                                completed=done_bytes + min(offset, file_size),
-                            )
+                    # CR-01: the whole per-file body runs inside a savepoint
+                    # nested in the outer BEGIN IMMEDIATE transaction — a
+                    # mid-stream parse failure rolls THIS file back to zero
+                    # rows while earlier files' inserts survive.
+                    with store.savepoint():
+                        # Detection reads (and decompresses) file heads, so a
+                        # corrupt archive can raise here too — it must hit the
+                        # same loud per-file error path as a parse failure,
+                        # never abort the run.
+                        file_adapter = adapters.detect(path, relpath, overrides)
+                        # Per-run configuration travels on the adapter
+                        # instance — the frozen Protocol has no config
+                        # attributes (01-02 pattern). D-05: config.timezones
+                        # reaches the adapter.
+                        if isinstance(file_adapter, GenericLogAdapter):
+                            file_adapter.input_root = input_dir
+                            file_adapter.tz_overrides = dict(config.timezones)
+                        # T-02-05: stream events in bounded batches — a 100 MB
+                        # file never materialises all its Event objects at
+                        # once. Decompressed-stream offsets do not map to
+                        # on-disk bytes for .gz/.zst, so those advance
+                        # whole-file on completion.
+                        track_offsets = isinstance(
+                            file_adapter, GenericLogAdapter
+                        ) and path.suffix not in (".gz", ".zst")
+                        new_count = 0
+                        parsed_count = 0
+                        for batch in batched(
+                            file_adapter.parse(path, case), 5000
+                        ):
+                            new_count += store.insert_events(batch)
+                            parsed_count += len(batch)
+                            if track_offsets:
+                                attrs = batch[-1].attrs
+                                offset = int(
+                                    attrs.get("byte_offset", "0")
+                                ) + int(attrs.get("byte_len", "0"))
+                                progress.update(
+                                    ptask,
+                                    completed=done_bytes
+                                    + min(offset, file_size),
+                                )
                 except Exception as exc:
                     # A bad file never silently vanishes: loud error, keep
                     # going. T-04-01: relpath and exception text carry
@@ -291,6 +309,10 @@ def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
                 done_bytes += file_size
                 progress.update(ptask, completed=done_bytes)
             store.set_meta("parse_coverage", json.dumps(coverage, sort_keys=True))
+            # WR-03: mark the groups stale inside the same transaction as the
+            # event inserts; rebuild_template_groups clears it — a crash in
+            # between is detectable by `show clusters`.
+            store.set_meta("template_groups_stale", "1")
     # Recompute template groups AFTER the event transaction commits, so the
     # groups always reflect the store's actual contents (CLUS-01, Pitfall 6).
     n_groups = dedup.rebuild_template_groups(store)
@@ -411,6 +433,14 @@ def show(
     store = _case_store(case, config)
     try:
         if what == "clusters":
+            # WR-03: events committed but groups never rebuilt (crash between
+            # the event transaction and the rebuild) — warn, still render.
+            if store.get_meta("template_groups_stale") == "1":
+                print(
+                    "Warning: template groups are stale (last ingest did not "
+                    "complete); re-run 'sift ingest'",
+                    file=sys.stderr,
+                )
             # STORE-04: template groups, count DESC then template ASC.
             # Templates and exemplar text carry hostile log bytes — sanitise
             # at render only (T-02-02); an empty table renders nothing, exit 0.

@@ -48,6 +48,11 @@ def _decode_raw(value: str | bytes) -> str:
 
 _CASE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
+# Savepoint name for the per-file ingest unit (CR-01). Interpolated into SQL
+# text, but it is a code constant — never user data (the PRAGMA user_version
+# precedent, T-02-13).
+_SAVEPOINT_INGEST_FILE = "ingest_file"
+
 
 def validate_case_name(name: str) -> str:
     """Allowlist validation of user-supplied case names (T-02-01 path traversal)."""
@@ -238,7 +243,12 @@ class CaseStore:
                 self._conn.execute(f"PRAGMA user_version = {int(version)}")
                 self._conn.execute("COMMIT")
             except BaseException:
-                self._conn.execute("ROLLBACK")
+                try:
+                    self._conn.execute("ROLLBACK")
+                except sqlite3.OperationalError:
+                    # IN-03: a dead transaction (e.g. the connection already
+                    # rolled back) must never mask the original error.
+                    pass
                 raise
 
     @contextmanager
@@ -248,10 +258,40 @@ class CaseStore:
         try:
             yield
         except BaseException:
-            self._conn.execute("ROLLBACK")
+            try:
+                self._conn.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                # IN-03: never mask the original error with a rollback error.
+                pass
             raise
         else:
             self._conn.execute("COMMIT")
+
+    @contextmanager
+    def savepoint(self, name: str = _SAVEPOINT_INGEST_FILE) -> Generator[None]:
+        """Nested atomic unit inside an open transaction (CR-01).
+
+        Ingest wraps each file's detect+parse+insert body so a mid-stream
+        parse failure rolls that FILE back to zero rows while the outer
+        all-or-nothing BEGIN IMMEDIATE transaction survives — SQLite
+        savepoints nest inside an open transaction natively. The name is
+        interpolated into SQL text but comes only from the module constant
+        ``_SAVEPOINT_INGEST_FILE`` — a code constant, never user data
+        (the PRAGMA user_version precedent, T-02-13).
+        """
+        self._conn.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except BaseException:
+            try:
+                self._conn.execute(f"ROLLBACK TO {name}")
+                self._conn.execute(f"RELEASE {name}")
+            except sqlite3.OperationalError:
+                # IN-03: never mask the original error with a rollback error.
+                pass
+            raise
+        else:
+            self._conn.execute(f"RELEASE {name}")
 
     def insert_events(self, events: Iterable[Event]) -> int:
         """INSERT OR IGNORE; returns the number of NEWLY inserted rows (INGST-02)."""

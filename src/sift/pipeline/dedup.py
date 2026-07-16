@@ -121,4 +121,7 @@ def rebuild_template_groups(store: CaseStore) -> int:
     with store.transaction():
         store.replace_template_groups(groups)
         store.set_meta("mask_version", str(MASK_VERSION))
+        # WR-03: clear the stale flag ingest set with its event transaction —
+        # inside the rebuild transaction, so the flag and the groups agree.
+        store.set_meta("template_groups_stale", "0")
     return len(groups)
