@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Skeleton, Event Contract & genericlog Adapter
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-07-16T16:22:26.767Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-07-16T16:40:15.213Z"
 last_activity: 2026-07-16
 last_activity_desc: Phase 1 execution started
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 1 (Skeleton, Event Contract & genericlog Adapter) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-16 — Phase 1 execution started
 
-Progress: [████░░░░░░] 40%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [████░░░░░░] 40%
 |------|----------|-------|-------|
 | Phase 01 P01 | 9min | 3 tasks | 9 files |
 | Phase 01 P02 | 15min | 3 tasks | 10 files |
+| Phase 01 P03 | 14min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,9 @@ Recent decisions affecting current work:
 - [Phase ?]: event_id serialisation frozen: sha256(source_file + NUL + str(byte_offset))[:16]; golden value f7fdcb4b3de90265 pinned by test
 - [Phase ?]: CaseStore uses sqlite3 autocommit mode; all transactionality explicit via BEGIN IMMEDIATE (migration runner and transaction())
 - [Phase ?]: Per-run adapter configuration travels on the adapter instance (input_root, tz_overrides, last_stats) — Adapter Protocol frozen verbatim
+- [Phase ?]: genericlog exposes byte_offset/byte_len in Event.attrs so span-partition invariant and compressed parity are mechanically checkable
+- [Phase ?]: syslog timestamps parsed by hand (regex + month lookup), not strptime — year-1900 default rejects Feb 29; year inferred from mtime with minus-one rule
+- [Phase ?]: A2 confirmed: token-less timestamped lines keep severity 'unknown'; cap-overflow events count as unknown-fallback for coverage
 
 ### Pending Todos
 
@@ -97,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-16T16:22:26.762Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-07-16T16:40:15.207Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None

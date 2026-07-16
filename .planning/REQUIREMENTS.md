@@ -12,14 +12,14 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INGST-01**: User can create a case from a directory of artefacts (`sift new`) and ingest it (`sift ingest`), producing canonical Event records with deterministic IDs (`sha256(source_file, byte_offset)[:16]`)
 - [x] **INGST-02**: Re-ingesting the same case adds zero new events (idempotent)
 - [ ] **INGST-03**: Adapters auto-detect file formats via `sniff()` on first 64 KB; highest confidence ≥ 0.5 wins, fallback to genericlog; `--adapter glob=name` overrides
-- [ ] **INGST-04**: genericlog adapter parses timestamped line-based logs (ISO 8601, syslog, epoch) and groups continuation lines into the preceding event
-- [ ] **INGST-05**: Unparseable regions become `severity="unknown"` events (nothing dropped silently), and each file reports a parse-coverage metric (% of bytes attributed to events)
-- [ ] **INGST-06**: Multi-line records (stack traces, MCM contract blocks, thread frames) are captured as one event, not one per line
+- [x] **INGST-04**: genericlog adapter parses timestamped line-based logs (ISO 8601, syslog, epoch) and groups continuation lines into the preceding event
+- [x] **INGST-05**: Unparseable regions become `severity="unknown"` events (nothing dropped silently), and each file reports a parse-coverage metric (% of bytes attributed to events)
+- [x] **INGST-06**: Multi-line records (stack traces, MCM contract blocks, thread frames) are captured as one event, not one per line
 - [ ] **INGST-07**: journald adapter parses `journalctl -o json` export files, mapping PRIORITY→severity, _SYSTEMD_UNIT→component, _PID/_COMM→attrs
 - [ ] **INGST-08**: dsserrors adapter parses DSSErrors.log and rotated `.bak` siblings — extracts timestamp, thread, severity, component, multi-line MCM blocks, 0x error codes, SIDs, OIDs, and multi-node tags from directory names
 - [ ] **INGST-09**: eustack adapter parses EU-stack/thread-dump files — one event per thread with condensed top frames, full stack in raw, lock info in attrs
-- [ ] **INGST-10**: User can ingest gzip/zstd-compressed input files without manual decompression
-- [ ] **INGST-11**: Timestamps normalise to UTC with per-node timezone override support and explicit `ts_confidence` so multi-node timelines cannot silently invert causality
+- [x] **INGST-10**: User can ingest gzip/zstd-compressed input files without manual decompression
+- [x] **INGST-11**: Timestamps normalise to UTC with per-node timezone override support and explicit `ts_confidence` so multi-node timelines cannot silently invert causality
 
 ### Case Store
 
@@ -121,11 +121,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGST-01 | Phase 1 | Complete |
 | INGST-02 | Phase 1 | Complete |
 | INGST-03 | Phase 1 | Pending |
-| INGST-04 | Phase 1 | Pending |
-| INGST-05 | Phase 1 | Pending |
-| INGST-06 | Phase 1 | Pending |
-| INGST-10 | Phase 1 | Pending |
-| INGST-11 | Phase 1 | Pending |
+| INGST-04 | Phase 1 | Complete |
+| INGST-05 | Phase 1 | Complete |
+| INGST-06 | Phase 1 | Complete |
+| INGST-10 | Phase 1 | Complete |
+| INGST-11 | Phase 1 | Complete |
 | CLI-01 | Phase 1 | Pending |
 | STORE-01 | Phase 2 | Pending |
 | STORE-02 | Phase 2 | Pending |

@@ -38,7 +38,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Multi-line records (stack traces, continuation lines) ingest as single events, and gzip/zstd-compressed inputs work without manual decompression
   5. Timestamps normalise to UTC with `ts_confidence` recorded (per-node timezone override supported), and CLI config resolves flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
 
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 **Wave 1**
@@ -51,7 +51,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-03-PLAN.md — genericlog depth: timestamp ladder, encodings, caps, coverage, gzip/zstd, UTC/tz (wave 3)
+- [x] 01-03-PLAN.md — genericlog depth: timestamp ladder, encodings, caps, coverage, gzip/zstd, UTC/tz (wave 3)
 - [ ] 01-04-PLAN.md — Config precedence, sniff auto-detection + `--adapter` override, CLI hardening (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
@@ -172,7 +172,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Skeleton, Event Contract & genericlog Adapter | 2/5 | In Progress|  |
+| 1. Skeleton, Event Contract & genericlog Adapter | 3/5 | In Progress|  |
 | 2. Case Store & Template Dedup | 0/TBD | Not started | - |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 0/TBD | Not started | - |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 0/TBD | Not started | - |
