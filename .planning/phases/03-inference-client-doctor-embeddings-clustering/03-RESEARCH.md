@@ -485,21 +485,23 @@ will relax this for loopback only") applies only to an optional live-server inte
 **If any of these prove wrong at implementation time, they are localised to the clustering/label leg and
 do not affect the frozen store/endpoint contracts.**
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three resolved into the plan set (03-03 embeds the exemplar message per OQ1; 03-05 routes the agglomerative fallback per OQ2 and the lenient `{index: label}` parse per OQ3). Recommendations are provisional per D-04 and revisited with the golden suite (Phase 7).
 
 1. **Which text represents a template group for embedding — exemplar message vs masked template?**
    - What we know: SPEC §5.4 says "embed one exemplar chunk per template group"; `template_groups` already stores `exemplar_event_ids` and the masked `template`.
    - What's unclear: real message (richer, but volatile tokens add noise) vs masked template (stable, but strips distinguishing content).
-   - Recommendation: embed the first exemplar event's `message` (create one `chunk` row per group, `event_ids` = exemplars, `text` = message). Provisional; revisit with the golden suite (Phase 7), same posture as D-04.
+   - RESOLVED: embed the first exemplar event's `message` (create one `chunk` row per group, `event_ids` = exemplars, `text` = message). Provisional; revisit with the golden suite (Phase 7), same posture as D-04.
 
 2. **Exact agglomerative-fallback trigger.**
    - What we know: D-04 says config-driven cosine `distance_threshold`.
    - What's unclear: pure config selector vs automatic fallback when HDBSCAN degenerates.
-   - Recommendation: `[clustering].algorithm = "hdbscan"` default; explicit `"agglomerative"` option; plus auto-singleton path when `n_groups < min_cluster_size`. Confirm in plan.
+   - RESOLVED: `[clustering].algorithm = "hdbscan"` default; explicit `"agglomerative"` option; plus auto-singleton path when `n_groups < min_cluster_size`. Confirm in plan.
 
 3. **Label response format for robust parsing.**
    - What we know: one batched call, freeform labels, no schema decoding.
-   - Recommendation: ask for a JSON object `{index: label}` and parse leniently (one repair-free pass; on parse failure, leave labels NULL and fall back to `signature` — never crash). Full JSON-contract enforcement is Phase 4.
+   - RESOLVED: ask for a JSON object `{index: label}` and parse leniently (one repair-free pass; on parse failure, leave labels NULL and fall back to `signature` — never crash). Full JSON-contract enforcement is Phase 4.
 
 ## Environment Availability
 
