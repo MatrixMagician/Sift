@@ -10,8 +10,11 @@ import gzip
 import io
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 import zstandard
 
@@ -68,3 +71,44 @@ def read_head(path: Path) -> bytes:
     """First SNIFF_BYTES of DECOMPRESSED content — never sniff compressed bytes."""
     with open_bytes(path) as stream:
         return stream.read(SNIFF_BYTES)
+
+
+class ConfigurableAdapter:
+    """Shared per-run adapter state — deliberately NOT part of the frozen
+    ``Adapter`` Protocol.
+
+    Every concrete adapter subclasses this so the ingest orchestrator
+    (``cli.py``) delivers ``input_root``/``tz_overrides`` and reads back
+    ``last_stats`` uniformly for *any* adapter, not just genericlog. This is
+    the "config travels on the instance" pattern (Phase 1), given a shared
+    home so ``isinstance`` narrowing type-checks under pyright strict and the
+    SPEC §5.2 "adding an adapter = new module + registration only" invariant
+    finally holds.
+    """
+
+    name: str  # overridden per concrete adapter
+
+    def __init__(self) -> None:
+        self.input_root: Path | None = None
+        self.tz_overrides: dict[str, str] = {}  # glob -> IANA name (D-05)
+        self.last_stats: ParseStats | None = None
+
+
+def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, str]:
+    """Normalise to aware UTC, returning (datetime, ts_confidence) per D-05."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(UTC), "exact"
+    tz = ZoneInfo(override_tz) if override_tz else UTC
+    return dt.replace(tzinfo=tz).astimezone(UTC), "inferred"
+
+
+def tz_override_for(relpath: str, tz_overrides: dict[str, str]) -> str | None:
+    """First tz whose glob fnmatches ``relpath`` (insertion order), else None.
+
+    Single shared UTC/tz code path for every adapter (D-05); insertion order
+    keeps override precedence deterministic.
+    """
+    return next(
+        (tz for glob, tz in tz_overrides.items() if fnmatch(relpath, glob)),
+        None,
+    )

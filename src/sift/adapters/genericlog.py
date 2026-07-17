@@ -23,9 +23,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
-from sift.adapters.base import ParseStats, open_bytes, read_head
+from sift.adapters.base import (
+    ConfigurableAdapter,
+    ParseStats,
+    open_bytes,
+    read_head,
+    to_utc,
+)
 from sift.models import Event, event_id
 
 # Epoch plausibility window: 2000-01-01 .. 2100-01-01 (Pitfall 5 — a bare
@@ -86,14 +91,6 @@ _SEVERITY_MAP = {
     "TRACE": "debug",
     "FINE": "debug",
 }
-
-
-def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, str]:
-    """Normalise to aware UTC, returning (datetime, ts_confidence) per D-05."""
-    if dt.tzinfo is not None:
-        return dt.astimezone(UTC), "exact"
-    tz = ZoneInfo(override_tz) if override_tz else UTC
-    return dt.replace(tzinfo=tz).astimezone(UTC), "inferred"
 
 
 def _severity(text: str) -> str:
@@ -291,15 +288,15 @@ class _Record:
     raw_parts: list[str] = field(default_factory=list[str])
 
 
-class GenericLogAdapter:
-    """Fallback adapter for timestamped line-based logs."""
+class GenericLogAdapter(ConfigurableAdapter):
+    """Fallback adapter for timestamped line-based logs.
+
+    Inherits ``input_root``/``tz_overrides``/``last_stats`` from
+    ``ConfigurableAdapter`` — per-run config travels on the instance because
+    the frozen ``Adapter`` Protocol carries no config attributes.
+    """
 
     name = "genericlog"
-
-    def __init__(self) -> None:
-        self.input_root: Path | None = None
-        self.tz_overrides: dict[str, str] = {}  # glob -> IANA name (D-05)
-        self.last_stats: ParseStats | None = None
 
     def sniff(self, path: Path) -> float:
         # Low-but-nonzero so genericlog never outcompetes a domain adapter,
