@@ -1,20 +1,14 @@
 ---
-status: partial
+status: complete
 phase: 02-case-store-template-dedup
 source: [02-VERIFICATION.md]
 started: 2026-07-16T22:34:37Z
-updated: 2026-07-17T00:00:00Z
+updated: 2026-07-17T00:30:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: Live progress bar on a real TTY
-expected: |
-  Transient rich progress bar (bar, bytes, elapsed) renders on stderr during
-  ingest and disappears on completion; stdout carries only the
-  per-file/Total/Template-groups lines (byte-identical to the scripted contract)
-awaiting: user response — user elected to eyeball the real-TTY render personally before sign-off
+[testing complete]
 
 ## Tests
 
@@ -22,8 +16,8 @@ awaiting: user response — user elected to eyeball the real-TTY render personal
 test: `uv run python tests/perf/generate_synthetic.py /tmp/big.log 100`, create a case over it, run `uv run sift ingest <case>` in a real terminal
 expected: Transient progress bar (bar, bytes, elapsed) on stderr; stdout byte-identical to the scripted contract
 why_human: rich disables itself off-terminal; no automated test can exercise the render path
-result: [pending]
-note: 2026-07-17 — render path confirmed wired (cli.py:202-213); user elected to eyeball on a real TTY personally before sign-off. Sole item holding phase completion.
+result: pass
+note: 2026-07-17 — user ran `sift ingest` on a real TTY and confirmed ("Saw the bar"): the transient progress bar rendered during ingest and vanished on completion; stdout carried the scripted per-file/Total/Template-groups contract. Render path (cli.py:202-213) exercised and confirmed.
 
 ### 2. Perf gate on an idle machine
 test: `uv run pytest -m perf -s`
@@ -63,9 +57,9 @@ note: 2026-07-17 — user accepted the inline '(partial scope: X delivered Phase
 ## Summary
 
 total: 6
-passed: 5
+passed: 6
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 

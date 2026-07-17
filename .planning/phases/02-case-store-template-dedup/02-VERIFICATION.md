@@ -1,9 +1,10 @@
 ---
 phase: 02-case-store-template-dedup
 verified: 2026-07-16T23:15:00Z
-status: human_needed
-score: 21/24 must-haves verified
-behavior_unverified: 3
+status: passed
+resolution: "2026-07-17 — all 6 UAT sign-off items passed (02-UAT.md). The 3 behavior_unverified items resolved: perf gate re-measured 19.7s/60s; filter semantics driven against --help; real-TTY progress bar confirmed by user ('Saw the bar'); migration/interrupted-ingest backstops accepted on structural evidence. WR-07 disk-full rollback hole accepted as a known limitation and carried forward to Phase 3 (ROADMAP Phase 3 + 02-UAT Deferred Follow-Ups)."
+score: 21/24 must-haves verified (3 behaviour items closed via human UAT sign-off)
+behavior_unverified: 0
 overrides_applied: 0
 re_verification:
   previous_status: gaps_found
