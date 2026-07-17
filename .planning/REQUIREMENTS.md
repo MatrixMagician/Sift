@@ -36,12 +36,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Analysis (RAG)
 
-- [ ] **RAG-01**: Clusters are ranked by a salience score combining severity, count, burstiness, novelty, and temporal proximity to a user-supplied incident time
+- [x] **RAG-01**: Clusters are ranked by a salience score combining severity, count, burstiness, novelty, and temporal proximity to a user-supplied incident time
 - [x] **RAG-02**: `sift analyze` produces ranked root-cause hypotheses conforming to the enforced JSON contract (title, narrative, confidence + reasoning, supporting_event_ids, contradicting_evidence, suggested_next_steps, timeline_summary, unexplained_signals)
 - [ ] **RAG-03**: JSON output is enforced via constrained decoding where available, validated with Pydantic, repaired once on failure, and degrades gracefully (raw output persisted, run marked degraded) — never crashes
 - [x] **RAG-04**: Every cited event ID must exist in the case store AND have been present in the prompt ("cited ⊆ prompted"); invalid hypotheses are regenerated (max 1 retry) then flagged in the report
 - [x] **RAG-05**: A PromptBudget utility estimates tokens (server tokenize endpoint or chars/4 heuristic), reserves output headroom, and truncates exemplars breadth-first
-- [ ] **RAG-06**: User can supply `--hint` free text and `--since/--until` time-window filters to scope analysis
+- [x] **RAG-06**: User can supply `--hint` free text and `--since/--until` time-window filters to scope analysis
 - [ ] **RAG-07**: User can point analysis at a knowledge-base directory of Markdown runbooks/RCAs, retrieved by similarity into the triage context
 
 ### Inference Client
@@ -142,11 +142,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RAG-05 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Complete |
 | EVAL-05 | Phase 3 | Complete |
-| RAG-01 | Phase 4 | Pending |
+| RAG-01 | Phase 4 | Complete |
 | RAG-02 | Phase 4 | Complete |
 | RAG-03 | Phase 4 | Pending |
 | RAG-04 | Phase 4 | Complete |
-| RAG-06 | Phase 4 | Pending |
+| RAG-06 | Phase 4 | Complete |
 | CLI-04 | Phase 4 | Pending |
 | INGST-07 | Phase 5 | Pending |
 | INGST-08 | Phase 5 | Pending |

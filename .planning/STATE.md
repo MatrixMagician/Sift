@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: Salience, RAG & Citation-Gated Hypotheses
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-07-17T15:47:03.383Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-07-17T15:54:30.771Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 20
-  completed_plans: 15
+  completed_plans: 17
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 04 (Salience, RAG & Citation-Gated Hypotheses) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-17 — Phase 04 execution started
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 85%
 
 ## Performance Metrics
 
@@ -75,6 +75,7 @@ Progress: [████████░░] 75%
 | Phase 03 P04 | 12min | 2 tasks | 4 files |
 | Phase 03 P06 | 5m | 2 tasks | 2 files |
 | Phase 04 P01 | 6m | 2 tasks | 4 files |
+| Phase 04 P02 | 8m | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,7 @@ Recent decisions affecting current work:
 - [Phase ?]: sift doctor real /v1/embeddings round-trip is the OGA/ONNX probe; capability never inferred from /v1/models (LLM-03)
 - [Phase ?]: Added InferenceClient.models() + public store.vec_version() so /v1/models and the vec-load probe reuse the sole HTTP boundary and vetted extension-load path (no reimplementation in cli.py)
 - [Phase ?]: analyze always builds the client and passes label=not no_label (03-05 kwarg supersedes the plan's client=None); zero template groups short-circuits before any client round-trip
+- [Phase ?]: Salience window filter drops no-timestamp clusters when since/until is set (04-02)
 
 ### Pending Todos
 
@@ -141,6 +143,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T15:47:03.378Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-07-17T15:54:30.765Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

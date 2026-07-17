@@ -142,13 +142,13 @@ Plans:
   4. Clusters are ranked by salience combining severity, count, burstiness, novelty, and temporal proximity to a user-supplied incident time, budgeted breadth-first to fit the model's context
   5. User can scope analysis with `--hint` free text and `--since/--until` time-window filters
 
-**Plans:** 0/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1** *(parallel — no shared files)*
 
-- [ ] 04-01-PLAN.md — Hypothesis/HypothesisSet Pydantic models + store migration 4 (hypotheses table + run meta) (wave 1)
-- [ ] 04-02-PLAN.md — Deterministic salience ranking (severity/count/burstiness/novelty/proximity) (wave 1)
+- [x] 04-01-PLAN.md — Hypothesis/HypothesisSet Pydantic models + store migration 4 (hypotheses table + run meta) (wave 1)
+- [x] 04-02-PLAN.md — Deterministic salience ranking (severity/count/burstiness/novelty/proximity) (wave 1)
 - [ ] 04-03-PLAN.md — Additive `chat(response_format=…)` constrained-decoding param (llama.cpp nesting) (wave 1)
 
 **Wave 2** *(blocked on Wave 1)*
@@ -228,7 +228,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
-| 4. Salience, RAG & Citation-Gated Hypotheses | 0/5 | Planned    |  |
+| 4. Salience, RAG & Citation-Gated Hypotheses | 2/5 | In Progress|  |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
