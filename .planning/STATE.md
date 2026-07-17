@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 5
 current_phase_name: domain-adapters-journald-dsserrors-eustack
 status: executing
-stopped_at: Completed 05-03-PLAN.md
-last_updated: "2026-07-17T23:30:59.191Z"
+stopped_at: Completed 05-04-PLAN.md (INGST-08 dsserrors adapter)
+last_updated: "2026-07-17T23:46:32.426Z"
 last_activity: 2026-07-18
 last_activity_desc: Phase 5 execution started
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 27
-  completed_plans: 24
+  completed_plans: 26
 ---
 
 # Project State
@@ -32,7 +32,7 @@ Plan: 1 of ?
 Status: Executing Phase 5
 Last activity: 2026-07-18 — Phase 5 execution started
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -83,6 +83,7 @@ Progress: [█████████░] 89%
 | Phase 04 P06 | 3 | 2 tasks | 3 files |
 | Phase 05 P01 | 18min | 3 tasks | 5 files |
 | Phase 05 P03 | 20min | 2 tasks | 5 files |
+| Phase 05 P04 | 22min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 04-04: prompted_ids (printed exemplar ids) IS the citation gate's allowed set; cited ⊆ prompted transitively guarantees cited ⊆ store
 - [Phase ?]: 04-06: malformed/empty 200 inference response maps to failed (exit 1, nothing persisted), not degraded — symmetric with transport failure; empty/whitespace content normalised to a ValueError in client.chat, hypothesise catches (httpx.HTTPError, ValueError). Closes G1 (RAG-03 never-crash).
 - [Phase ?]: 05-01: ConfigurableAdapter base delivers config + real coverage to any adapter; fabricated-100%-coverage bug closed (ADR 0006)
+- [Phase ?]: 05-04: DsserrorsAdapter — token-anchored extraction ([*.cpp:NNNN]/0x/GUID/SID=), MCM sentinel grouping with 256-line/64 KB caps, node from case-relative path, rotation-ordered-by-ts, criterion-4 mixed-tz via shared base.to_utc; SID shape [ASSUMED] per 05-02
 
 ### Pending Todos
 
@@ -154,6 +156,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T23:30:59.182Z
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-07-17T23:46:32.420Z
+Stopped at: Completed 05-04-PLAN.md (INGST-08 dsserrors adapter)
 Resume file: None
