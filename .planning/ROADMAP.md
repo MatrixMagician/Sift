@@ -176,7 +176,7 @@ Plans:
   3. eustack adapter yields exactly one event per thread on a fixture dump, with condensed top frames in `message`, full stack in `raw`, and lock info in attrs
   4. A mixed-timezone multi-node fixture produces a correctly ordered UTC timeline (causality never silently inverted)
 
-**Plans:** 4/6 plans executed
+**Plans:** 5/6 plans executed
 
 Plans:
 **Wave 1** *(shared enabler + format checkpoint)*
@@ -188,7 +188,7 @@ Plans:
 
 - [x] 05-03-PLAN.md — journald adapter (INGST-07): JSONL, µs-epoch UTC, PRIORITY→severity, _field_to_str normaliser, non-vacuous coverage (wave 2)
 - [x] 05-04-PLAN.md — dsserrors adapter (INGST-08): SID/OID/0x/[*.cpp:N] tokens, MCM block grouping+caps, node tagging, rotation-by-ts, mixed-tz timeline (criterion 4) (wave 2)
-- [ ] 05-05-PLAN.md — eustack adapter (INGST-09): one event per thread, condensed frames→message, full stack→raw, lock info where format carries it (wave 2)
+- [x] 05-05-PLAN.md — eustack adapter (INGST-09): one event per thread, condensed frames→message, full stack→raw, lock info where format carries it (wave 2)
 
 **Wave 3** *(integration — shared registry + CLI e2e; blocked on 05-03/04/05)*
 
@@ -249,7 +249,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
-| 5. Domain Adapters (journald, dsserrors, eustack) | 4/6 | In Progress|  |
+| 5. Domain Adapters (journald, dsserrors, eustack) | 5/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |

@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 5
 current_phase_name: domain-adapters-journald-dsserrors-eustack
 status: executing
-stopped_at: Completed 05-04-PLAN.md (INGST-08 dsserrors adapter)
-last_updated: "2026-07-17T23:46:32.426Z"
+stopped_at: Completed 05-05-PLAN.md (INGST-09 eustack adapter)
+last_updated: "2026-07-17T23:58:26.742Z"
 last_activity: 2026-07-18
 last_activity_desc: Phase 5 execution started
 progress:
@@ -32,7 +32,7 @@ Plan: 1 of ?
 Status: Executing Phase 5
 Last activity: 2026-07-18 — Phase 5 execution started
 
-Progress: [█████████░] 93%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -84,6 +84,7 @@ Progress: [█████████░] 93%
 | Phase 05 P01 | 18min | 3 tasks | 5 files |
 | Phase 05 P03 | 20min | 2 tasks | 5 files |
 | Phase 05 P04 | 22min | 2 tasks | 6 files |
+| Phase 5 P05 | 18min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 04-06: malformed/empty 200 inference response maps to failed (exit 1, nothing persisted), not degraded — symmetric with transport failure; empty/whitespace content normalised to a ValueError in client.chat, hypothesise catches (httpx.HTTPError, ValueError). Closes G1 (RAG-03 never-crash).
 - [Phase ?]: 05-01: ConfigurableAdapter base delivers config + real coverage to any adapter; fabricated-100%-coverage bug closed (ADR 0006)
 - [Phase ?]: 05-04: DsserrorsAdapter — token-anchored extraction ([*.cpp:NNNN]/0x/GUID/SID=), MCM sentinel grouping with 256-line/64 KB caps, node from case-relative path, rotation-ordered-by-ts, criterion-4 mixed-tz via shared base.to_utc; SID shape [ASSUMED] per 05-02
+- [Phase ?]: 05-05: eustack format frozen as native elfutils eu-stack (TID headers + #N 0xADDR frames, NO lock info); INGST-09 lock clause met by asserting absence — a later JVM-shape sample is a localised regex+attr add
 
 ### Pending Todos
 
@@ -156,6 +158,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T23:46:32.420Z
-Stopped at: Completed 05-04-PLAN.md (INGST-08 dsserrors adapter)
+Last session: 2026-07-17T23:58:26.733Z
+Stopped at: Completed 05-05-PLAN.md (INGST-09 eustack adapter)
 Resume file: None
