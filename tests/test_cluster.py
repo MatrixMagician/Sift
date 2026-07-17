@@ -74,7 +74,9 @@ def _seed(store: CaseStore, messages: list[str]) -> None:
     dedup.rebuild_template_groups(store)
 
 
-def _embed_handler(calls: list[str] | None = None) -> Handler:
+def _embed_handler(
+    calls: list[str] | None = None, *, chat_content: str | None = None
+) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/embeddings"):
@@ -86,6 +88,11 @@ def _embed_handler(calls: list[str] | None = None) -> Handler:
                 for i, text in enumerate(inputs)
             ]
             return httpx.Response(200, json={"data": data})
+        if path.endswith("/chat/completions"):
+            if calls is not None:
+                calls.append("chat")
+            body = {"choices": [{"message": {"content": chat_content or "{}"}}]}
+            return httpx.Response(200, json=body)
         return httpx.Response(404)
 
     return handler
@@ -203,3 +210,126 @@ def test_cluster_persists_vectors_and_chunks(tmp_path: Path) -> None:
         assert vec_rows == len(_SYNONYM_CORPUS)
     finally:
         store.close()
+
+
+# --- CLUS-03 / CLI-02: labelling from a versioned prompt -----------------
+
+
+def test_label_sets_labels_on_right_clusters(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    content = json.dumps(
+        {"0": "Memory watermark cascade", "1": "SMTP rejection storm", "2": "Disk"}
+    )
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler(chat_content=content)), ClusteringConfig()
+        )
+        # cluster_ids are assigned 0,1,2 in canonical order, so response key i
+        # maps to cluster_id i — every cluster carries its label.
+        mapping = json.loads(content)
+        for c in store.query_clusters():
+            assert c.label == mapping[str(c.cluster_id)]
+    finally:
+        store.close()
+
+
+def test_label_unparseable_keeps_signature(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store,
+            _client(_embed_handler(chat_content="not json at all")),
+            ClusteringConfig(),
+        )
+        for c in store.query_clusters():
+            assert c.label is None  # degrade to signature, no crash
+            assert c.signature  # signature is always present
+    finally:
+        store.close()
+
+
+def test_label_disabled_skips_labelling(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    calls: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store,
+            _client(_embed_handler(calls, chat_content="{}")),
+            ClusteringConfig(),
+            label=False,
+        )
+        assert "chat" not in calls  # no label call on the --no-label path
+        assert all(c.label is None for c in store.query_clusters())
+        assert store.get_meta("cluster_label_prompt_hash") is None
+    finally:
+        store.close()
+
+
+def test_label_clusters_none_client_is_noop() -> None:
+    assert cluster._label_clusters(None, [0], ["excerpt"], "T:\n") == {}  # pyright: ignore[reportPrivateUsage]
+
+
+def test_label_british_spelling_round_trips(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    label = "Colour normalisation café backlog"  # British + non-ASCII
+    content = json.dumps({"0": label})
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler(chat_content=content)), ClusteringConfig()
+        )
+        by_id = {c.cluster_id: c for c in store.query_clusters()}
+        assert by_id[0].label == label
+    finally:
+        store.close()
+
+
+def test_label_length_capped_by_code_points(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    content = json.dumps({"0": "x" * 500})
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler(chat_content=content)), ClusteringConfig()
+        )
+        by_id = {c.cluster_id: c for c in store.query_clusters()}
+        assert by_id[0].label is not None
+        assert len(by_id[0].label) <= 80  # capped by code points
+    finally:
+        store.close()
+
+
+def test_label_prompt_hash_written_to_meta(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler(chat_content="{}")), ClusteringConfig()
+        )
+        expected = cluster._template_hash(cluster._load_template())  # pyright: ignore[reportPrivateUsage]
+        assert store.get_meta("cluster_label_prompt_hash") == expected
+    finally:
+        store.close()
+
+
+def test_editing_template_changes_prompt_no_python_change() -> None:
+    prompt_a = cluster.build_label_prompt(["boom"], "TEMPLATE ALPHA\nClusters:\n")
+    prompt_b = cluster.build_label_prompt(["boom"], "TEMPLATE BETA\nClusters:\n")
+    assert prompt_a != prompt_b  # the template drives the assembled prompt
+    assert "TEMPLATE ALPHA" in prompt_a
+    assert "0. boom" in prompt_a
+    # The loader reads the on-disk .md, so editing it changes the prompt with
+    # zero Python change (CLI-02).
+    loaded = cluster._load_template()  # pyright: ignore[reportPrivateUsage]
+    assert "British English" in loaded
+    assert loaded in cluster.build_label_prompt(["boom"], loaded)
+
+
+def test_label_parse_lenient_ignores_bad_entries() -> None:
+    parsed = cluster._parse_labels(  # pyright: ignore[reportPrivateUsage]
+        '{"0": "good", "1": 42, "x": "skip", "2": "also good"}'
+    )
+    assert parsed == {0: "good", 2: "also good"}
