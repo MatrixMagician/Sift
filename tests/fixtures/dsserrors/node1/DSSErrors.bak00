@@ -1,0 +1,2 @@
+2026-01-15 07:00:00.000-05:00 [Kernel][Info][12345] rotated newer entry C [MSIServerStateLogger.cpp:12]
+2026-01-15 07:05:00.000-05:00 [Kernel][Info][12345] rotated newer entry D [MSIServerStateLogger.cpp:13]

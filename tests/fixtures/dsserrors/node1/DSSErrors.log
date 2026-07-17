@@ -1,0 +1,14 @@
+-- corrupt --
+2026-01-15 10:00:01.100 [Kernel][Info][12345] I-Server started SID=A1B2C3D4E5F60718 [MSIServerStateLogger.cpp:88]
+2026-01-15 10:00:02.200 [Kernel][Warning][12345] Working set high OID=6f3a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8 [CDSSCubeEventReceiver.cpp:512]
+2026-01-15 10:00:03.300 [Kernel][Error][12346] Contract Request Failed code=0xC0000017 SID=A1B2C3D4E5F60718 OID=6f3a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8 [ContractManagerImpl.cpp:1235]
+***** Start of Info Dump *****
+Source=CastorServer Handle=0x1F Size=2147483648
+Current Memory Info:
+  Total System Physical Memory: 68719476736
+MCM Settings: MaxMemoryConsumption=0.9
+***** End of Info Dump *****
+2026-01-15 10:00:05.500 [Kernel][Fatal][12346] Server has stalled [ContractManagerImpl.cpp:1244]
+2026-01-15 10:00:06.600 [Kernel][Trace][12347] Reaping cube cache SID=A1B2C3D4E5F60718 [CDSSCubeEventReceiver.cpp:640]
+***** Start of Info Dump *****
+Source=CastorServer Handle=0x20 Size=1073741824

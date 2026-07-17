@@ -1,0 +1,2 @@
+2026-01-15 14:00:04.000 [Kernel][Error][22345] node2 primary failure [ContractManagerImpl.cpp:1235]
+2026-01-15 14:10:00.000 [Kernel][Info][22345] node2 recovery [MSIServerStateLogger.cpp:88]
