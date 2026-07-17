@@ -16,12 +16,19 @@ from __future__ import annotations
 import importlib.resources
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 
-from sift.models import event_id
+from sift.config import ClusteringConfig
+from sift.llm.client import Endpoint, InferenceClient
+from sift.models import Event, event_id
+from sift.pipeline import cluster, dedup, hypothesise
+from sift.store import CaseStore
 
 Handler = Callable[[httpx.Request], httpx.Response]
+_BASE = datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC)
 
 # Three orthogonal planted 8-dim vectors: HDBSCAN finds no density, so every
 # point is noise (-1) and becomes its own singleton cluster (three clusters).
@@ -83,12 +90,19 @@ def _scenarios() -> dict[str, list[str]]:
     }
 
 
-def _handler(chat_bodies: list[str], *, calls: list[str] | None = None) -> Handler:
+def _handler(
+    chat_bodies: list[str],
+    *,
+    calls: list[str] | None = None,
+    chat_raises: bool = False,
+) -> Handler:
     """Serve /v1/embeddings (planted vectors) and /v1/chat/completions (queue).
 
     The triage (generation) call carries ``response_format``; it pops the next
     canned body from ``chat_bodies``. A chat call WITHOUT ``response_format``
     (e.g. a cluster label call) returns an inert ``{}`` and is not counted.
+    ``chat_raises`` makes the triage call refuse the connection (the transport
+    failure -> failed-run probe).
     """
     queue = list(chat_bodies)
 
@@ -107,6 +121,8 @@ def _handler(chat_bodies: list[str], *, calls: list[str] | None = None) -> Handl
                 return httpx.Response(
                     200, json={"choices": [{"message": {"content": "{}"}}]}
                 )
+            if chat_raises:
+                raise httpx.ConnectError("connection refused", request=request)
             if calls is not None:
                 calls.append("chat")
             content = queue.pop(0)
@@ -116,6 +132,43 @@ def _handler(chat_bodies: list[str], *, calls: list[str] | None = None) -> Handl
         return httpx.Response(404)
 
     return handler
+
+
+def _client(handler: Handler) -> InferenceClient:
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=None)
+    return InferenceClient(ep, ep, http, backoff_base=0.0)
+
+
+def _ev(offset: int, message: str) -> Event:
+    return Event(
+        event_id=event_id("case.log", offset),
+        case_id="demo",
+        ts=_BASE,
+        ts_confidence="exact",
+        source="genericlog",
+        source_file="case.log",
+        line_start=offset + 1,
+        line_end=offset + 1,
+        severity="error",
+        component=None,
+        thread=None,
+        session=None,
+        message=message,
+        attrs={},
+        raw=message,
+    )
+
+
+def _seed_clustered(store: CaseStore) -> None:
+    """Seed three orthogonal events -> three singleton clusters (label-free)."""
+    events = [_ev(i, m) for i, m in enumerate(_CORPUS)]
+    with store.transaction():
+        store.insert_events(events)
+    dedup.rebuild_template_groups(store)
+    cluster.cluster_and_label(
+        store, _client(_handler([])), ClusteringConfig(), label=False
+    )
 
 
 # --- Task 1: prompt + fixture self-tests ---------------------------------
@@ -152,3 +205,83 @@ def test_fixture_or_prompt_handler_pops_bodies_in_order() -> None:
     http.post("http://127.0.0.1:8080/v1/chat/completions", json={"messages": []})
     assert calls == ["chat", "chat"]
     http.close()
+
+
+# --- Task 2: assemble + enforcement (validate -> repair -> degrade) -------
+
+
+def _run(
+    store: CaseStore, scenario: str, *, top_clusters: int = 10
+) -> tuple[hypothesise.Outcome, int]:
+    """Run hypothesise against a canned scenario; return (outcome, chat calls)."""
+    calls: list[str] = []
+    client = _client(_handler(_scenarios()[scenario], calls=calls))
+    outcome = hypothesise.hypothesise(
+        store, client, top_clusters=top_clusters, incident_time=None
+    )
+    return outcome, len(calls)
+
+
+def test_schema_valid_good_path(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        outcome, chat_calls = _run(store, "good")
+        assert outcome.hypotheses is not None
+        assert not outcome.degraded
+        assert not outcome.failed
+        assert chat_calls == 1  # one generation call, no repair
+    finally:
+        store.close()
+
+
+def test_repair_bad_then_good(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        outcome, chat_calls = _run(store, "bad_then_good")
+        assert outcome.hypotheses is not None  # repair succeeded
+        assert not outcome.degraded
+        assert chat_calls == 2  # generation + exactly one repair
+    finally:
+        store.close()
+
+
+def test_degrade_bad_json_twice(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        outcome, chat_calls = _run(store, "bad_json")  # never raises
+        assert outcome.degraded
+        assert outcome.hypotheses is None
+        assert outcome.raw == "still not valid json"  # the SECOND raw is captured
+        assert chat_calls == 2  # generation + one repair, no more
+    finally:
+        store.close()
+
+
+def test_determinism_prompt_hash(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        first, _ = _run(store, "good")
+        second, _ = _run(store, "good")
+        assert first.prompt_hash == second.prompt_hash
+        assert len(first.prompt_hash) == 16
+    finally:
+        store.close()
+
+
+def test_transport_error_is_failed_not_persisted(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        client = _client(_handler([], chat_raises=True))
+        outcome = hypothesise.hypothesise(
+            store, client, top_clusters=10, incident_time=None
+        )
+        assert outcome.failed
+        assert outcome.hypotheses is None
+        assert store.query_hypotheses() == []  # nothing persisted on a failed run
+    finally:
+        store.close()
