@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: Salience, RAG & Citation-Gated Hypotheses
 status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-07-17T15:54:30.771Z"
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-07-17T15:59:33.566Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 20
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 04 (Salience, RAG & Citation-Gated Hypotheses) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-17 — Phase 04 execution started
 
-Progress: [█████████░] 85%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
@@ -76,6 +76,7 @@ Progress: [█████████░] 85%
 | Phase 03 P06 | 5m | 2 tasks | 2 files |
 | Phase 04 P01 | 6m | 2 tasks | 4 files |
 | Phase 04 P02 | 8m | 1 tasks | 2 files |
+| Phase 04 P03 | 6m | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -122,6 +123,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Added InferenceClient.models() + public store.vec_version() so /v1/models and the vec-load probe reuse the sole HTTP boundary and vetted extension-load path (no reimplementation in cli.py)
 - [Phase ?]: analyze always builds the client and passes label=not no_label (03-05 kwarg supersedes the plan's client=None); zero template groups short-circuits before any client round-trip
 - [Phase ?]: Salience window filter drops no-timestamp clusters when since/until is set (04-02)
+- [Phase ?]: chat response_format is keyword-only/optional (RAG-03); client stays generic, hypothesise.py owns the llama.cpp {type:json_schema,schema} shape; Pydantic validation is the backstop
 
 ### Pending Todos
 
@@ -143,6 +145,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T15:54:30.765Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-07-17T15:59:33.560Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
