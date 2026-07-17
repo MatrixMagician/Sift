@@ -4,9 +4,9 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 4
 current_phase_name: Salience, RAG & Citation-Gated Hypotheses
-status: planning
+status: executing
 stopped_at: Completed 03-06-PLAN.md (final plan of phase 3)
-last_updated: "2026-07-17T14:15:21.484Z"
+last_updated: "2026-07-17T15:33:57.714Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 3 complete, transitioned to Phase 4
 progress:
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 
 Phase: 4 — Salience, RAG & Citation-Gated Hypotheses
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-07-17 — Phase 3 complete, transitioned to Phase 4
 
 Progress: [██████████] 100%
