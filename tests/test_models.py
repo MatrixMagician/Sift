@@ -5,12 +5,14 @@ import gzip
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 import zstandard
+from pydantic import ValidationError
 
 from sift.adapters.base import ParseStats, open_bytes, read_head
-from sift.models import Event, event_id
+from sift.models import Event, HypothesisSet, event_id
 
 
 def test_event_id_golden_value() -> None:
@@ -87,3 +89,59 @@ def test_parse_stats_coverage_empty_file_is_full() -> None:
 def test_parse_stats_coverage_formula() -> None:
     stats = ParseStats(path="x.log", total_bytes=100, unknown_fallback_bytes=25)
     assert stats.coverage == 0.75
+
+
+# --- Hypothesis output contract (SPEC §5.5) ---------------------------------
+
+
+def _valid_hypothesis_set() -> dict[str, Any]:
+    return {
+        "hypotheses": [
+            {
+                "title": "Cube cache eviction storm",
+                "narrative": "Working-set pressure evicted cubes repeatedly.",
+                "confidence": "high",
+                "confidence_reasoning": "Three fatal events cite the same SID.",
+                "supporting_event_ids": ["f7fdcb4b3de90265"],
+                "contradicting_evidence": None,
+                "suggested_next_steps": ["Raise the working-set cap."],
+            }
+        ],
+        "timeline_summary": "Failures clustered around 14:20 UTC.",
+        "unexplained_signals": ["network reset cluster"],
+    }
+
+
+def test_hypothesis_set_accepts_spec_shape() -> None:
+    hs = HypothesisSet.model_validate(_valid_hypothesis_set())
+    assert hs.hypotheses[0].confidence == "high"
+    assert hs.hypotheses[0].contradicting_evidence is None
+
+
+def test_hypothesis_set_rejects_unknown_top_level_key() -> None:
+    payload = _valid_hypothesis_set()
+    payload["rogue"] = "surprise"
+    with pytest.raises(ValidationError):
+        HypothesisSet.model_validate(payload)
+
+
+def test_hypothesis_rejects_unknown_nested_key() -> None:
+    payload = _valid_hypothesis_set()
+    payload["hypotheses"][0]["fabricated"] = "value"
+    with pytest.raises(ValidationError):
+        HypothesisSet.model_validate(payload)
+
+
+def test_hypothesis_rejects_bad_confidence() -> None:
+    payload = _valid_hypothesis_set()
+    payload["hypotheses"][0]["confidence"] = "certain"
+    with pytest.raises(ValidationError):
+        HypothesisSet.model_validate(payload)
+
+
+def test_hypothesis_set_json_schema_is_a_dict() -> None:
+    schema = HypothesisSet.model_json_schema()
+    assert isinstance(schema, dict)
+    # Nested Hypothesis inlines under $defs (self-contained, no external $ref)
+    # so the 04-04 constrained-decoding path can send it directly.
+    assert "Hypothesis" in schema.get("$defs", {})

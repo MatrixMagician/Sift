@@ -9,6 +9,9 @@ breaking changes require a new milestone decision recorded in
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
 
 
 @dataclass(frozen=True)
@@ -42,3 +45,38 @@ def event_id(source_file: str, byte_offset: int) -> str:
     Depends on nothing else: no case_id, no clock, no randomness.
     """
     return hashlib.sha256(f"{source_file}\x00{byte_offset}".encode()).hexdigest()[:16]
+
+
+# --- Hypothesis output contract (SPEC.md §5.5) ------------------------------
+#
+# Field names below are AUTHORITATIVE from SPEC.md §5.5 — the same schema whose
+# model_json_schema() feeds the server's constrained decoding (04-04). These
+# are additive Pydantic models; they never touch the frozen Event dataclass.
+# extra="forbid" is the V5 fail-loud anti-hallucination control: an unknown key
+# from a tampered or hallucinating model raises rather than being silently
+# accepted. Keep both models self-contained (no external $ref) so the JSON
+# schema inlines Hypothesis under $defs only.
+
+
+class Hypothesis(BaseModel):
+    """One ranked, evidence-cited root-cause hypothesis (SPEC §5.5 verbatim)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    narrative: str
+    confidence: Literal["high", "medium", "low"]
+    confidence_reasoning: str
+    supporting_event_ids: list[str]
+    contradicting_evidence: str | None
+    suggested_next_steps: list[str]
+
+
+class HypothesisSet(BaseModel):
+    """The full triage output the model must return (SPEC §5.5 verbatim)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hypotheses: list[Hypothesis]
+    timeline_summary: str
+    unexplained_signals: list[str]
