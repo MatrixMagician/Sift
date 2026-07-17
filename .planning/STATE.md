@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 3
-current_phase_name: Inference Client, Doctor, Embeddings & Clustering
+current_phase: 03
+current_phase_name: inference-client-doctor-embeddings-clustering
 status: executing
-stopped_at: Phase 3 context gathered
-last_updated: "2026-07-17T11:07:43.391Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-07-17T11:22:26.856Z"
 last_activity: 2026-07-17
-last_activity_desc: Phase 2 complete, transitioned to Phase 3
+last_activity_desc: Phase 03 execution started
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 15
+  completed_plans: 10
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-16)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 02 — case-store-template-dedup
+**Current focus:** Phase 03 — inference-client-doctor-embeddings-clustering
 
 ## Current Position
 
-Phase: 3 — Inference Client, Doctor, Embeddings & Clustering
-Plan: Not started
+Phase: 03 (inference-client-doctor-embeddings-clustering) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-07-17 — Phase 2 complete, transitioned to Phase 3
+Last activity: 2026-07-17 — Phase 03 execution started
 
-Progress: [██████████] 100%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [██████████] 100%
 | Phase 02 P02 | 9min | 2 tasks | 6 files |
 | Phase 02 P03 | ~16min | 2 tasks | 4 files |
 | Phase 02 P04 | 14min | 3 tasks | 7 files |
+| Phase 03 P01 | 6min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 02-04: template_groups_stale contract — ingest sets 1 in event transaction, rebuild clears 0 in rebuild transaction, show clusters warns on stderr
 - [Phase ?]: 02-04: MASK_VERSION 2 — bare hex requires a hex letter; pure-decimal 8+ digit runs mask to <NUM>; groups recompute on next ingest, no migration
 - [Phase ?]: 02-04: show render paths sanitise the COMPLETE line — every DB-sourced field covered; duplicate --filter keys exit 2; corrupt case.db exits 1 without traceback
+- [Phase ?]: Phase 3 config exposes generation/embeddings/clustering sections (extra=forbid); embeddings.model/generation.model default None (D-03, no baked embedding-model default)
+- [Phase ?]: WR-07 closed: SQLITE_FULL/IOERR mid-ingest raises DiskFullError with zero committed events (fatal-vs-recoverable via exc.sqlite_errorcode, caught before the generic handler)
 
 ### Pending Todos
 
@@ -127,6 +130,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T10:18:31.888Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-inference-client-doctor-embeddings-clustering/03-CONTEXT.md
+Last session: 2026-07-17T11:22:26.850Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
