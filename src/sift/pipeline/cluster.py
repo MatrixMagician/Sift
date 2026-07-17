@@ -299,7 +299,6 @@ def cluster_and_label(
     texts = [exemplar_text(group, messages) for group in groups]
     vectors = client.embed(texts)
     dim = len(vectors[0])
-    store.ensure_vectors_table(dim)
 
     # np.asarray re-types normalize's partially-typed sklearn output as a
     # concrete float64 ndarray so the clustering boundary stays type-checked.
@@ -332,6 +331,10 @@ def cluster_and_label(
     vector_rows = list(enumerate(vectors))
 
     with store.transaction():
+        # WR-02: fold the dimension lock (vec0 DDL + embedding_dim meta) into the
+        # same transaction as the writes, so a failure anywhere in this block
+        # rolls the lock back — a zero-vector case is never permanently wedged.
+        store.ensure_vectors_table(dim)
         store.upsert_vectors(vector_rows)
         store.replace_chunks(chunks)
         store.replace_clusters(clusters)

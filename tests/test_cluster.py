@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 
 from sift.config import ClusteringConfig
 from sift.llm.client import Endpoint, InferenceClient
@@ -208,6 +209,38 @@ def test_cluster_persists_vectors_and_chunks(tmp_path: Path) -> None:
         ).fetchone()[0]
         assert chunk_rows == len(_SYNONYM_CORPUS)
         assert vec_rows == len(_SYNONYM_CORPUS)
+    finally:
+        store.close()
+
+
+def test_failure_mid_transaction_does_not_lock_dimension(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WR-02: the embedding-dimension lock (ensure_vectors_table's meta write +
+    # vec0 DDL) must be atomic with the vector writes. If persistence fails
+    # after the table is ensured, meta.embedding_dim must roll back — otherwise
+    # a zero-vector case is permanently wedged and a later model/dim switch
+    # hard-errors on the mismatch guard.
+    store = CaseStore(tmp_path / "case.db")
+
+    def _boom(*_: object, **__: object) -> None:
+        raise RuntimeError("simulated mid-transaction failure")
+
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        # replace_clusters runs inside the transaction, after ensure_vectors_table.
+        monkeypatch.setattr(store, "replace_clusters", _boom)
+        with pytest.raises(RuntimeError, match="simulated"):
+            cluster.cluster_and_label(
+                store, _client(_embed_handler()), ClusteringConfig()
+            )
+        # The failed run must leave no locked dimension behind.
+        assert store.get_meta("embedding_dim") is None
+        # Proof the case is not wedged: a fresh run at a *different* dim must not
+        # trip the STORE-03 mismatch guard.
+        monkeypatch.undo()
+        store.ensure_vectors_table(16)
+        assert store.get_meta("embedding_dim") == "16"
     finally:
         store.close()
 
