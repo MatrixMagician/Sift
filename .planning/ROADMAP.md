@@ -142,7 +142,7 @@ Plans:
   4. Clusters are ranked by salience combining severity, count, burstiness, novelty, and temporal proximity to a user-supplied incident time, budgeted breadth-first to fit the model's context
   5. User can scope analysis with `--hint` free text and `--since/--until` time-window filters
 
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans executed + 1 gap-closure plan
 
 Plans:
 **Wave 1** *(parallel — no shared files)*
@@ -158,6 +158,10 @@ Plans:
 **Wave 3** *(blocked on Wave 2)*
 
 - [x] 04-05-PLAN.md — `sift analyze` `--hint/--since/--until/--top-clusters` + 0/3/1 exit-code contract + `sift show hypotheses` + ADR (wave 3)
+
+**Gap closure** *(from live-server UAT — G1)*
+
+- [ ] 04-06-PLAN.md — Map a malformed/empty 200 inference response (no `choices` / empty `content`, reasoning-model budget exhaustion) to a clean failed run — never crash (G1, RAG-03) (wave 1)
 
 ### Phase 5: Domain Adapters (journald, dsserrors, eustack)
 
