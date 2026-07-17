@@ -24,6 +24,7 @@ No third-party vendor inference SDK is imported here — only httpx.
 from __future__ import annotations
 
 import ipaddress
+import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -112,6 +113,11 @@ def _coerce_vector(embedding: object) -> list[float]:
         # bool is an int subclass — reject it explicitly, it is never a vector.
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError("embedding contains a non-numeric value")
+        # json.loads parses NaN/Infinity/-Infinity by default (WR-01); a
+        # non-finite component would poison distance maths and let `sift doctor`
+        # report a false-healthy round-trip, so reject it here.
+        if not math.isfinite(value):
+            raise ValueError("embedding contains a non-finite value")
         vector.append(float(value))
     return vector
 

@@ -167,6 +167,20 @@ def test_invalid_json_raises_value_error() -> None:
         _client(handler).embed(["a"])
 
 
+@pytest.mark.parametrize("token", ["NaN", "Infinity", "-Infinity"])
+def test_non_finite_embedding_raises(token: str) -> None:
+    # WR-01: json.loads parses the bare tokens NaN/Infinity/-Infinity into
+    # float nan/inf by default, so a hostile server can smuggle non-finite
+    # components past the "finite" contract. embed() must reject them.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=f'{{"data": [{{"index": 0, "embedding": [1.0, {token}]}}]}}'
+        )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        _client(handler).embed(["a"])
+
+
 # --- chat (LLM-01) ------------------------------------------------------------
 
 
