@@ -10,8 +10,10 @@ import pytest
 from sift.models import Event, event_id
 from sift.store import (
     CaseStore,
+    StoredHypothesis,
     TemplateGroup,
     _migration_1,  # pyright: ignore[reportPrivateUsage] — builds a v1 fixture db
+    _migration_3,  # pyright: ignore[reportPrivateUsage] — builds a v3 fixture db
     case_db_path,
     validate_case_name,
 )
@@ -145,8 +147,8 @@ def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
     CaseStore(db).close()
     conn = sqlite3.connect(db)
     try:
-        # Phase 3 migration 3 adds chunks + clusters, bumping the schema to v3.
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        # Plan 04-01 migration 4 adds the hypotheses table, head schema is v4.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
         tables = {
             row[0]
             for row in conn.execute(
@@ -160,7 +162,7 @@ def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
 
 def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
     """Pitfall 7: a Phase-1 case.db reopened with later code migrates through
-    to the latest schema (v3) with oversized raw compressed in place and still
+    to the latest schema (v4) with oversized raw compressed in place and still
     readable — migration 2's zstd-in-place upgrade still runs on the way up."""
     db = tmp_path / "case.db"
     conn = sqlite3.connect(db)
@@ -199,7 +201,7 @@ def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
         assert conn.execute("SELECT typeof(raw) FROM events").fetchone()[0] == "blob"
     finally:
         conn.close()
@@ -248,7 +250,7 @@ def test_zstd_threshold_measured_in_encoded_bytes(tmp_path: Path) -> None:
 
 def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
     """Migration idempotency: reopening a fully-migrated store leaves
-    user_version at the latest schema (3) and stored row bytes unchanged."""
+    user_version at the latest schema (4) and stored row bytes unchanged."""
     db = tmp_path / "case.db"
     store = CaseStore(db)
     store.insert_events([_ev(offset=0, raw="z" * 5000), _ev(offset=1, raw="small")])
@@ -266,7 +268,7 @@ def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
         return ver, rows
 
     first = snapshot()
-    assert first[0] == 3
+    assert first[0] == 4
     CaseStore(db).close()
     assert snapshot() == first
 
@@ -472,3 +474,96 @@ def test_migration_prints_stderr_notice(
 
     CaseStore(db).close()  # already at head: no migration, no notice
     assert "migrating" not in capsys.readouterr().err
+
+
+# --- plan 04-01: migration 4 — hypotheses table (RAG-02, RAG-04) ------------
+
+
+def _hyp(index: int, *, valid: bool = True) -> StoredHypothesis:
+    return StoredHypothesis(
+        hyp_index=index,
+        title=f"hypothesis {index}",
+        narrative="working-set pressure evicted cubes",
+        confidence="high",
+        confidence_reasoning="three fatal events share a SID",
+        supporting_event_ids=[event_id("app.log", index)],
+        contradicting_evidence=None if index else "cube cache was warm",
+        suggested_next_steps=["raise the working-set cap"],
+        citations_valid=valid,
+    )
+
+
+def test_v3_to_v4_migration_adds_hypotheses_table(tmp_path: Path) -> None:
+    """A v3 case.db opened by the new code migrates to v4 and gains the
+    hypotheses table (the runner announces v4 on stderr)."""
+    db = tmp_path / "case.db"
+    conn = sqlite3.connect(db)
+    _migration_1(conn)
+    _migration_3(conn)  # migration 2 is an in-place raw compression, table-free
+    conn.execute("PRAGMA user_version = 3")
+    conn.commit()
+    conn.close()
+
+    CaseStore(db).close()  # applies migration 4
+
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        conn.close()
+    assert "hypotheses" in tables
+
+
+def test_replace_and_query_hypotheses_roundtrip(tmp_path: Path) -> None:
+    """replace_hypotheses persists rows; query_hypotheses reads them back equal,
+    ordered by hyp_index; a second replace is idempotent (RAG-02)."""
+    store = CaseStore(tmp_path / "case.db")
+    rows = [_hyp(2, valid=False), _hyp(0), _hyp(1)]
+    with store.transaction():
+        store.replace_hypotheses(rows)
+    got = store.query_hypotheses()
+    assert [h.hyp_index for h in got] == [0, 1, 2]  # ordered ASC
+    assert got[2].citations_valid is False
+    assert got[0].supporting_event_ids == [event_id("app.log", 0)]
+
+    with store.transaction():
+        store.replace_hypotheses([_hyp(0)])
+    assert [h.hyp_index for h in store.query_hypotheses()] == [0]
+    store.close()
+
+
+def test_query_hypotheses_non_list_json_coerced(tmp_path: Path) -> None:
+    """WR-01: tampered non-array JSON in a list column coerces to list[str]
+    instead of crashing the read path."""
+    store = CaseStore(tmp_path / "case.db")
+    with store.transaction():
+        store.replace_hypotheses([_hyp(0)])
+    store._conn.execute(  # pyright: ignore[reportPrivateUsage] — tampering fixture
+        "UPDATE hypotheses SET supporting_event_ids = ?, "
+        "suggested_next_steps = ? WHERE hyp_index = 0",
+        ('{"a": 1}', "42"),
+    )
+    got = store.query_hypotheses()
+    for h in got:
+        assert isinstance(h.supporting_event_ids, list)
+        assert all(isinstance(x, str) for x in h.supporting_event_ids)
+        assert all(isinstance(x, str) for x in h.suggested_next_steps)
+    store.close()
+
+
+def test_triage_run_meta_roundtrip(tmp_path: Path) -> None:
+    """Run-level triage status lives in meta (no separate table)."""
+    store = CaseStore(tmp_path / "case.db")
+    store.set_meta("triage_timeline_summary", "failures around 14:20 UTC")
+    store.set_meta("triage_degraded", "0")
+    store.set_meta("triage_model", "qwen2.5-coder")
+    assert store.get_meta("triage_timeline_summary") == "failures around 14:20 UTC"
+    assert store.get_meta("triage_degraded") == "0"
+    assert store.get_meta("triage_model") == "qwen2.5-coder"
+    store.close()

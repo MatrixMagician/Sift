@@ -233,10 +233,39 @@ def _migration_3(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_4(conn: sqlite3.Connection) -> None:
+    """Add the hypotheses table (RAG-02, RAG-04).
+
+    One row per ranked hypothesis in the latest triage run. The list-valued
+    fields (supporting_event_ids, suggested_next_steps) are JSON arrays, and
+    citations_valid persists the per-hypothesis citation-gate verdict so an
+    invalid/unverifiable citation stays visibly flagged for the report rather
+    than being silently dropped (T-04-02). Run-level status lives in meta under
+    the triage_* keys (see replace_hypotheses) — no separate table needed.
+    """
+    conn.execute(
+        """
+        CREATE TABLE hypotheses (
+            hyp_index            INTEGER PRIMARY KEY,
+            title                TEXT NOT NULL,
+            narrative            TEXT NOT NULL,
+            confidence           TEXT NOT NULL
+                CHECK (confidence IN ('high','medium','low')),
+            confidence_reasoning TEXT NOT NULL,
+            supporting_event_ids TEXT NOT NULL,   -- JSON array of event ids
+            contradicting_evidence TEXT,          -- nullable free text
+            suggested_next_steps TEXT NOT NULL,   -- JSON array of steps
+            citations_valid      INTEGER NOT NULL -- 0/1 citation-gate verdict
+        )
+        """
+    )
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migration_1,
     2: _migration_2,
     3: _migration_3,  # chunks + clusters tables (NOT vectors — that is lazy)
+    4: _migration_4,  # hypotheses table (citation-gated triage output)
 }
 
 _EVENT_COLUMNS = (
@@ -254,6 +283,12 @@ _CHUNK_COLUMNS = "chunk_id, template_id, text, event_ids"
 
 _CLUSTER_COLUMNS = (
     "cluster_id, label, signature, severity_max, count, template_ids"
+)
+
+_HYP_COLUMNS = (
+    "hyp_index, title, narrative, confidence, confidence_reasoning, "
+    "supporting_event_ids, contradicting_evidence, suggested_next_steps, "
+    "citations_valid"
 )
 
 # Allowlisted filter key -> fixed WHERE snippet (T-02-08). Filter VALUES are
@@ -317,6 +352,22 @@ def _build_filter_clauses(
     return where_sql, limit_sql, params
 
 
+def _coerce_str_list(value: str) -> list[str]:
+    """WR-01: decode a JSON list column from an UNTRUSTED case.db to list[str].
+
+    A tampered case.db can hold ANY JSON in a list column. Guard while the value
+    is still typed Any: wrap a non-array as a single element and coerce every
+    element to str, so tampering stays visible (never crashes the read path) and
+    render-time sanitisation strips hostile bytes. Mirrors the inline idiom in
+    query_clusters/query_template_groups.
+    """
+    loaded: object = json.loads(value)
+    if not isinstance(loaded, list):
+        loaded = [loaded]
+    items = cast("list[object]", loaded)
+    return [str(x) for x in items]
+
+
 @dataclass(frozen=True)
 class TemplateGroup:
     """One template dedup group (CLUS-01), persisted in template_groups."""
@@ -340,6 +391,21 @@ class Cluster:
     severity_max: str  # six-severity CHECK vocabulary
     count: int
     template_ids: list[str]  # member template ids
+
+
+@dataclass(frozen=True)
+class StoredHypothesis:
+    """One persisted triage hypothesis (RAG-02), a row in the hypotheses table."""
+
+    hyp_index: int
+    title: str
+    narrative: str
+    confidence: str  # 'high' | 'medium' | 'low' (CHECK-enforced on insert)
+    confidence_reasoning: str
+    supporting_event_ids: list[str]
+    contradicting_evidence: str | None
+    suggested_next_steps: list[str]
+    citations_valid: bool  # the per-hypothesis citation-gate verdict (T-04-02)
 
 
 class CaseStore:
@@ -743,6 +809,65 @@ class CaseStore:
             "UPDATE clusters SET label = ? WHERE cluster_id = ?",
             [(label, cluster_id) for cluster_id, label in labels.items()],
         )
+
+    def replace_hypotheses(self, rows: Iterable[StoredHypothesis]) -> None:
+        """DELETE FROM hypotheses then insert all rows (RAG-02, idempotent).
+
+        The CALLER owns the transaction — hypothesise.py wraps this with the
+        triage_* run-meta writes (get_meta/set_meta) that record the run-level
+        status: triage_timeline_summary, triage_unexplained_signals,
+        triage_degraded, triage_raw, triage_model, triage_prompt_hash,
+        triage_created_at. The two list fields are json.dumps'd; citations_valid
+        stores as int (T-04-02). No model value ever reaches SQL text —
+        _HYP_COLUMNS is a module constant, values are all ?-bound (T-04-05).
+        """
+        self._conn.execute("DELETE FROM hypotheses")
+        self._conn.executemany(
+            f"INSERT INTO hypotheses ({_HYP_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    h.hyp_index,
+                    h.title,
+                    h.narrative,
+                    h.confidence,
+                    h.confidence_reasoning,
+                    json.dumps(h.supporting_event_ids),
+                    h.contradicting_evidence,
+                    json.dumps(h.suggested_next_steps),
+                    int(h.citations_valid),
+                )
+                for h in rows
+            ],
+        )
+
+    def query_hypotheses(self) -> list[StoredHypothesis]:
+        """Persisted hypotheses ordered by hyp_index ASC (RAG-02).
+
+        Both JSON list columns are coerced defensively — a tampered case.db can
+        hold ANY JSON here (WR-01, the query_clusters precedent): wrap a
+        non-array as a single element and str() every element, so tampering
+        stays visible and render-time sanitisation strips hostile bytes.
+        """
+        rows = self._conn.execute(
+            f"SELECT {_HYP_COLUMNS} FROM hypotheses ORDER BY hyp_index"  # noqa: S608 — column list is a module constant
+        ).fetchall()
+        hyps: list[StoredHypothesis] = []
+        for r in rows:
+            hyps.append(
+                StoredHypothesis(
+                    hyp_index=r[0],
+                    title=r[1],
+                    narrative=r[2],
+                    confidence=r[3],
+                    confidence_reasoning=r[4],
+                    supporting_event_ids=_coerce_str_list(r[5]),
+                    contradicting_evidence=r[6],
+                    suggested_next_steps=_coerce_str_list(r[7]),
+                    citations_valid=bool(r[8]),
+                )
+            )
+        return hyps
 
     def get_meta(self, key: str) -> str | None:
         row = self._conn.execute(
