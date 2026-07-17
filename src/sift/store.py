@@ -253,6 +253,14 @@ _CLUSTER_FILTER_SQL: dict[str, str] = {
     "contains": "instr(template, ?) > 0",
 }
 
+# Allowlist for the clusters table (query_clusters). `contains` searches the
+# signature — the label is optional and may be NULL until clustering labels.
+_CLUSTERS_TABLE_FILTER_SQL: dict[str, str] = {
+    "severity": "severity_max = ?",
+    "min-count": "count >= ?",
+    "contains": "instr(signature, ?) > 0",
+}
+
 
 def _build_filter_clauses(
     filters: Mapping[str, str | int] | None,
@@ -298,6 +306,18 @@ class TemplateGroup:
     last_ts: str | None
     severity_max: str  # six-severity CHECK vocabulary
     exemplar_event_ids: list[str]
+
+
+@dataclass(frozen=True)
+class Cluster:
+    """One semantic cluster of template groups (CLUS-02), persisted in clusters."""
+
+    cluster_id: int
+    label: str | None  # NULL until an LLM label exists (D-01)
+    signature: str  # shown until a label exists
+    severity_max: str  # six-severity CHECK vocabulary
+    count: int
+    template_ids: list[str]  # member template ids
 
 
 class CaseStore:
@@ -612,6 +632,94 @@ class CaseStore:
         )
         self._conn.executemany(
             "INSERT INTO vectors (chunk_id, embedding) VALUES (?, ?)", pairs
+        )
+
+    def replace_chunks(
+        self, chunks: Iterable[tuple[int, str, str, list[str]]]
+    ) -> None:
+        """DELETE FROM chunks then insert (chunk_id, template_id, text, event_ids).
+
+        The CALLER owns the transaction (mirrors replace_template_groups):
+        pipeline/cluster.py wraps this with the vector + cluster writes.
+        """
+        self._conn.execute("DELETE FROM chunks")
+        self._conn.executemany(
+            f"INSERT INTO chunks ({_CHUNK_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            "VALUES (?, ?, ?, ?)",
+            [
+                (chunk_id, template_id, text, json.dumps(event_ids))
+                for chunk_id, template_id, text, event_ids in chunks
+            ],
+        )
+
+    def replace_clusters(self, clusters: Iterable[Cluster]) -> None:
+        """DELETE FROM clusters then insert all clusters (CLUS-02).
+
+        The CALLER owns the transaction — cluster.py wraps this together with
+        the vector upserts and the label-prompt-hash meta write.
+        """
+        self._conn.execute("DELETE FROM clusters")
+        self._conn.executemany(
+            f"INSERT INTO clusters ({_CLUSTER_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    c.cluster_id,
+                    c.label,
+                    c.signature,
+                    c.severity_max,
+                    c.count,
+                    json.dumps(c.template_ids),
+                )
+                for c in clusters
+            ],
+        )
+
+    def query_clusters(
+        self, filters: Mapping[str, str | int] | None = None
+    ) -> list[Cluster]:
+        """Clusters ordered by count DESC, cluster_id ASC (STORE-04).
+
+        Optional filters use the allowlisted _CLUSTERS_TABLE_FILTER_SQL
+        snippets with ?-bound values (T-02-08); an unknown key raises
+        ValueError. template_ids is coerced defensively — a tampered case.db
+        can hold ANY JSON here (the exemplar_event_ids precedent).
+        """
+        where_sql, limit_sql, params = _build_filter_clauses(
+            filters, _CLUSTERS_TABLE_FILTER_SQL
+        )
+        rows = self._conn.execute(
+            f"SELECT {_CLUSTER_COLUMNS} FROM clusters"  # noqa: S608 — column list and WHERE snippets are module constants; values are all ?
+            f"{where_sql} ORDER BY count DESC, cluster_id{limit_sql}",
+            params,
+        ).fetchall()
+        clusters: list[Cluster] = []
+        for r in rows:
+            # WR-01: a tampered case.db can hold ANY JSON in template_ids. Guard
+            # while the value is still typed Any: wrap non-arrays as a single
+            # element and coerce every element to str, so tampering stays
+            # visible and render-time sanitisation strips hostile bytes.
+            loaded: object = json.loads(r[5])
+            if not isinstance(loaded, list):
+                loaded = [loaded]
+            items = cast("list[object]", loaded)
+            clusters.append(
+                Cluster(
+                    cluster_id=r[0],
+                    label=r[1],
+                    signature=r[2],
+                    severity_max=r[3],
+                    count=r[4],
+                    template_ids=[str(x) for x in items],
+                )
+            )
+        return clusters
+
+    def set_cluster_labels(self, labels: Mapping[int, str]) -> None:
+        """Update clusters.label by cluster_id (D-01, caller owns transaction)."""
+        self._conn.executemany(
+            "UPDATE clusters SET label = ? WHERE cluster_id = ?",
+            [(label, cluster_id) for cluster_id, label in labels.items()],
         )
 
     def get_meta(self, key: str) -> str | None:

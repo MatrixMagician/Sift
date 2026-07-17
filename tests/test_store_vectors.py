@@ -13,6 +13,7 @@ import pytest
 
 from sift.store import (
     CaseStore,
+    Cluster,
     _blob_to_vec,  # pyright: ignore[reportPrivateUsage] — round-trip test
     _vec_to_blob,  # pyright: ignore[reportPrivateUsage] — round-trip test
 )
@@ -163,5 +164,112 @@ def test_record_embedding_identity_guards_dim(tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="8.*16|16.*8"):
             store.record_embedding_identity("other", 16)
         assert store.get_meta("embedding_dim") == "8"
+    finally:
+        store.close()
+
+
+# --- Task 3: replace_clusters + query + defensive reads -------------------
+
+
+def _cluster(cluster_id: int, count: int, label: str | None = None) -> Cluster:
+    return Cluster(
+        cluster_id=cluster_id,
+        label=label,
+        signature=f"sig-{cluster_id}",
+        severity_max="error",
+        count=count,
+        template_ids=[f"t{cluster_id}a", f"t{cluster_id}b"],
+    )
+
+
+def test_replace_clusters_round_trips_ordered_by_count_desc(
+    tmp_path: Path,
+) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            store.replace_clusters(
+                [_cluster(1, 3), _cluster(2, 10), _cluster(3, 5)]
+            )
+        got = store.query_clusters()
+        assert [c.cluster_id for c in got] == [2, 3, 1]
+        assert got[0].template_ids == ["t2a", "t2b"]
+    finally:
+        store.close()
+
+
+def test_replace_clusters_deletes_prior_rows(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            store.replace_clusters([_cluster(1, 3), _cluster(2, 10)])
+        with store.transaction():
+            store.replace_clusters([_cluster(9, 1)])
+        assert [c.cluster_id for c in store.query_clusters()] == [9]
+    finally:
+        store.close()
+
+
+def test_set_cluster_labels_updates_by_id(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            store.replace_clusters([_cluster(1, 3), _cluster(2, 10)])
+        with store.transaction():
+            store.set_cluster_labels({2: "database timeouts"})
+        by_id = {c.cluster_id: c for c in store.query_clusters()}
+        assert by_id[2].label == "database timeouts"
+        assert by_id[1].label is None
+    finally:
+        store.close()
+
+
+def test_query_clusters_filter_by_min_count(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            store.replace_clusters(
+                [_cluster(1, 3), _cluster(2, 10), _cluster(3, 5)]
+            )
+        got = store.query_clusters({"min-count": 5})
+        assert [c.cluster_id for c in got] == [2, 3]
+    finally:
+        store.close()
+
+
+def test_query_clusters_unknown_filter_key_raises(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with pytest.raises(ValueError, match="unknown filter key"):
+            store.query_clusters({"bogus": "x"})
+    finally:
+        store.close()
+
+
+def test_query_clusters_coerces_tampered_template_ids(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            store.replace_clusters([_cluster(1, 3)])
+        # Simulate a tampered case.db holding a non-array JSON value.
+        with store.transaction():
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+                "UPDATE clusters SET template_ids = '\"oops\"' WHERE cluster_id = 1"
+            )
+        (got,) = store.query_clusters()
+        assert got.template_ids == ["oops"]
+    finally:
+        store.close()
+
+
+def test_replace_chunks_round_trips(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            store.replace_chunks([(1, "t1", "boom", ["e1", "e2"])])
+        rows = store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT chunk_id, template_id, text, event_ids FROM chunks"
+        ).fetchall()
+        assert rows == [(1, "t1", "boom", '["e1", "e2"]')]
     finally:
         store.close()

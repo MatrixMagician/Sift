@@ -140,12 +140,13 @@ def test_case_db_path_layout(tmp_path: Path) -> None:
 # --- plan 02-01: migration 2 + transparent zstd (STORE-02) -----------------
 
 
-def test_fresh_store_reaches_user_version_2(tmp_path: Path) -> None:
+def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
     db = tmp_path / "case.db"
     CaseStore(db).close()
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        # Phase 3 migration 3 adds chunks + clusters, bumping the schema to v3.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
         tables = {
             row[0]
             for row in conn.execute(
@@ -158,8 +159,9 @@ def test_fresh_store_reaches_user_version_2(tmp_path: Path) -> None:
 
 
 def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
-    """Pitfall 7: a Phase-1 case.db reopened with Phase 2 code migrates to
-    user_version 2 with oversized raw compressed in place and still readable."""
+    """Pitfall 7: a Phase-1 case.db reopened with later code migrates through
+    to the latest schema (v3) with oversized raw compressed in place and still
+    readable — migration 2's zstd-in-place upgrade still runs on the way up."""
     db = tmp_path / "case.db"
     conn = sqlite3.connect(db)
     _migration_1(conn)
@@ -197,7 +199,7 @@ def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
         assert conn.execute("SELECT typeof(raw) FROM events").fetchone()[0] == "blob"
     finally:
         conn.close()
@@ -245,8 +247,8 @@ def test_zstd_threshold_measured_in_encoded_bytes(tmp_path: Path) -> None:
 
 
 def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
-    """Migration idempotency: reopening a v2 store leaves user_version at 2
-    and stored row bytes unchanged."""
+    """Migration idempotency: reopening a fully-migrated store leaves
+    user_version at the latest schema (3) and stored row bytes unchanged."""
     db = tmp_path / "case.db"
     store = CaseStore(db)
     store.insert_events([_ev(offset=0, raw="z" * 5000), _ev(offset=1, raw="small")])
@@ -264,7 +266,7 @@ def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
         return ver, rows
 
     first = snapshot()
-    assert first[0] == 2
+    assert first[0] == 3
     CaseStore(db).close()
     assert snapshot() == first
 
