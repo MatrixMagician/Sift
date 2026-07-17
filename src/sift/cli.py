@@ -28,6 +28,7 @@ from rich.progress import (
 )
 
 from sift import adapters
+from sift.adapters.base import ConfigurableAdapter
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.config import SiftConfig, load_config
 from sift.llm.client import Endpoint, InferenceClient
@@ -265,8 +266,10 @@ def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
                         # Per-run configuration travels on the adapter
                         # instance — the frozen Protocol has no config
                         # attributes (01-02 pattern). D-05: config.timezones
-                        # reaches the adapter.
-                        if isinstance(file_adapter, GenericLogAdapter):
+                        # reaches EVERY ConfigurableAdapter, not just genericlog
+                        # (05-01: dsserrors node-tagging + multi-node tz depend
+                        # on this delivery).
+                        if isinstance(file_adapter, ConfigurableAdapter):
                             file_adapter.input_root = input_dir
                             file_adapter.tz_overrides = dict(config.timezones)
                         # T-02-05: stream events in bounded batches — a 100 MB
@@ -342,9 +345,13 @@ def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
                     done_bytes += file_size
                     progress.update(ptask, completed=done_bytes)
                     continue
+                # Read the REAL per-file coverage for EVERY ConfigurableAdapter
+                # (05-01): the stats=None -> cov=1.0 fallback must only apply to
+                # a genuine non-ConfigurableAdapter, never fabricate 100% for a
+                # domain adapter with unparseable regions (T-05-01).
                 stats = (
                     file_adapter.last_stats
-                    if isinstance(file_adapter, GenericLogAdapter)
+                    if isinstance(file_adapter, ConfigurableAdapter)
                     else None
                 )
                 cov = stats.coverage if stats else 1.0
