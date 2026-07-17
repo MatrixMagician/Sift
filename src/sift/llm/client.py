@@ -252,10 +252,24 @@ class InferenceClient:
         """
         return self._last_embedding_model or self._embeddings.model
 
-    def chat(self, messages: Sequence[dict[str, str]]) -> str:
+    def chat(
+        self,
+        messages: Sequence[dict[str, str]],
+        *,
+        response_format: dict[str, object] | None = None,
+    ) -> str:
         """Return ``choices[0].message.content`` from a chat completion (LLM-01).
 
         Parses defensively and caps the returned text length (DoS defence).
+
+        The optional ``response_format`` requests server-side constrained
+        decoding (RAG-03). The caller (``hypothesise.py``) supplies the
+        llama.cpp shape ``{"type": "json_schema", "schema": {...}}`` — the schema
+        sits at ``response_format.schema`` top-level, NOT OpenAI's deeper
+        ``response_format.json_schema.schema`` nesting. Never pass a ``grammar``
+        field alongside it: llama.cpp treats both-at-once as a hard error. The
+        constraint is best-effort — a server that ignores it still returns text
+        parsed here; downstream Pydantic validation is the real backstop.
 
         Raises:
             ValueError: On a malformed response.
@@ -265,6 +279,8 @@ class InferenceClient:
         payload: dict[str, object] = {"messages": list(messages)}
         if self._generation.model is not None:
             payload["model"] = self._generation.model
+        if response_format is not None:
+            payload["response_format"] = response_format
         response = self._request("POST", url, json=payload)
         response.raise_for_status()
         data = _json_object(response)

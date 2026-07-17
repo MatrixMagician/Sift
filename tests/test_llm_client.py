@@ -243,7 +243,10 @@ def test_chat_omits_response_format_when_not_passed() -> None:
 
 def test_chat_sends_llama_cpp_response_format_shape() -> None:
     seen: list[dict[str, object]] = []
-    rf = {"type": "json_schema", "schema": {"type": "object", "properties": {}}}
+    rf: dict[str, object] = {
+        "type": "json_schema",
+        "schema": {"type": "object", "properties": {}},
+    }
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(json.loads(request.content))
