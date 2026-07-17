@@ -1,19 +1,21 @@
 ---
 phase: 04-salience-rag-citation-gated-hypotheses
 verified: 2026-07-17T00:00:00Z
-status: gaps_found
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
+resolution: "Live-server UAT completed 2026-07-17 on the Strix Halo box (Lemonade v10.4.0). Manual item passed (server accepts the $defs/$ref schema, HTTP 200; graceful degrade confirmed). The G1 never-crash gap it surfaced was closed by gap plan 04-06 and re-confirmed live. All automated truths green (311 passed). Status flipped human_needed → gaps_found → passed."
 human_verification_resolved:
   - test: "Live llama-server constrained-decoding round-trip accepts HypothesisSet.model_json_schema() ($defs/$ref)."
     result: passed
     note: "Run 2026-07-17 on Strix Halo / Lemonade v10.4.0. Server ACCEPTS the $defs/$ref schema (HTTP 200, no 400) — Open Question 1 resolved. `sift analyze` with the configured Qwen3-0.6B degraded gracefully (exit 3, flagged, no crash, zero invalid citations). See 04-UAT.md test 1 evidence."
-gaps:
+gaps_resolved:
   - id: G1
     severity: high
     requirement: RAG-03
-    summary: "reasoning/empty/'no choices' 200 inference response crashes `sift analyze` with an uncaught ValueError traceback (exit 1) instead of degrading/failing cleanly — violates the load-bearing never-crash invariant. Found via live UAT (Qwen3.5-27B reasoning model). Root cause + fix in 04-UAT.md §Gaps G1."
+    summary: "reasoning/empty/'no choices' 200 inference response crashed `sift analyze` with an uncaught ValueError traceback — violated the never-crash invariant. Found via live UAT (Qwen3.5-27B)."
+    resolution: "Closed by gap plan 04-06 (RED 729c92c, GREEN 99996a5): client.chat() raises on empty content; hypothesise() catches (httpx.HTTPError, ValueError) → clean failed/exit 1. 3 regression tests pass; live 27B re-run now exits 1 cleanly (no traceback)."
 ---
 
 # Phase 4: Salience, RAG & Citation-Gated Hypotheses — Verification Report

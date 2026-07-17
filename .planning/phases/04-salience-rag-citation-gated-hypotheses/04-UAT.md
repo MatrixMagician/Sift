@@ -43,15 +43,25 @@ evidence: |
 
 total: 1
 passed: 1
-issues: 1
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
+note: "UAT item 1 passed; the G1 gap it surfaced is resolved (gap plan 04-06, live re-run confirmed)."
 
 ## Gaps
 
 ### G1 — reasoning/empty/"no choices" 200 response crashes `sift analyze` (never-crash invariant)
-status: failed
+status: resolved
+resolution: |
+  Closed by gap plan 04-06 (commits 729c92c RED, 99996a5 GREEN). client.chat() now raises on
+  empty/whitespace content (the reasoning-model finish_reason:"length" shape); hypothesise()'s
+  generation handler broadened to `except (httpx.HTTPError, ValueError)` → clean `failed` (exit 1),
+  never a raw traceback. 3 regression tests (test_malformed_generation_{no_choices,absent_content,
+  empty_content}) pass; full gate green (311 passed, ruff clean, pyright 0).
+  LIVE re-run 2026-07-17 of the exact crash scenario (Qwen3.5-27B reasoning model, Lemonade
+  127.0.0.1:13305): now prints "Error: hypothesis generation failed; ... no hypotheses were
+  persisted" and exits 1 — NO traceback. Never-crash invariant confirmed against the real model.
 severity: high
 requirement: RAG-03
 found: 2026-07-17 (live UAT, Strix Halo)
