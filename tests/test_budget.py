@@ -51,6 +51,7 @@ def test_fit_shortens_breadth_first_never_dropping_a_cluster() -> None:
 
     assert len(out) == 3  # every cluster survives — none dropped whole
     assert all(len(e) > 0 for e in out)  # each shortened, not emptied
-    assert all(len(a) < len(b) for a, b in zip(out, excerpts))  # all truncated
+    truncated = zip(out, excerpts, strict=True)
+    assert all(len(a) < len(b) for a, b in truncated)  # all truncated
     total = sum(budget.estimate(e) for e in out)
     assert total <= 60  # result fits the budget

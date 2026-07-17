@@ -11,7 +11,11 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from sift.llm.client import Endpoint, InferenceClient, _assert_local
+from sift.llm.client import (
+    Endpoint,
+    InferenceClient,
+    _assert_local,  # pyright: ignore[reportPrivateUsage] — SSRF guard under test
+)
 
 Handler = Callable[[httpx.Request], httpx.Response]
 

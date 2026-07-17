@@ -83,6 +83,15 @@ def _assert_local(base_url: str, allow_public: bool) -> None:
         )
 
 
+def _server_root(base_url: str) -> str:
+    """Return ``scheme://netloc`` for llama.cpp's native (non-``/v1``) endpoints.
+
+    ``/props`` and ``/tokenize`` live at the server root, not under ``/v1``.
+    """
+    parts = urlsplit(base_url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
 def _json_object(response: httpx.Response) -> dict[str, object]:
     """Parse a response body as a JSON object, defensively (untrusted input)."""
     try:
@@ -164,6 +173,8 @@ class InferenceClient:
         self._retries = retries
         self._backoff_base = backoff_base
         self._batch_size = max(1, batch_size)
+        self._has_tokenize: bool | None = None  # None = not yet probed
+        self._has_props: bool | None = None
 
     def _request(
         self, method: str, url: str, *, json: dict[str, object] | None = None
@@ -246,3 +257,58 @@ class InferenceClient:
         if not isinstance(content, str):
             raise ValueError("chat response message content is not a string")
         return content[:_MAX_CONTENT_CHARS]
+
+    @property
+    def has_tokenize(self) -> bool:
+        """Whether the generation server exposes ``/tokenize`` (probed once)."""
+        if self._has_tokenize is None:
+            self._has_tokenize = self.tokenize("") is not None
+        return self._has_tokenize
+
+    def tokenize(self, text: str) -> int | None:
+        """Return the server's token count for ``text``, or ``None`` if absent.
+
+        Feature-detection must never raise for an absent endpoint (LLM-04) — a
+        404 or transport error degrades to ``None`` so Lemonade (which lacks
+        ``/tokenize``) works unmodified.
+        """
+        url = f"{_server_root(self._generation.base_url)}/tokenize"
+        try:
+            response = self._http.request("POST", url, json={"content": text})
+        except httpx.HTTPError:
+            return None
+        if response.status_code != 200:
+            return None
+        try:
+            data = _json_object(response)
+        except ValueError:
+            return None
+        tokens = data.get("tokens")
+        if not isinstance(tokens, list):
+            return None
+        return len(cast(list[object], tokens))
+
+    @property
+    def has_props(self) -> bool:
+        """Whether the generation server exposes ``/props`` (probed once)."""
+        if self._has_props is None:
+            self._has_props = bool(self.props())
+        return self._has_props
+
+    def props(self) -> dict[str, object]:
+        """Return the server's ``/props`` dict, or ``{}`` if absent (LLM-04).
+
+        Callers read keys such as ``n_ctx`` / ``n_parallel`` defensively with
+        ``.get`` — an absent endpoint or key is never an error.
+        """
+        url = f"{_server_root(self._generation.base_url)}/props"
+        try:
+            response = self._http.request("GET", url)
+        except httpx.HTTPError:
+            return {}
+        if response.status_code != 200:
+            return {}
+        try:
+            return _json_object(response)
+        except ValueError:
+            return {}
