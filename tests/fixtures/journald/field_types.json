@@ -1,0 +1,5 @@
+{"__REALTIME_TIMESTAMP":"1784170000000000","_BOOT_ID":"aabbccddeeff00112233445566778899","PRIORITY":"6","MESSAGE":"An ordinary string message","_SYSTEMD_UNIT":"demo.service","_COMM":"demo"}
+{"__REALTIME_TIMESTAMP":"1784170001000000","PRIORITY":"3","MESSAGE":[72,105,0,87,111,114,108,100],"_SYSTEMD_UNIT":"demo.service","_COMM":"demo"}
+{"__REALTIME_TIMESTAMP":"1784170002000000","PRIORITY":"4","MESSAGE":["first repeated line","second repeated line"],"_SYSTEMD_UNIT":"demo.service","_COMM":"demo"}
+{"__REALTIME_TIMESTAMP":"1784170003000000","PRIORITY":"5","MESSAGE":null,"_SYSTEMD_UNIT":"demo.service","_COMM":"demo"}
+{"__REALTIME_TIMESTAMP":"1784170004000000","PRIORITY":"6","MESSAGE":"Entry whose oversized field was dropped to null by journald","CONFIG_DUMP":null,"_SYSTEMD_UNIT":"demo.service","_COMM":"demo"}
