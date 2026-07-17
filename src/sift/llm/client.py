@@ -272,7 +272,10 @@ class InferenceClient:
         parsed here; downstream Pydantic validation is the real backstop.
 
         Raises:
-            ValueError: On a malformed response.
+            ValueError: On a malformed response — absent/empty ``choices``, a
+                non-string/absent ``content``, or empty/whitespace-only content
+                (a reasoning model that produced no usable answer). All surface
+                as one ``ValueError`` the caller maps to a failed run (G1).
             httpx.HTTPStatusError: On a non-retriable error status.
         """
         url = f"{self._generation.base_url.rstrip('/')}/chat/completions"
@@ -296,6 +299,12 @@ class InferenceClient:
         content = cast(dict[str, object], message).get("content")
         if not isinstance(content, str):
             raise ValueError("chat response message content is not a string")
+        # A reasoning model that exhausts its budget on reasoning_content returns
+        # an empty answer (content "", finish_reason "length") — no usable text.
+        # Unify it with the no-choices / absent-content guards above: a malformed
+        # no-usable-content response the caller maps to a clean failed run (G1).
+        if not content.strip():
+            raise ValueError("chat response has empty content")
         return content[:_MAX_CONTENT_CHARS]
 
     def models(self, endpoint: Endpoint) -> list[str]:

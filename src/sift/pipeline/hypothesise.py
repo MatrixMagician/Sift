@@ -234,8 +234,10 @@ def _generate(
 
     Returns ``(HypothesisSet, raw)`` on success (first try or after repair), or
     ``(None, raw)`` where ``raw`` is the SECOND failed output — the caller
-    degrades and persists it. Raises ``httpx.HTTPError`` on a transport failure
-    (the caller maps that to a failed run).
+    degrades and persists it. Raises ``httpx.HTTPError`` on a transport failure,
+    or ``ValueError`` when ``client.chat`` gets a malformed/empty 200 body
+    (no/absent choices, absent content, empty/whitespace content) on any of the
+    initial or repair calls — the caller maps both to a clean failed run (G1).
     """
     raw = client.chat(messages, response_format=rf)
     hset, error = _validate(raw)
@@ -264,7 +266,11 @@ def hypothesise(
     over the top ``top_clusters`` (tracking the prompted-id universe), runs the
     constrained-decode -> validate -> repair -> degrade state machine, then the
     citation gate (cited ⊆ prompted, regenerate once, flag), and persists the
-    result atomically. Never raises on malformed model output — it degrades.
+    result atomically. Never raises on malformed model output: a schema-invalid
+    body degrades (persists the raw text), while a malformed/empty 200 body — a
+    ``ValueError`` from ``client.chat`` (no/absent choices, absent content,
+    empty/whitespace content) — or a transport failure maps to a clean failed
+    run (nothing persisted, exit 1), never a raw traceback (RAG-03; gap G1).
     """
     clusters = store.query_clusters()
     groups = store.query_template_groups()
@@ -301,9 +307,16 @@ def hypothesise(
             outcome = _citation_gate(
                 client, hset, chat_messages, rf, prompted_ids, prompt_hash
             )
-    except httpx.HTTPError:
-        # A transport failure produced no output — nothing is persisted (CLI-04
-        # exit 1), distinct from a degraded-but-produced run (exit 3).
+    except (httpx.HTTPError, ValueError):
+        # A transport failure OR a malformed/empty 200 body (no/absent choices,
+        # absent content, empty/whitespace content — a ValueError from
+        # client.chat) produced no inspectable output: nothing is persisted
+        # (CLI-04 exit 1), distinct from a degraded-but-produced run (exit 3).
+        # Never a raw traceback (RAG-03 never-crash invariant; gap G1).
+        # The only ValueError source inside this try is client.chat on a
+        # malformed response: _validate swallows its own ValueError and
+        # _assemble's zip(strict=True) runs before the try, so nothing legitimate
+        # is masked.
         return Outcome(
             hypotheses=None,
             raw=None,
