@@ -684,6 +684,19 @@ def analyze(
     ranked clusters (``--until`` also anchors the incident time, defaulting to
     case end); ``--top-clusters`` caps how many clusters feed the prompt.
     ``sift show clusters`` / ``sift show hypotheses`` render the result.
+
+    Exit-code contract (CLI-04, scriptable — see ADR 0005):
+
+    \b
+      0  success   hypotheses generated; every citation is valid
+      3  degraded  ran to completion but repair failed or a citation was
+                    invalid — output persisted and FLAGGED, not a clean success
+      1  failure   inference transport error, SSRF refusal, or corrupt/absent
+                    case.db — nothing new persisted
+      2  usage     Typer/Click usage error (e.g. a malformed --since/--until)
+
+    ``--until`` also sets the salience incident-time anchor (defaults to the
+    case-end timestamp when omitted).
     """
     # A bad --since/--until is a usage error (exit 2); parse before touching the
     # store so it fails fast. --hint is never parsed as a time.

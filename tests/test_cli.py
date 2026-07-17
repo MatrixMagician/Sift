@@ -1094,6 +1094,16 @@ def test_analyze_exit_1_on_public_endpoint_refused(
     assert "refusing non-local inference endpoint" in result.output
 
 
+def test_analyze_help_documents_exit_code_contract() -> None:
+    """CLI-04 / ADR 0005: the exit-code table is discoverable in --help."""
+    result = runner.invoke(app, ["analyze", "--help"])
+    assert result.exit_code == 0, result.output
+    low = result.output.lower()
+    assert "exit" in low and "degraded" in low
+    # The --until incident-time anchor is documented too (RESEARCH Q3).
+    assert "incident-time" in low or "incident time" in low
+
+
 def test_analyze_exit_2_on_bad_since(monkeypatch: pytest.MonkeyPatch) -> None:
     """A bad --since is a usage error (2) — never confused with degraded (3)."""
     _seed_analyzable("demo", ["alpha"])
