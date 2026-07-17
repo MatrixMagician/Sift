@@ -505,6 +505,22 @@ def show(
                     "complete); re-run 'sift ingest'",
                     file=sys.stderr,
                 )
+            # D-01: once `sift analyze` has run, the clusters table is populated
+            # and IS the clusters view — render the label (else the signature
+            # fallback) per row. Until then, fall back to the template groups as
+            # the pre-cluster view. Decide on the unfiltered table so an applied
+            # --filter that excludes every row still renders the clusters view
+            # (zero matches), never silently reverting to template groups.
+            if store.query_clusters():
+                # STORE-04: clusters, count DESC then cluster_id ASC. Labels are
+                # model-generated and signatures carry hostile log bytes — WR-01:
+                # sanitise the COMPLETE rendered line, not per field (T-03-20).
+                for c in store.query_clusters(parsed or None):
+                    name = (c.label or c.signature).replace("\n", " ")[:100]
+                    print(_sanitise(
+                        f"{c.cluster_id}  {c.count:>7}  {c.severity_max:<7}  {name}"
+                    ))
+                return
             # STORE-04: template groups, count DESC then template ASC.
             # Templates and exemplar text carry hostile log bytes — sanitise
             # at render only (T-02-02); an empty table renders nothing, exit 0.

@@ -183,3 +183,90 @@ def test_analyze_public_endpoint_refused_without_override(
     result = runner.invoke(app, ["analyze", "demo"])
     assert result.exit_code == 1
     assert "refusing non-local inference endpoint" in result.output
+
+
+# --- show clusters: labels, signature fallback, sanitise, atomicity ------
+
+
+def _clusters_meta(case: str) -> tuple[int, int]:
+    """Return (cluster count, labelled count) from the persisted case.db."""
+    store = CaseStore(case_db_path(load_config().data_dir, case))
+    try:
+        rows = store.query_clusters()
+        return len(rows), sum(1 for c in rows if c.label)
+    finally:
+        store.close()
+
+
+def test_show_clusters_renders_labels_after_analyze(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_case("demo", _CORPUS)
+    labels = json.dumps({0: "Memory pressure", 1: "SMTP backlog", 2: "Disk anomaly"})
+    _patch_http(monkeypatch, _handler(chat_content=labels))
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
+    # D-01: show clusters now surfaces the eager labels, not the signatures.
+    result = runner.invoke(app, ["show", "demo", "clusters"])
+    assert result.exit_code == 0, result.output
+    assert "Memory pressure" in result.output
+    assert "SMTP backlog" in result.output
+    assert "Disk anomaly" in result.output
+
+
+def test_show_clusters_falls_back_to_signature_when_no_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_case("demo", _CORPUS)
+    _patch_http(monkeypatch, _handler())
+    assert runner.invoke(app, ["analyze", "demo", "--no-label"]).exit_code == 0
+    _, labelled = _clusters_meta("demo")
+    assert labelled == 0  # no labels persisted
+    result = runner.invoke(app, ["show", "demo", "clusters"])
+    assert result.exit_code == 0, result.output
+    # The signature is the first 16 hex chars of the cluster's template hash —
+    # non-empty, deterministic, and shown when no label exists (D-01).
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        signatures = [c.signature for c in store.query_clusters()]
+    finally:
+        store.close()
+    assert signatures  # sanity: clusters exist
+    for sig in signatures:
+        assert sig in result.output
+
+
+def test_show_clusters_strips_control_bytes_from_hostile_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_case("demo", _CORPUS)
+    # A model that returns a label carrying a C1 CSI byte (U+009B) and a bidi
+    # override (U+202E) — T-03-20: the whole rendered line is _sanitise'd, so
+    # neither control byte reaches the terminal, only the printable text does.
+    hostile = "clean\x9b31mRED\u202e"
+    labels = json.dumps({0: hostile, 1: "ok", 2: "ok"})
+    _patch_http(monkeypatch, _handler(chat_content=labels))
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
+    result = runner.invoke(app, ["show", "demo", "clusters"])
+    assert result.exit_code == 0, result.output
+    assert "\x9b" not in result.output  # C1 CSI stripped
+    assert "\u202e" not in result.output  # bidi override stripped
+    assert "clean31mRED" in result.output  # the printable text survives
+
+
+def test_interrupted_embed_leaves_no_clusters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_case("demo", _CORPUS)
+    # No retries/backoff so the ConnectError surfaces immediately (no sleeps).
+    monkeypatch.setenv("SIFT_GENERATION_RETRIES", "0")
+    monkeypatch.setenv("SIFT_GENERATION_BACKOFF_BASE", "0")
+    _patch_http(monkeypatch, _handler(embed_raises=True))
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 1
+    # T-03-22: the embed leg raised mid-run → zero clusters persisted (atomic).
+    count, _ = _clusters_meta("demo")
+    assert count == 0
+    # show clusters therefore reverts to the pre-cluster template-groups view.
+    show = runner.invoke(app, ["show", "demo", "clusters"])
+    assert show.exit_code == 0, show.output
+    assert "exemplars:" in show.output
