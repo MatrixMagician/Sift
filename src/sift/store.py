@@ -17,6 +17,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
+import numpy as np
+import sqlite_vec  # pyright: ignore[reportMissingTypeStubs] — pre-v1, no stubs
 import zstandard
 
 from sift.models import Event
@@ -47,6 +49,40 @@ def _decode_raw(value: str | bytes) -> str:
     if isinstance(value, bytes):
         return _DCTX.decompress(value, max_output_size=_MAX_RAW_BYTES).decode("utf-8")
     return value
+
+def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
+    """Load the vetted sqlite-vec extension, re-locking loading immediately.
+
+    Native extension loading is a code-execution surface (T-03-09): loading is
+    enabled only around the single vetted ``sqlite_vec.load`` call and disabled
+    again in a ``finally`` so no other extension can be loaded on this
+    connection. Called lazily (first embed), never in ``__init__`` — a
+    llama-free environment must still open Phase-1/2 cases.
+    """
+    conn.enable_load_extension(True)
+    try:
+        sqlite_vec.load(conn)
+    finally:
+        conn.enable_load_extension(False)
+
+
+def _vec_to_blob(vec: list[float]) -> bytes:
+    """SINGLE vector write path: float32 little-endian bytes for sqlite-vec.
+
+    Mirrors the ``_encode_raw``/``_decode_raw`` single-path idiom — all vector
+    (de)serialisation lives in store.py so the documented BLOB+numpy escape
+    hatch (drop sqlite-vec for a numpy brute-force scan) stays an afternoon's
+    work.
+    """
+    return np.asarray(vec, dtype="<f4").tobytes()
+
+
+def _blob_to_vec(  # pyright: ignore[reportUnusedFunction] — read half of the confined pair; KNN retrieval (Phase 4/6) + tests use it
+    blob: bytes,
+) -> list[float]:
+    """SINGLE vector read path — the inverse of ``_vec_to_blob``."""
+    return [float(x) for x in np.frombuffer(blob, dtype="<f4")]
+
 
 _CASE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -273,7 +309,17 @@ class CaseStore:
         self._conn = sqlite3.connect(db_path, isolation_level=None)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        # sqlite-vec is loaded lazily on first embed, NOT here — a llama-free
+        # environment must still open Phase-1/2 cases. This flag only records
+        # whether the extension has been loaded on this connection yet.
+        self._vec_loaded = False
         self._migrate()
+
+    def _ensure_vec_loaded(self) -> None:
+        """Load sqlite-vec once per connection (idempotent lazy loader)."""
+        if not self._vec_loaded:
+            _load_sqlite_vec(self._conn)
+            self._vec_loaded = True
 
     def _migrate(self) -> None:
         row = self._conn.execute("PRAGMA user_version").fetchone()
@@ -502,6 +548,71 @@ class CaseStore:
                 )
             )
         return groups
+
+    def ensure_vectors_table(self, dim: int) -> None:
+        """Lazily create the sqlite-vec vec0 vectors table at ``dim`` (D-03).
+
+        The dimension is unknown until the server returns the first embedding,
+        so the ``vec0`` table cannot live in a migration. STORE-03 hard error:
+        if ``meta.embedding_dim`` already records a different dimension, raise
+        ValueError naming both dims BEFORE loading the extension or writing
+        anything — a mismatch is never silently re-indexed. sqlite-vec is
+        loaded lazily here (never in ``__init__``).
+        """
+        existing = self.get_meta("embedding_dim")
+        if existing is not None and int(existing) != dim:
+            raise ValueError(
+                f"embedding dimension mismatch: index has {existing}, "
+                f"server returned {dim}"
+            )
+        self._ensure_vec_loaded()
+        self._conn.execute(
+            # dim is our validated int, never user text (the PRAGMA
+            # user_version precedent, T-02-13). KNN retrieval in Phase 4/6 will
+            # use `WHERE embedding MATCH ? AND k = ?` against this table.
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS vectors "  # noqa: S608 — dim is our int, never user text
+            f"USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[{int(dim)}])"
+        )
+        if existing is None:
+            self.set_meta("embedding_dim", str(dim))
+            self.set_meta("embedding_metric", "cosine")
+
+    def record_embedding_identity(self, model: str, dim: int) -> None:
+        """Record the server's embedding model + dimension in meta (STORE-03).
+
+        ``embedding_dim`` is owned by :meth:`ensure_vectors_table` (the
+        mismatch guard); this method records the model for provenance and only
+        sets the dim when absent — a differing dim raises, so it can never mask
+        the hard-error guard on reload.
+        """
+        self.set_meta("embedding_model", model)
+        existing = self.get_meta("embedding_dim")
+        if existing is None:
+            self.set_meta("embedding_dim", str(dim))
+        elif int(existing) != dim:
+            raise ValueError(
+                f"embedding dimension mismatch: index has {existing}, "
+                f"server returned {dim}"
+            )
+
+    def upsert_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
+        """Write (chunk_id, embedding) pairs, replacing any prior vector.
+
+        The CALLER owns the transaction (mirrors replace_template_groups):
+        pipeline/cluster.py wraps this in ``store.transaction()``. Every vector
+        byte is produced here via ``_vec_to_blob`` — the confinement invariant.
+        vec0 does not support ``INSERT OR REPLACE``, so a prior row for the
+        same chunk_id is deleted first.
+        """
+        self._ensure_vec_loaded()
+        pairs = [(chunk_id, _vec_to_blob(vec)) for chunk_id, vec in rows]
+        self._conn.executemany(
+            "DELETE FROM vectors WHERE chunk_id = ?",
+            [(chunk_id,) for chunk_id, _ in pairs],
+        )
+        self._conn.executemany(
+            "INSERT INTO vectors (chunk_id, embedding) VALUES (?, ?)", pairs
+        )
 
     def get_meta(self, key: str) -> str | None:
         row = self._conn.execute(
