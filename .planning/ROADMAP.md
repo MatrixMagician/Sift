@@ -107,7 +107,7 @@ Plans:
 
 **Carried forward from Phase 2**: WR-07 — a disk-full error (SQLITE_FULL/IOERR) mid-ingest triggers SQLite auto-rollback that destroys the per-file SAVEPOINTs, leaving the interrupted-ingest atomicity guarantee with a known hole. Plan a fix in this phase (signed off as a deferred follow-up in 02-UAT.md, 2026-07-17).
 
-**Plans:** 1/6 plans executed
+**Plans:** 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -116,8 +116,8 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 03-02-PLAN.md — InferenceClient (SSRF guard, per-role endpoints, backoff, feature-detect) + PromptBudget seam (wave 2)
-- [ ] 03-03-PLAN.md — Store migration 3 (chunks+clusters) + lazy vec0 vectors + dimension guard + replace_clusters (wave 2)
+- [x] 03-02-PLAN.md — InferenceClient (SSRF guard, per-role endpoints, backoff, feature-detect) + PromptBudget seam (wave 2)
+- [x] 03-03-PLAN.md — Store migration 3 (chunks+clusters) + lazy vec0 vectors + dimension guard + replace_clusters (wave 2)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -212,7 +212,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 |-------|----------------|--------|-----------|
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
-| 3. Inference Client, Doctor, Embeddings & Clustering | 1/6 | In Progress|  |
+| 3. Inference Client, Doctor, Embeddings & Clustering | 3/6 | In Progress|  |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 0/TBD | Not started | - |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |

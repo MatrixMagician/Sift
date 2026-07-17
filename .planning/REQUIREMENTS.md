@@ -25,7 +25,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **STORE-01**: Each case persists to a single portable SQLite database (`case.db`) with sqlite-vec for vectors; deleting the file deletes the case
 - [x] **STORE-02**: Store owns schema migrations (PRAGMA user_version); `raw` text > 4 KB is zstd-compressed
-- [ ] **STORE-03**: Embedding model identity and dimension are recorded in `meta`; a mismatch on reload is a hard error
+- [x] **STORE-03**: Embedding model identity and dimension are recorded in `meta`; a mismatch on reload is a hard error
 - [x] **STORE-04**: User can inspect stored data via `sift show <case> events|clusters|hypotheses [--filter …]` before trusting any AI output *(partial scope: events+clusters targets delivered Phase 2; hypotheses target Phase 4)*
 
 ### Dedup & Clustering
@@ -136,7 +136,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LLM-02 | Phase 3 | Complete |
 | LLM-03 | Phase 3 | Pending |
 | LLM-04 | Phase 3 | Complete |
-| STORE-03 | Phase 3 | Pending |
+| STORE-03 | Phase 3 | Complete |
 | CLUS-02 | Phase 3 | Complete |
 | CLUS-03 | Phase 3 | Pending |
 | RAG-05 | Phase 3 | Complete |
