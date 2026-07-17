@@ -224,7 +224,7 @@ def _decode(raw: bytes, encoding: str) -> str:
     return raw.decode(encoding, errors="replace")
 
 
-def _byte_lines(
+def byte_lines(
     stream: io.BufferedIOBase, nl: bytes, initial: bytes, unit: int = 1
 ) -> Iterator[bytes]:
     """Yield byte lines (terminator included) split on ``nl``.
@@ -366,7 +366,7 @@ class GenericLogAdapter(ConfigurableAdapter):
             encoding, nl = _detect_encoding(head)
             # The newline pattern's width doubles as the code-unit width:
             # 2 bytes for UTF-16 (alignment enforced), 1 for UTF-8.
-            for bline in _byte_lines(stream, nl, head, unit=len(nl)):
+            for bline in byte_lines(stream, nl, head, unit=len(nl)):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline and BOM too
                 line_no += 1
