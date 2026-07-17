@@ -9,6 +9,7 @@ A live-server variant is ``@pytest.mark.live`` and excluded from the default sui
 """
 
 import json
+import os
 import socket
 
 import httpx
@@ -194,5 +195,23 @@ def test_doctor_against_live_server(monkeypatch: pytest.MonkeyPatch) -> None:
         pytest.skip("no live inference server on 127.0.0.1:13305")
     finally:
         probe.close()
+    # A multi-model server (e.g. Lemonade) routes a model-less /v1/embeddings
+    # to whichever model happens to be loaded, which may not be embedding-capable.
+    # conftest strips SIFT_* for hermeticity, so the operator names the embedding
+    # model via LIVE_EMBEDDING_MODEL (no SIFT_ prefix — survives the strip). A
+    # single-model ``llama-server --embeddings`` needs no override.
+    live_model = os.environ.get("LIVE_EMBEDDING_MODEL")
+    if live_model:
+        monkeypatch.setenv("SIFT_EMBEDDINGS_MODEL", live_model)
     result = runner.invoke(app, ["doctor"])
+    if (
+        result.exit_code != 0
+        and not live_model
+        and "embeddings unsupported" in result.output
+    ):
+        pytest.skip(
+            "server default model is not embedding-capable; set "
+            "LIVE_EMBEDDING_MODEL to a llamacpp/flm embedding model to run "
+            "this check against a multi-model server"
+        )
     assert result.exit_code == 0, result.output
