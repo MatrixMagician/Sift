@@ -40,16 +40,16 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **RAG-02**: `sift analyze` produces ranked root-cause hypotheses conforming to the enforced JSON contract (title, narrative, confidence + reasoning, supporting_event_ids, contradicting_evidence, suggested_next_steps, timeline_summary, unexplained_signals)
 - [ ] **RAG-03**: JSON output is enforced via constrained decoding where available, validated with Pydantic, repaired once on failure, and degrades gracefully (raw output persisted, run marked degraded) — never crashes
 - [ ] **RAG-04**: Every cited event ID must exist in the case store AND have been present in the prompt ("cited ⊆ prompted"); invalid hypotheses are regenerated (max 1 retry) then flagged in the report
-- [ ] **RAG-05**: A PromptBudget utility estimates tokens (server tokenize endpoint or chars/4 heuristic), reserves output headroom, and truncates exemplars breadth-first
+- [x] **RAG-05**: A PromptBudget utility estimates tokens (server tokenize endpoint or chars/4 heuristic), reserves output headroom, and truncates exemplars breadth-first
 - [ ] **RAG-06**: User can supply `--hint` free text and `--since/--until` time-window filters to scope analysis
 - [ ] **RAG-07**: User can point analysis at a knowledge-base directory of Markdown runbooks/RCAs, retrieved by similarity into the triage context
 
 ### Inference Client
 
 - [x] **LLM-01**: All inference goes through one OpenAI-compatible client (`/v1/chat/completions`, `/v1/embeddings`) with per-role base_urls, timeouts, retries with backoff, and batched embeddings — no vendor SDK
-- [ ] **LLM-02**: Non-loopback/non-RFC1918 endpoints are refused unless `--i-know-what-im-doing` is set; zero network egress otherwise
+- [x] **LLM-02**: Non-loopback/non-RFC1918 endpoints are refused unless `--i-know-what-im-doing` is set; zero network egress otherwise
 - [ ] **LLM-03**: `sift doctor` verifies both endpoints with real round-trips (including an actual embedding call), reports model IDs, checks embedding dimension against existing index, and warns on determinism-breaking server configs (e.g. multi-slot)
-- [ ] **LLM-04**: llama.cpp-specific features (`/props`, `/tokenize`, grammar-constrained decoding, non-OpenAI `response_format` nesting) are feature-detected, never required — Lemonade Server works unmodified
+- [x] **LLM-04**: llama.cpp-specific features (`/props`, `/tokenize`, grammar-constrained decoding, non-OpenAI `response_format` nesting) are feature-detected, never required — Lemonade Server works unmodified
 
 ### Reports
 
@@ -71,7 +71,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **EVAL-02**: `sift eval` reports retrieval hit rate, hypothesis hit@k, citation validity rate, and determinism drift across repeated runs
 - [ ] **EVAL-03**: `sift eval` exits non-zero when scores regress below `eval/thresholds.toml` thresholds (CI-friendly)
 - [ ] **EVAL-04**: Optional LLM-as-judge grading via the same local model, reported alongside keyword scores
-- [ ] **EVAL-05**: Tests never call the network: the LLM client is injectable and tests run against a fake OpenAI-compatible server
+- [x] **EVAL-05**: Tests never call the network: the LLM client is injectable and tests run against a fake OpenAI-compatible server
 
 ### Packaging
 
@@ -133,15 +133,15 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLUS-01 | Phase 2 | Complete |
 | CLI-03 | Phase 2 | Complete (partial scope: ingest leg Phase 2; embedding/generation Phases 3-4) |
 | LLM-01 | Phase 3 | Complete |
-| LLM-02 | Phase 3 | Pending |
+| LLM-02 | Phase 3 | Complete |
 | LLM-03 | Phase 3 | Pending |
-| LLM-04 | Phase 3 | Pending |
+| LLM-04 | Phase 3 | Complete |
 | STORE-03 | Phase 3 | Pending |
 | CLUS-02 | Phase 3 | Complete |
 | CLUS-03 | Phase 3 | Pending |
-| RAG-05 | Phase 3 | Pending |
+| RAG-05 | Phase 3 | Complete |
 | CLI-02 | Phase 3 | Pending |
-| EVAL-05 | Phase 3 | Pending |
+| EVAL-05 | Phase 3 | Complete |
 | RAG-01 | Phase 4 | Pending |
 | RAG-02 | Phase 4 | Pending |
 | RAG-03 | Phase 4 | Pending |

@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 03
 current_phase_name: inference-client-doctor-embeddings-clustering
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-07-17T11:22:26.856Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-07-17T11:35:14.031Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 03 execution started
 progress:
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 03 (inference-client-doctor-embeddings-clustering) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-07-17 — Phase 03 execution started
 
@@ -69,6 +69,7 @@ Progress: [███████░░░] 67%
 | Phase 02 P03 | ~16min | 2 tasks | 4 files |
 | Phase 02 P04 | 14min | 3 tasks | 7 files |
 | Phase 03 P01 | 6min | 3 tasks | 6 files |
+| Phase 03 P02 | 10min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 02-04: show render paths sanitise the COMPLETE line — every DB-sourced field covered; duplicate --filter keys exit 2; corrupt case.db exits 1 without traceback
 - [Phase ?]: Phase 3 config exposes generation/embeddings/clustering sections (extra=forbid); embeddings.model/generation.model default None (D-03, no baked embedding-model default)
 - [Phase ?]: WR-07 closed: SQLITE_FULL/IOERR mid-ingest raises DiskFullError with zero committed events (fatal-vs-recoverable via exc.sqlite_errorcode, caught before the generic handler)
+- [Phase ?]: LLM client internals (Claude's discretion): manual backoff loop over ConnectError/TimeoutException/5xx (httpx retries= is connection-only, A1); /props+/tokenize probed at server root (not /v1), absent endpoints degrade to None/{}/False so Lemonade works unmodified
+- [Phase ?]: PromptBudget.fit truncates breadth-first via an equal per-cluster char share (inverse of the len//4 heuristic); exact-tokenizer fitting deferred to Phase-4 triage budgeting
 
 ### Pending Todos
 
@@ -130,6 +133,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T11:22:26.850Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-07-17T11:35:14.025Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
