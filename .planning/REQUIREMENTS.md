@@ -32,7 +32,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **CLUS-01**: Template dedup masks volatile tokens (numbers, hex, UUIDs, SIDs, paths, timestamps) and groups events by normalised template with count, first/last seen, and exemplars — no ML required
 - [x] **CLUS-02**: Semantic clustering embeds one exemplar per template group and merges synonymous groups via HDBSCAN (L2-normalised; agglomerative fallback from config; noise points become singleton clusters)
-- [ ] **CLUS-03**: Each cluster gets a short LLM-generated human-readable label from exemplars only, under a strict token budget
+- [x] **CLUS-03**: Each cluster gets a short LLM-generated human-readable label from exemplars only, under a strict token budget
 
 ### Analysis (RAG)
 
@@ -61,7 +61,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### CLI & UX
 
 - [x] **CLI-01**: CLI exposes `new`, `ingest`, `analyze`, `report`, `show`, `eval`, `doctor` subcommands with config precedence: flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
-- [ ] **CLI-02**: All prompts live as versioned template files in the package; changing a prompt requires no Python changes
+- [x] **CLI-02**: All prompts live as versioned template files in the package; changing a prompt requires no Python changes
 - [x] **CLI-03**: Long operations (ingest, embedding, generation) show progress feedback *(partial scope: ingest leg delivered Phase 2; embedding/generation legs Phases 3-4)*
 - [ ] **CLI-04**: Exit codes form a documented contract (success / degraded run / failure) so `sift` is scriptable in CI
 
@@ -138,9 +138,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | LLM-04 | Phase 3 | Complete |
 | STORE-03 | Phase 3 | Complete |
 | CLUS-02 | Phase 3 | Complete |
-| CLUS-03 | Phase 3 | Pending |
+| CLUS-03 | Phase 3 | Complete |
 | RAG-05 | Phase 3 | Complete |
-| CLI-02 | Phase 3 | Pending |
+| CLI-02 | Phase 3 | Complete |
 | EVAL-05 | Phase 3 | Complete |
 | RAG-01 | Phase 4 | Pending |
 | RAG-02 | Phase 4 | Pending |
