@@ -180,3 +180,53 @@ def test_chat_missing_content_raises() -> None:
 
     with pytest.raises(ValueError):
         _client(handler).chat([{"role": "user", "content": "hi"}])
+
+
+# --- feature detection: /tokenize, /props (LLM-04, Lemonade-safe) -------------
+
+
+def test_has_tokenize_false_when_route_404s() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    c = _client(handler)
+    assert c.has_tokenize is False
+    assert c.tokenize("abc") is None  # graceful, no raise (Lemonade path)
+
+
+def test_tokenize_returns_count_when_available() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"tokens": [1, 2, 3]})
+
+    c = _client(handler)
+    assert c.has_tokenize is True
+    assert c.tokenize("abc") == 3
+
+
+def test_tokenize_swallows_transport_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("server down")
+
+    c = _client(handler)
+    assert c.tokenize("x") is None
+    assert c.has_tokenize is False
+
+
+def test_props_absent_returns_empty_and_no_raise() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    c = _client(handler)
+    assert c.props() == {}
+    assert c.has_props is False
+
+
+def test_props_exposes_keys_absent_safe() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"n_ctx": 4096})
+
+    c = _client(handler)
+    props = c.props()
+    assert props.get("n_ctx") == 4096
+    assert props.get("n_parallel") is None  # absent-key-safe
+    assert c.has_props is True
