@@ -33,6 +33,7 @@ from sift.config import SiftConfig, load_config
 from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import dedup
 from sift.pipeline.cluster import cluster_and_label
+from sift.pipeline.hypothesise import hypothesise
 from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
@@ -554,6 +555,40 @@ def show(
         store.close()
 
 
+# Triage-run defaults (CLI-04). Salience feeds at most this many top clusters to
+# the hypothesiser; the ctx/reserve fallbacks apply only when /props is absent
+# (Lemonade, LLM-04) — llama-server's n_ctx overrides ctx_fallback at runtime.
+_DEFAULT_TOP_CLUSTERS = 12
+_TRIAGE_CTX_FALLBACK = 8192
+_TRIAGE_RESERVE_OUT = 1024
+
+
+def _parse_moment(value: str | None, label: str) -> datetime | None:
+    """Parse an ISO 8601 ``--since``/``--until`` value to a UTC datetime.
+
+    Mirrors the ``_parse_filters`` datetime idiom: a naive value is treated as
+    UTC then normalised to UTC. A bad value raises ``typer.Exit(2)`` — a usage
+    error, never a silent ``None`` that would look like an absent window.
+    ``--hint`` is NEVER routed through here: it is free operator text, not a
+    timestamp, and reaches the prompt verbatim.
+    """
+    if value is None:
+        return None
+    try:
+        moment = datetime.fromisoformat(value)
+    except ValueError:
+        # T-04-01: echo the untrusted flag value only after sanitising it.
+        print(
+            f"Error: invalid {label} value {_sanitise(value)!r}: "
+            "not an ISO 8601 timestamp"
+        )
+        raise typer.Exit(2) from None
+    if moment.tzinfo is None:
+        # Naive input is treated as UTC (documented in --help).
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
 @app.command()
 def analyze(
     case: str,
@@ -575,16 +610,53 @@ def analyze(
         str | None,
         typer.Option("--model", help="Override the generation+embeddings model id"),
     ] = None,
+    hint: Annotated[
+        str | None,
+        typer.Option(
+            "--hint",
+            help="Operator context appended verbatim to the prompt (never a time)",
+        ),
+    ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option(
+            "--since",
+            help="Only rank clusters intersecting on/after this ISO 8601 time",
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option(
+            "--until",
+            help="Rank clusters on/before this ISO 8601 time; also the "
+            "incident-time anchor (defaults to case end)",
+        ),
+    ] = None,
+    top_clusters: Annotated[
+        int,
+        typer.Option(
+            "--top-clusters",
+            help="How many top-salience clusters to feed the hypothesiser",
+        ),
+    ] = _DEFAULT_TOP_CLUSTERS,
     data_dir: DataDirOption = None,
 ) -> None:
-    """Embed template groups, cluster them, and label the clusters (M3 slice).
+    """Embed, cluster and label the case, then generate cited hypotheses (M4).
 
-    This is the clustering leg of the pipeline only: synonymous template groups
-    are embedded, clustered (HDBSCAN / agglomerative fallback) and eagerly
-    labelled by the local LLM (D-01). ``--no-label`` skips the label call and
-    clusters keep their signature. Salience ranking and citation-gated
-    hypotheses arrive in Phase 4 (M4). ``sift show clusters`` renders the result.
+    The full triage slice: synonymous template groups are embedded and clustered
+    (HDBSCAN / agglomerative fallback) and eagerly labelled by the local LLM
+    (D-01, skip with ``--no-label``), then ranked by salience and passed to the
+    citation-gated hypothesiser (RAG-02) — every hypothesis must cite an event
+    the model was actually shown, or the run degrades. ``--hint`` adds operator
+    context verbatim (never parsed as a time); ``--since``/``--until`` scope the
+    ranked clusters (``--until`` also anchors the incident time, defaulting to
+    case end); ``--top-clusters`` caps how many clusters feed the prompt.
+    ``sift show clusters`` / ``sift show hypotheses`` render the result.
     """
+    # A bad --since/--until is a usage error (exit 2); parse before touching the
+    # store so it fails fast. --hint is never parsed as a time.
+    since_dt = _parse_moment(since, "since")
+    until_dt = _parse_moment(until, "until")
     # D-03 precedence: --model feeds BOTH roles' config (flags win, deep-merged).
     overrides: dict[str, object] = {"data_dir": data_dir}
     if model is not None:
@@ -655,6 +727,24 @@ def analyze(
                     print(f"Error: embedding/clustering failed: {_sanitise(str(exc))}")
                     raise typer.Exit(1) from None
                 progress.update(ptask, completed=len(groups))
+
+            # RAG-02: salience + citation-gated hypotheses over the fresh
+            # clusters, still inside the http lifecycle so the same client is
+            # reused. hypothesise NEVER raises on bad model output — it degrades
+            # and persists; a transport/SSRF error returns a failed Outcome.
+            # --until doubles as the salience incident-time anchor (RESEARCH Q3);
+            # None lets salience derive it from the case-end timestamp.
+            outcome = hypothesise(
+                store,
+                client,
+                top_clusters=top_clusters,
+                incident_time=until_dt,
+                since=since_dt,
+                until=until_dt,
+                hint=hint,
+                ctx_fallback=_TRIAGE_CTX_FALLBACK,
+                reserve_out=_TRIAGE_RESERVE_OUT,
+            )
         finally:
             http.close()
 
@@ -662,7 +752,30 @@ def analyze(
         # rendered by `show clusters`, where the whole line is _sanitise'd.
         labelled = sum(1 for c in store.query_clusters() if c.label)
         print(f"Clusters: {n_clusters} ({labelled} labelled)")
-        print("Run 'sift show clusters' to view them")
+
+        # CLI-04 exit-code contract: failed -> 1, degraded -> 3, success -> 0.
+        # (Typer/Click usage errors stay 2; never reused here.)
+        if outcome.failed:
+            print(
+                "Error: hypothesis generation failed; the inference endpoint "
+                "returned a transport error and no hypotheses were persisted"
+            )
+            raise typer.Exit(1)
+        count = len(outcome.hypotheses.hypotheses) if outcome.hypotheses else 0
+        if outcome.degraded:
+            # A degraded run RAN to completion but the model output could not be
+            # fully validated or some citations were invalid — the flagged/raw
+            # output is persisted, never presented as a clean success (T-04-02).
+            print(
+                "Warning: triage degraded — the model output could not be fully "
+                "validated or some citations were invalid; the raw/flagged "
+                "output was persisted (see 'sift show hypotheses')",
+                file=sys.stderr,
+            )
+            print(f"Hypotheses: {count} (degraded)")
+            raise typer.Exit(3)
+        print(f"Hypotheses: {count}")
+        print("Run 'sift show hypotheses' to view them")
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
         # ingest — the case directory holds only case.db afterwards.

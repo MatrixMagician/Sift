@@ -12,10 +12,11 @@ import os
 import re
 import shutil
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -23,7 +24,8 @@ from sift.adapters import REGISTRY
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.cli import app
 from sift.config import load_config
-from sift.models import Event
+from sift.models import Event, event_id
+from sift.pipeline import dedup
 from sift.store import CaseStore, case_db_path
 
 
@@ -897,3 +899,205 @@ def test_show_clusters_warns_when_template_groups_stale(tmp_path: Path) -> None:
     assert "stale" in shown.stderr
     assert "sift ingest" in shown.stderr
     assert re.findall(r"\b[0-9a-f]{16}\b", shown.stdout), "groups still render"
+
+
+# --- analyze exit-code contract (CLI-04): 0 success / 3 degraded / 1 failure --
+#
+# Zero sockets: the inference calls are served by an httpx.MockTransport bound
+# through the cli._make_http_client seam, so the autouse _no_network guard stays
+# active (EVAL-05). A fixed 8-dim vector for every input is enough to cluster;
+# the generation call (body carries response_format) is answered per test.
+
+_Handler = Callable[[httpx.Request], httpx.Response]
+_VALID_EMPTY_HYPSET = json.dumps(
+    {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
+)
+
+
+def _analyze_handler(*, hyp_content: str | None = None) -> _Handler:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/embeddings"):
+            inputs = json.loads(request.content)["input"]
+            data = [
+                {"index": i, "embedding": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
+                for i, _ in enumerate(inputs)
+            ]
+            return httpx.Response(200, json={"data": data})
+        if path.endswith("/chat/completions"):
+            payload = json.loads(request.content)
+            if "response_format" in payload:
+                content = (
+                    hyp_content if hyp_content is not None else _VALID_EMPTY_HYPSET
+                )
+                return httpx.Response(
+                    200, json={"choices": [{"message": {"content": content}}]}
+                )
+            # cluster-label call — a lenient empty map is fine.
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": "{}"}}]}
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
+def _patch_analyze_http(
+    monkeypatch: pytest.MonkeyPatch, handler: _Handler
+) -> None:
+    def _factory(timeout: float) -> httpx.Client:
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
+        )
+
+    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+
+
+def _seed_analyzable(case: str, messages: list[str]) -> list[str]:
+    """Seed a case with one event per message + template groups; return ids."""
+    store = CaseStore(case_db_path(load_config().data_dir, case))
+    ids = [event_id("case.log", i) for i in range(len(messages))]
+    try:
+        with store.transaction():
+            store.insert_events(
+                [
+                    Event(
+                        event_id=ids[i],
+                        case_id=case,
+                        ts=datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC),
+                        ts_confidence="exact",
+                        source="genericlog",
+                        source_file="case.log",
+                        line_start=i + 1,
+                        line_end=i + 1,
+                        severity="error",
+                        component=None,
+                        thread=None,
+                        session=None,
+                        message=m,
+                        attrs={},
+                        raw=m,
+                    )
+                    for i, m in enumerate(messages)
+                ]
+            )
+        dedup.rebuild_template_groups(store)
+    finally:
+        store.close()
+    return ids
+
+
+def test_analyze_exit_0_with_valid_cited_hypotheses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RAG-02 e2e: a valid model whose citation is in the prompt exits 0."""
+    ids = _seed_analyzable("demo", ["solo memory pressure warning"])
+    hyp = json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": "Memory exhaustion",
+                    "narrative": "the box ran out of memory",
+                    "confidence": "high",
+                    "confidence_reasoning": "clear signal",
+                    "supporting_event_ids": [ids[0]],  # cited ⊆ prompted
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": ["add RAM"],
+                }
+            ],
+            "timeline_summary": "one event",
+            "unexplained_signals": [],
+        }
+    )
+    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 0, result.output
+    assert "Hypotheses: 1" in result.output
+    # The persisted hypothesis is citation-valid.
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        hyps = store.query_hypotheses()
+        assert len(hyps) == 1
+        assert hyps[0].citations_valid is True
+        assert store.get_meta("triage_degraded") == "0"
+    finally:
+        store.close()
+
+
+def test_analyze_exit_3_on_malformed_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Malformed generation output (twice) degrades — exit 3, not 0 and not 2."""
+    _seed_analyzable("demo", ["alpha", "beta"])
+    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content="not json at all"))
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 3, result.output
+    assert "degraded" in result.output.lower()
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        assert store.get_meta("triage_degraded") == "1"
+        assert store.get_meta("triage_raw") is not None  # raw persisted
+    finally:
+        store.close()
+
+
+def test_analyze_exit_3_on_invalid_citation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hypothesis citing an unseen id is FLAGGED and degrades — exit 3."""
+    _seed_analyzable("demo", ["alpha", "beta"])
+    hyp = json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": "Fabricated",
+                    "narrative": "cites an event never shown",
+                    "confidence": "low",
+                    "confidence_reasoning": "made up",
+                    "supporting_event_ids": ["deadbeefdeadbeef"],  # not prompted
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": [],
+                }
+            ],
+            "timeline_summary": "x",
+            "unexplained_signals": [],
+        }
+    )
+    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 3, result.output
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        hyps = store.query_hypotheses()
+        assert hyps and hyps[0].citations_valid is False  # flagged, never dropped
+    finally:
+        store.close()
+
+
+def test_analyze_exit_1_on_missing_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+    result = runner.invoke(app, ["analyze", "ghost"])
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
+
+
+def test_analyze_exit_1_on_public_endpoint_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_analyzable("demo", ["alpha"])
+    monkeypatch.setenv("SIFT_EMBEDDINGS_BASE_URL", "http://8.8.8.8/v1")
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 1
+    assert "refusing non-local inference endpoint" in result.output
+
+
+def test_analyze_exit_2_on_bad_since(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bad --since is a usage error (2) — never confused with degraded (3)."""
+    _seed_analyzable("demo", ["alpha"])
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+    result = runner.invoke(app, ["analyze", "demo", "--since", "not-a-time"])
+    assert result.exit_code == 2, result.output
+    assert "not an ISO 8601 timestamp" in result.output

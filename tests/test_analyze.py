@@ -45,6 +45,12 @@ _VECTORS: dict[str, list[float]] = {
 }
 _CORPUS = [_ALPHA_A, _ALPHA_B, _BETA_A, _BETA_B, _GAMMA]
 
+# A minimal schema-valid HypothesisSet with no hypotheses: empty citations are
+# trivially cited ⊆ prompted, so the citation gate passes and the run exits 0.
+_VALID_HYPSET = json.dumps(
+    {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
+)
+
 
 def _ev(offset: int, message: str) -> Event:
     return Event(
@@ -81,15 +87,19 @@ def _handler(
     *,
     calls: list[str] | None = None,
     chat_content: str | None = None,
+    hyp_content: str | None = None,
     embed_raises: bool = False,
     embed_model: str | None = None,
 ) -> Handler:
-    """Serve /v1/embeddings (planted vectors) and /v1/chat/completions (labels).
+    """Serve /v1/embeddings + /v1/chat/completions (cluster labels AND triage).
 
-    ``embed_raises`` makes the embeddings endpoint refuse the connection, so the
-    analyze embed leg raises mid-run (the interrupted-embed atomicity probe).
-    ``embed_model`` sets the ``model`` field the embeddings server reports back
-    (STORE-03 provenance).
+    Two distinct chat calls now flow through analyze: the cluster-label call
+    (plain body, tagged ``chat``) and the citation-gated generation call (body
+    carries ``response_format``, tagged ``generate``) — the handler branches on
+    that key. ``hyp_content`` overrides the generation reply (default: a valid
+    empty HypothesisSet, so the run exits 0). ``embed_raises`` makes the
+    embeddings endpoint refuse the connection (the interrupted-embed atomicity
+    probe). ``embed_model`` sets the model the embeddings server reports back.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -109,6 +119,15 @@ def _handler(
                 body["model"] = embed_model
             return httpx.Response(200, json=body)
         if path.endswith("/chat/completions"):
+            payload = json.loads(request.content)
+            if "response_format" in payload:
+                # The hypothesise generation call — serve a HypothesisSet.
+                if calls is not None:
+                    calls.append("generate")
+                content = hyp_content if hyp_content is not None else _VALID_HYPSET
+                return httpx.Response(
+                    200, json={"choices": [{"message": {"content": content}}]}
+                )
             if calls is not None:
                 calls.append("chat")
             body = {"choices": [{"message": {"content": chat_content or "{}"}}]}
