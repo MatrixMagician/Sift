@@ -105,6 +105,8 @@ Plans:
   4. Each cluster gets a short LLM-generated label from exemplars only, under a strict token budget, using versioned prompt template files — changing a prompt touches no Python
   5. A non-loopback/non-RFC1918 endpoint is refused without `--i-know-what-im-doing`, and the entire test suite passes with zero network access via the injectable client and fake OpenAI-compatible server
 
+**Carried forward from Phase 2**: WR-07 — a disk-full error (SQLITE_FULL/IOERR) mid-ingest triggers SQLite auto-rollback that destroys the per-file SAVEPOINTs, leaving the interrupted-ingest atomicity guarantee with a known hole. Plan a fix in this phase (signed off as a deferred follow-up in 02-UAT.md, 2026-07-17).
+
 **Plans**: TBD
 
 ### Phase 4: Salience, RAG & Citation-Gated Hypotheses
