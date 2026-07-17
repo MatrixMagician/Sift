@@ -140,9 +140,45 @@ def _migration_2(conn: sqlite3.Connection) -> None:
             )
 
 
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """Add the chunks and clusters tables (STORE-03, CLUS-02).
+
+    The sqlite-vec ``vectors`` table is deliberately NOT created here: its
+    dimension is unknown until the first embedding round-trip, so it is built
+    lazily by ``ensure_vectors_table`` (D-03). A llama-free environment
+    therefore still opens a Phase-1/2 case at schema v3 without ever touching
+    the sqlite-vec extension.
+    """
+    conn.execute(
+        """
+        CREATE TABLE chunks (
+            chunk_id    INTEGER PRIMARY KEY,
+            template_id TEXT NOT NULL,   -- the template group this chunk represents
+            text        TEXT NOT NULL,   -- exemplar event message chosen for embedding
+            event_ids   TEXT NOT NULL    -- JSON array of the group's exemplar event ids
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE clusters (
+            cluster_id   INTEGER PRIMARY KEY,
+            label        TEXT,               -- NULL until an LLM label exists (D-01)
+            signature    TEXT NOT NULL,      -- shown until a label exists
+            severity_max TEXT NOT NULL
+                CHECK (severity_max IN
+                    ('fatal','error','warn','info','debug','unknown')),
+            count        INTEGER NOT NULL,
+            template_ids TEXT NOT NULL       -- JSON array of member template ids
+        )
+        """
+    )
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migration_1,
     2: _migration_2,
+    3: _migration_3,  # chunks + clusters tables (NOT vectors — that is lazy)
 }
 
 _EVENT_COLUMNS = (
@@ -154,6 +190,12 @@ _EVENT_COLUMNS = (
 _TEMPLATE_GROUP_COLUMNS = (
     "template_id, template, count, first_ts, last_ts, severity_max, "
     "exemplar_event_ids"
+)
+
+_CHUNK_COLUMNS = "chunk_id, template_id, text, event_ids"
+
+_CLUSTER_COLUMNS = (
+    "cluster_id, label, signature, severity_max, count, template_ids"
 )
 
 # Allowlisted filter key -> fixed WHERE snippet (T-02-08). Filter VALUES are
