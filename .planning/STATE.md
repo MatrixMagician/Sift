@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: Salience, RAG & Citation-Gated Hypotheses
 status: executing
-stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-07-17T15:59:33.566Z"
+stopped_at: Completed 04-04-PLAN.md
+last_updated: "2026-07-17T16:16:55.523Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 20
-  completed_plans: 18
+  completed_plans: 19
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 04 (Salience, RAG & Citation-Gated Hypotheses) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-17 — Phase 04 execution started
 
-Progress: [█████████░] 90%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -77,6 +77,7 @@ Progress: [█████████░] 90%
 | Phase 04 P01 | 6m | 2 tasks | 4 files |
 | Phase 04 P02 | 8m | 1 tasks | 2 files |
 | Phase 04 P03 | 6m | 1 tasks | 2 files |
+| Phase 04 P04 | 9min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,7 @@ Recent decisions affecting current work:
 - [Phase ?]: analyze always builds the client and passes label=not no_label (03-05 kwarg supersedes the plan's client=None); zero template groups short-circuits before any client round-trip
 - [Phase ?]: Salience window filter drops no-timestamp clusters when since/until is set (04-02)
 - [Phase ?]: chat response_format is keyword-only/optional (RAG-03); client stays generic, hypothesise.py owns the llama.cpp {type:json_schema,schema} shape; Pydantic validation is the backstop
+- [Phase ?]: 04-04: prompted_ids (printed exemplar ids) IS the citation gate's allowed set; cited ⊆ prompted transitively guarantees cited ⊆ store
 
 ### Pending Todos
 
@@ -145,6 +147,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T15:59:33.560Z
-Stopped at: Completed 04-03-PLAN.md
+Last session: 2026-07-17T16:16:55.517Z
+Stopped at: Completed 04-04-PLAN.md
 Resume file: None
