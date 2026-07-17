@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 5
 current_phase_name: journald, dsserrors, eustack
 status: executing
-stopped_at: Completed 04-06-PLAN.md (gap G1 closed)
-last_updated: "2026-07-17T19:30:31.821Z"
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-07-17T19:43:20.325Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 4 complete, transitioned to Phase 5
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 27
+  completed_plans: 22
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 5 — Domain Adapters (journald, dsserrors, eustack)
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-17 — Phase 4 complete, transitioned to Phase 5
+Plan: 05-01 complete (1 of 6) — Wave-0 ConfigurableAdapter enabler
+Status: Executing (05-02 next — human-verify checkpoint)
+Last activity: 2026-07-17 — 05-01 executed: ConfigurableAdapter base + real coverage read-back
 
-Progress: [██████████] 100%
+Progress: [████████░░] 81%
 
 ## Performance Metrics
 
@@ -81,6 +81,7 @@ Progress: [██████████] 100%
 | Phase 04 P04 | 9min | 3 tasks | 3 files |
 | Phase 04 P05 | 12m | 3 tasks | 4 files |
 | Phase 04 P06 | 3 | 2 tasks | 3 files |
+| Phase 05 P01 | 18min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -130,6 +131,7 @@ Recent decisions affecting current work:
 - [Phase ?]: chat response_format is keyword-only/optional (RAG-03); client stays generic, hypothesise.py owns the llama.cpp {type:json_schema,schema} shape; Pydantic validation is the backstop
 - [Phase ?]: 04-04: prompted_ids (printed exemplar ids) IS the citation gate's allowed set; cited ⊆ prompted transitively guarantees cited ⊆ store
 - [Phase ?]: 04-06: malformed/empty 200 inference response maps to failed (exit 1, nothing persisted), not degraded — symmetric with transport failure; empty/whitespace content normalised to a ValueError in client.chat, hypothesise catches (httpx.HTTPError, ValueError). Closes G1 (RAG-03 never-crash).
+- [Phase ?]: 05-01: ConfigurableAdapter base delivers config + real coverage to any adapter; fabricated-100%-coverage bug closed (ADR 0006)
 
 ### Pending Todos
 
@@ -151,6 +153,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T17:33:17.823Z
-Stopped at: Completed 04-06-PLAN.md (gap G1 closed)
+Last session: 2026-07-17T19:43:20.320Z
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None

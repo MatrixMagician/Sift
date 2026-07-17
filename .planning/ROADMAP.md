@@ -176,12 +176,12 @@ Plans:
   3. eustack adapter yields exactly one event per thread on a fixture dump, with condensed top frames in `message`, full stack in `raw`, and lock info in attrs
   4. A mixed-timezone multi-node fixture produces a correctly ordered UTC timeline (causality never silently inverted)
 
-**Plans:** 0/6 plans complete
+**Plans:** 1/6 plans executed
 
 Plans:
 **Wave 1** *(shared enabler + format checkpoint)*
 
-- [ ] 05-01-PLAN.md — ConfigurableAdapter generalisation (base.py + cli.py + genericlog retrofit) + non-vacuous coverage regression test + ADR 0006 (wave 1)
+- [x] 05-01-PLAN.md — ConfigurableAdapter generalisation (base.py + cli.py + genericlog retrofit) + non-vacuous coverage regression test + ADR 0006 (wave 1)
 - [ ] 05-02-PLAN.md — checkpoint:human-verify — confirm dsserrors line layout/SID shape + eustack format identity (eu-stack vs JVM) before regexes freeze (wave 1)
 
 **Wave 2** *(parallel — three disjoint adapter modules; blocked on 05-01, dsserrors/eustack also on 05-02)*
@@ -249,7 +249,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
-| 5. Domain Adapters (journald, dsserrors, eustack) | 0/6 | Planned | - |
+| 5. Domain Adapters (journald, dsserrors, eustack) | 1/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |

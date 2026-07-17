@@ -15,9 +15,9 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **INGST-04**: genericlog adapter parses timestamped line-based logs (ISO 8601, syslog, epoch) and groups continuation lines into the preceding event
 - [x] **INGST-05**: Unparseable regions become `severity="unknown"` events (nothing dropped silently), and each file reports a parse-coverage metric (% of bytes attributed to events)
 - [x] **INGST-06**: Multi-line records (stack traces, MCM contract blocks, thread frames) are captured as one event, not one per line
-- [ ] **INGST-07**: journald adapter parses `journalctl -o json` export files, mapping PRIORITY→severity, _SYSTEMD_UNIT→component, _PID/_COMM→attrs
-- [ ] **INGST-08**: dsserrors adapter parses DSSErrors.log and rotated `.bak` siblings — extracts timestamp, thread, severity, component, multi-line MCM blocks, 0x error codes, SIDs, OIDs, and multi-node tags from directory names
-- [ ] **INGST-09**: eustack adapter parses EU-stack/thread-dump files — one event per thread with condensed top frames, full stack in raw, lock info in attrs
+- [x] **INGST-07**: journald adapter parses `journalctl -o json` export files, mapping PRIORITY→severity, _SYSTEMD_UNIT→component, _PID/_COMM→attrs
+- [x] **INGST-08**: dsserrors adapter parses DSSErrors.log and rotated `.bak` siblings — extracts timestamp, thread, severity, component, multi-line MCM blocks, 0x error codes, SIDs, OIDs, and multi-node tags from directory names
+- [x] **INGST-09**: eustack adapter parses EU-stack/thread-dump files — one event per thread with condensed top frames, full stack in raw, lock info in attrs
 - [x] **INGST-10**: User can ingest gzip/zstd-compressed input files without manual decompression
 - [x] **INGST-11**: Timestamps normalise to UTC with per-node timezone override support and explicit `ts_confidence` so multi-node timelines cannot silently invert causality
 
@@ -148,9 +148,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RAG-04 | Phase 4 | Complete |
 | RAG-06 | Phase 4 | Complete |
 | CLI-04 | Phase 4 | Complete |
-| INGST-07 | Phase 5 | Pending |
-| INGST-08 | Phase 5 | Pending |
-| INGST-09 | Phase 5 | Pending |
+| INGST-07 | Phase 5 | Complete |
+| INGST-08 | Phase 5 | Complete |
+| INGST-09 | Phase 5 | Complete |
 | REPT-01 | Phase 6 | Pending |
 | REPT-02 | Phase 6 | Pending |
 | REPT-03 | Phase 6 | Pending |
