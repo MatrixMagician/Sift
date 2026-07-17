@@ -66,6 +66,28 @@ def _load_sqlite_vec(conn: sqlite3.Connection) -> None:
         conn.enable_load_extension(False)
 
 
+def vec_version() -> str:
+    """Load sqlite-vec on a throwaway connection and return ``vec_version()``.
+
+    ``sift doctor``'s Pitfall-5 probe: proves the interpreter's SQLite permits
+    extension loading (Fedora's python3 does; some macOS system Pythons do not).
+    Uses an in-memory connection so it needs no case. Reuses the single vetted
+    ``_load_sqlite_vec`` path (enable → load → re-lock) rather than duplicating
+    the native-extension surface (T-03-09).
+
+    Raises:
+        Exception: If ``enable_load_extension`` is unavailable on this build or
+            the extension cannot load — the doctor names the caveat.
+    """
+    conn = sqlite3.connect(":memory:")
+    try:
+        _load_sqlite_vec(conn)
+        row = conn.execute("SELECT vec_version()").fetchone()
+        return str(row[0])
+    finally:
+        conn.close()
+
+
 def _vec_to_blob(vec: list[float]) -> bytes:
     """SINGLE vector write path: float32 little-endian bytes for sqlite-vec.
 

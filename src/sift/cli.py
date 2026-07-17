@@ -13,8 +13,9 @@ import unicodedata
 from datetime import UTC, datetime
 from itertools import batched
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
+import httpx
 import typer
 from rich.console import Console
 from rich.progress import (
@@ -28,8 +29,9 @@ from rich.progress import (
 from sift import adapters
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.config import SiftConfig, load_config
+from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import dedup
-from sift.store import CaseStore, case_db_path
+from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -555,8 +557,184 @@ def eval_() -> None:
     raise typer.Exit(1)
 
 
+# The exact, actionable failure message for the Lemonade OGA/ONNX-recipe case
+# (D-02 / RESEARCH Pitfall 2): a model is listed but /v1/embeddings returns no
+# usable vector. Never inferred from /v1/models — only a real round-trip reveals it.
+_OGA_ONNX_MSG = (
+    "embeddings unsupported on this model/recipe; load a llamacpp/flm-recipe "
+    "embedding model (Lemonade) or start llama-server with --embeddings"
+)
+
+
+def _make_http_client(timeout: float) -> httpx.Client:
+    """Build the injected httpx.Client for doctor/analyze (per-request timeouts).
+
+    A module-level seam so tests bind an ``httpx.MockTransport`` and open no
+    socket (EVAL-05) while the real SSRF guard still runs at ``InferenceClient``
+    construction. Explicit timeouts treat the local server as untrusted (Pitfall
+    4 / T-03-05): a hostile or misconfigured endpoint can never hang doctor.
+    """
+    return httpx.Client(timeout=httpx.Timeout(timeout))
+
+
 @app.command()
-def doctor() -> None:
-    """Check the local environment and inference endpoint."""
-    print("doctor arrives in Phase 3 (M3)")
-    raise typer.Exit(1)
+def doctor(
+    case: Annotated[
+        str | None,
+        typer.Argument(help="Optional case: check the server dim against its index"),
+    ] = None,
+    i_know_what_im_doing: Annotated[
+        bool,
+        typer.Option(
+            "--i-know-what-im-doing",
+            help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
+        ),
+    ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Override the generation+embeddings model id"),
+    ] = None,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Verify the local inference endpoints and vector support (fail-fast).
+
+    D-02: checks run in dependency order and STOP at the first critical failure
+    with a non-zero exit, naming the failure mode. The embedding check is a REAL
+    round-trip (an actual ``/v1/embeddings`` call) — the only thing that catches
+    a Lemonade OGA/ONNX-recipe model that lists but cannot embed. Determinism
+    risks reached before any stop print as warnings without failing.
+    """
+    # D-03 precedence: --model feeds BOTH roles' config (flags win, deep-merged).
+    overrides: dict[str, object] = {"data_dir": data_dir}
+    if model is not None:
+        overrides["generation"] = {"model": model}
+        overrides["embeddings"] = {"model": model}
+    config = load_config(overrides)
+    gen_ep = Endpoint(
+        base_url=config.generation.base_url, model=config.generation.model
+    )
+    emb_ep = Endpoint(
+        base_url=config.embeddings.base_url, model=config.embeddings.model
+    )
+
+    http = _make_http_client(max(config.generation.timeout, config.embeddings.timeout))
+    try:
+        # 1. Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
+        # base_urls (LLM-02). A public endpoint without the override is refused.
+        try:
+            client = InferenceClient(
+                generation=gen_ep,
+                embeddings=emb_ep,
+                http=http,
+                allow_public=i_know_what_im_doing,
+                retries=config.generation.retries,
+                backoff_base=config.generation.backoff_base,
+                batch_size=config.embeddings.batch_size,
+            )
+        except ValueError as exc:
+            print(f"Error: {_sanitise(str(exc))}")
+            raise typer.Exit(1) from None
+
+        # 2. GET /v1/models on the generation endpoint [CRITICAL if unreachable].
+        try:
+            gen_models = client.models(gen_ep)
+        except (httpx.HTTPError, ValueError) as exc:
+            print(
+                f"Error: generation endpoint {gen_ep.base_url!r} unreachable: "
+                f"{_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+        print(
+            "generation endpoint OK: "
+            + _sanitise(", ".join(gen_models) or "(no models listed)")
+        )
+
+        # 3. GET /v1/models on the embeddings endpoint [CRITICAL if unreachable].
+        try:
+            emb_models = client.models(emb_ep)
+        except (httpx.HTTPError, ValueError) as exc:
+            print(
+                f"Error: embeddings endpoint {emb_ep.base_url!r} unreachable: "
+                f"{_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+        print(
+            "embeddings endpoint OK: "
+            + _sanitise(", ".join(emb_models) or "(no models listed)")
+        )
+
+        # 4. REAL /v1/embeddings round-trip [CRITICAL]. An OGA/ONNX-recipe server
+        # lists a model but returns an empty embedding — embed() raises. Never
+        # infer capability from the /v1/models listing above (Pitfall 2, T-03-13).
+        try:
+            vectors = client.embed(["sift doctor embedding probe"])
+        except (httpx.HTTPError, ValueError):
+            print(f"Error: {_OGA_ONNX_MSG}")
+            raise typer.Exit(1) from None
+        if not vectors or not vectors[0]:
+            print(f"Error: {_OGA_ONNX_MSG}")
+            raise typer.Exit(1) from None
+        dim = len(vectors[0])
+        print(f"embedding round-trip OK: dimension {dim}")
+
+        # 5. If a case is given, compare the returned dim against its recorded
+        # index dimension [CRITICAL on mismatch] (LLM-03 + STORE-03). The dim is
+        # an int on both sides — compared exactly, no rounding.
+        if case is not None:
+            store = _case_store(case, config)
+            try:
+                existing = store.get_meta("embedding_dim")
+            finally:
+                store.close()
+            if existing is not None and int(existing) != dim:
+                print(
+                    f"Error: embedding dimension mismatch: case index has "
+                    f"{int(existing)}, server returned {dim}"
+                )
+                raise typer.Exit(1) from None
+            if existing is not None:
+                print(f"case index dimension OK: {int(existing)} matches server")
+
+        # 6. Load sqlite-vec on a throwaway connection and read vec_version()
+        # [CRITICAL if it cannot load] (Pitfall 5). Names the enable_load_extension
+        # caveat so a Python build without it is diagnosed by name.
+        try:
+            version = vec_version()
+        except Exception as exc:  # noqa: BLE001 — any load failure is the same caveat
+            print(
+                "Error: cannot load the sqlite-vec extension; this Python's "
+                "sqlite3 does not permit extension loading "
+                f"(enable_load_extension): {_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+        print(f"sqlite-vec OK: vec_version {_sanitise(version)}")
+
+        # 7. Determinism WARNING (non-fatal): a multi-slot server or a random
+        # seed breaks reproducibility (T-03-15). /props is feature-detected and
+        # returns {} when absent (Lemonade), so an empty props warns nothing.
+        props = client.props()
+        n_parallel = props.get("n_parallel")
+        if (
+            isinstance(n_parallel, int)
+            and not isinstance(n_parallel, bool)
+            and n_parallel > 1
+        ):
+            print(
+                f"Warning: server reports n_parallel={n_parallel} (multi-slot); "
+                "results may be non-deterministic — run a single slot for "
+                "reproducible triage",
+                file=sys.stderr,
+            )
+        gen_settings = props.get("default_generation_settings")
+        if isinstance(gen_settings, dict):
+            seed = cast("dict[str, object]", gen_settings).get("seed")
+            if isinstance(seed, int) and not isinstance(seed, bool) and seed < 0:
+                print(
+                    "Warning: server seed is random (< 0); set a fixed seed for "
+                    "reproducible triage",
+                    file=sys.stderr,
+                )
+
+        print("doctor: all checks passed")
+    finally:
+        http.close()

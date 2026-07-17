@@ -258,6 +258,33 @@ class InferenceClient:
             raise ValueError("chat response message content is not a string")
         return content[:_MAX_CONTENT_CHARS]
 
+    def models(self, endpoint: Endpoint) -> list[str]:
+        """List the model ids advertised at ``endpoint``'s ``/v1/models`` (LLM-03).
+
+        ``sift doctor`` uses this to prove an endpoint is reachable and to report
+        the loaded model identities. Capability is NEVER inferred from this list —
+        an embedding round-trip is the only real probe (Pitfall 2). The returned
+        ids are untrusted server strings; the caller sanitises before printing.
+
+        Raises:
+            httpx.HTTPStatusError: On a non-2xx status (endpoint unreachable/broken).
+            httpx.ConnectError / httpx.TimeoutException: On transport failure.
+            ValueError: On a malformed response body.
+        """
+        url = f"{endpoint.base_url.rstrip('/')}/models"
+        response = self._request("GET", url)
+        response.raise_for_status()
+        data = _json_object(response)
+        rows = data.get("data")
+        ids: list[str] = []
+        if isinstance(rows, list):
+            for row in cast(list[object], rows):
+                if isinstance(row, dict):
+                    model_id = cast(dict[str, object], row).get("id")
+                    if isinstance(model_id, str):
+                        ids.append(model_id)
+        return ids
+
     @property
     def has_tokenize(self) -> bool:
         """Whether the generation server exposes ``/tokenize`` (probed once)."""
