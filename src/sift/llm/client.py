@@ -181,6 +181,9 @@ class InferenceClient:
         self._batch_size = max(1, batch_size)
         self._has_tokenize: bool | None = None  # None = not yet probed
         self._has_props: bool | None = None
+        # Model id the embeddings server reported on the last embed (STORE-03
+        # provenance); None until the first embed call returns one.
+        self._last_embedding_model: str | None = None
 
     def _request(
         self, method: str, url: str, *, json: dict[str, object] | None = None
@@ -222,6 +225,11 @@ class InferenceClient:
             response = self._request("POST", url, json=payload)
             response.raise_for_status()
             data = _json_object(response)
+            # STORE-03 provenance: record the model the server actually used
+            # (authoritative even when no model is configured, per D-03).
+            reported = data.get("model")
+            if isinstance(reported, str) and reported:
+                self._last_embedding_model = reported
             for embedding in _order_by_index(data.get("data"), len(batch)):
                 vector = _coerce_vector(embedding)
                 if dim is None:
@@ -233,6 +241,16 @@ class InferenceClient:
                     )
                 vectors.append(vector)
         return vectors
+
+    @property
+    def embedding_model(self) -> str | None:
+        """Embeddings model identity for provenance (STORE-03).
+
+        Prefers the model the server reported on the most recent ``embed`` call
+        (authoritative even when no model is configured, per D-03), falling back
+        to the configured embeddings model id. ``None`` when neither is known.
+        """
+        return self._last_embedding_model or self._embeddings.model
 
     def chat(self, messages: Sequence[dict[str, str]]) -> str:
         """Return ``choices[0].message.content`` from a chat completion (LLM-01).

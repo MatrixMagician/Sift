@@ -335,6 +335,13 @@ def cluster_and_label(
         # same transaction as the writes, so a failure anywhere in this block
         # rolls the lock back — a zero-vector case is never permanently wedged.
         store.ensure_vectors_table(dim)
+        # WR-03 / STORE-03: persist the embedding model provenance on the
+        # production path (not just in tests) so a report can state which model
+        # produced the index. Skipped only when neither the server nor config
+        # names a model (D-03 leaves model optional).
+        model = client.embedding_model
+        if model is not None:
+            store.record_embedding_identity(model, dim)
         store.upsert_vectors(vector_rows)
         store.replace_chunks(chunks)
         store.replace_clusters(clusters)

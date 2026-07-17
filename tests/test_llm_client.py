@@ -181,6 +181,36 @@ def test_non_finite_embedding_raises(token: str) -> None:
         _client(handler).embed(["a"])
 
 
+def test_embedding_model_prefers_server_reported() -> None:
+    # WR-03 / STORE-03: the embeddings server's reported model is the provenance
+    # identity, authoritative even when no model is configured (D-03).
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "nomic-embed-text",
+                "data": [{"index": 0, "embedding": [1.0]}],
+            },
+        )
+
+    client = _client(handler)
+    assert client.embedding_model is None  # nothing known before the first embed
+    client.embed(["a"])
+    assert client.embedding_model == "nomic-embed-text"
+
+
+def test_embedding_model_falls_back_to_configured() -> None:
+    # No server-reported model → the configured endpoint model is the identity.
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model="configured-embed")
+    client = InferenceClient(ep, ep, http, backoff_base=0.0)
+    client.embed(["a"])
+    assert client.embedding_model == "configured-embed"
+
+
 # --- chat (LLM-01) ------------------------------------------------------------
 
 

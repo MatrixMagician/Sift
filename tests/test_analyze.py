@@ -82,11 +82,14 @@ def _handler(
     calls: list[str] | None = None,
     chat_content: str | None = None,
     embed_raises: bool = False,
+    embed_model: str | None = None,
 ) -> Handler:
     """Serve /v1/embeddings (planted vectors) and /v1/chat/completions (labels).
 
     ``embed_raises`` makes the embeddings endpoint refuse the connection, so the
     analyze embed leg raises mid-run (the interrupted-embed atomicity probe).
+    ``embed_model`` sets the ``model`` field the embeddings server reports back
+    (STORE-03 provenance).
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -101,7 +104,10 @@ def _handler(
                 {"index": i, "embedding": _VECTORS.get(text, [0.0] * 8)}
                 for i, text in enumerate(inputs)
             ]
-            return httpx.Response(200, json={"data": data})
+            body: dict[str, object] = {"data": data}
+            if embed_model is not None:
+                body["model"] = embed_model
+            return httpx.Response(200, json=body)
         if path.endswith("/chat/completions"):
             if calls is not None:
                 calls.append("chat")
@@ -183,6 +189,23 @@ def test_analyze_public_endpoint_refused_without_override(
     result = runner.invoke(app, ["analyze", "demo"])
     assert result.exit_code == 1
     assert "refusing non-local inference endpoint" in result.output
+
+
+def test_analyze_persists_embedding_model_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-03 / STORE-03: the production analyze path must persist the embedding
+    # model the server reported to meta (provenance/determinism), not just the
+    # dimension. Previously record_embedding_identity was only called by tests.
+    _seed_case("demo", _CORPUS)
+    _patch_http(monkeypatch, _handler(embed_model="nomic-embed-text-v1.5"))
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        assert store.get_meta("embedding_model") == "nomic-embed-text-v1.5"
+        assert store.get_meta("embedding_dim") == "8"
+    finally:
+        store.close()
 
 
 # --- show clusters: labels, signature fallback, sanitise, atomicity ------
