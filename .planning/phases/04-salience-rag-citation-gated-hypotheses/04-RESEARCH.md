@@ -339,19 +339,22 @@ for cluster, groups in ranked:                     # salience order
 
 **If this table is empty:** it is not — all items above are LOW/MEDIUM risk design choices the discuss/plan step may confirm. None are unverified external facts.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the target llama.cpp build accept `HypothesisSet.model_json_schema()` with `$defs`/`$ref`?**
    - What we know: llama.cpp supports JSON-schema constrained decoding; external `$ref` is unsupported; Pydantic emits local `$defs` for nested models [CITED: ./CLAUDE.md §5]. Flagged in STATE.md Blockers.
    - What's unclear: whether *this* build's converter handles local `$ref`.
    - Recommendation: add a `-m live` test at M4; if it fails, flatten the schema (`ref_template`/inlining) or degrade to `json_object` + Pydantic. Either way the validate→repair→degrade pipeline is the backstop.
+   - **RESOLVED (deferred to `-m live` manual test; automated backstop = the validate→repair→degrade pipeline).** Captured as the sole manual-only verification in 04-VALIDATION.md — not a plan blocker.
 
 2. **Should salience weights be config now or constants?**
    - Recommendation: constants now (SPEC OQ4). Graduate to a `[salience]` config section in Phase 7 when the eval harness can measure the effect. Do not build the config section speculatively.
+   - **RESOLVED: constants now (SPEC OQ4); `[salience]` config deferred to Phase 7.**
 
 3. **Window filter granularity (`--since/--until`).**
    - What we know: events carry `ts` (indexed); clusters/template_groups carry aggregate first/last.
    - Recommendation: filter salience *input* at cluster/group granularity (drop clusters whose `[first_ts,last_ts]` doesn't intersect the window). Per-event windowing would need a template→event join for marginal benefit; note as a documented limitation.
+   - **RESOLVED: cluster/group-granularity window filter; per-event windowing documented as a limitation.**
 
 ## Environment Availability
 
