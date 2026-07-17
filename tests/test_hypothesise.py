@@ -96,6 +96,7 @@ def _handler(
     *,
     calls: list[str] | None = None,
     chat_raises: bool = False,
+    raw_body: dict[str, object] | None = None,
 ) -> Handler:
     """Serve /v1/embeddings (planted vectors) and /v1/chat/completions (queue).
 
@@ -103,7 +104,9 @@ def _handler(
     canned body from ``chat_bodies``. A chat call WITHOUT ``response_format``
     (e.g. a cluster label call) returns an inert ``{}`` and is not counted.
     ``chat_raises`` makes the triage call refuse the connection (the transport
-    failure -> failed-run probe).
+    failure -> failed-run probe). ``raw_body``, when set, makes the triage call
+    return that verbatim 200 JSON body (bypassing the content-envelope queue) —
+    the malformed-shape probe (no/absent/empty choices or content, G1).
     """
     queue = list(chat_bodies)
 
@@ -124,6 +127,8 @@ def _handler(
                 )
             if chat_raises:
                 raise httpx.ConnectError("connection refused", request=request)
+            if raw_body is not None:
+                return httpx.Response(200, json=raw_body)
             if calls is not None:
                 calls.append("chat")
             content = queue.pop(0)
@@ -284,6 +289,66 @@ def test_transport_error_is_failed_not_persisted(tmp_path: Path) -> None:
         assert outcome.failed
         assert outcome.hypotheses is None
         assert store.query_hypotheses() == []  # nothing persisted on a failed run
+    finally:
+        store.close()
+
+
+# --- G1: malformed/empty 200 inference response -> clean failed run -------
+
+
+def _assert_malformed_maps_to_failed(
+    store: CaseStore, raw_body: dict[str, object]
+) -> None:
+    """A malformed 200 triage body maps to a clean failed run, nothing persisted.
+
+    The call must RETURN (never raise a bare ValueError traceback): a failed
+    Outcome with no hypotheses, not degraded, and zero rows persisted (RAG-03
+    never-crash invariant, gap G1).
+    """
+    client = _client(_handler([], raw_body=raw_body))
+    outcome = hypothesise.hypothesise(
+        store, client, top_clusters=10, incident_time=None
+    )
+    assert outcome.failed is True
+    assert outcome.hypotheses is None
+    assert outcome.degraded is False
+    assert store.query_hypotheses() == []
+
+
+def test_malformed_generation_no_choices(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        _assert_malformed_maps_to_failed(store, {"choices": []})
+    finally:
+        store.close()
+
+
+def test_malformed_generation_absent_content(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        _assert_malformed_maps_to_failed(
+            store, {"choices": [{"message": {"content": None}}]}
+        )
+    finally:
+        store.close()
+
+
+def test_malformed_generation_empty_content(tmp_path: Path) -> None:
+    # The reasoning-model shape: budget exhausted on reasoning, empty answer
+    # content, finish_reason "length".
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        _assert_malformed_maps_to_failed(
+            store,
+            {
+                "choices": [
+                    {"message": {"content": ""}, "finish_reason": "length"}
+                ]
+            },
+        )
     finally:
         store.close()
 
