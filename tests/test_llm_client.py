@@ -230,6 +230,33 @@ def test_chat_missing_content_raises() -> None:
         _client(handler).chat([{"role": "user", "content": "hi"}])
 
 
+def test_chat_omits_response_format_when_not_passed() -> None:
+    seen: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    _client(handler).chat([{"role": "user", "content": "hi"}])
+    assert "response_format" not in seen[0]
+
+
+def test_chat_sends_llama_cpp_response_format_shape() -> None:
+    seen: list[dict[str, object]] = []
+    rf = {"type": "json_schema", "schema": {"type": "object", "properties": {}}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    _client(handler).chat([{"role": "user", "content": "hi"}], response_format=rf)
+    body = seen[0]
+    # llama.cpp nesting: schema is top-level under response_format, verbatim.
+    assert body["response_format"] == rf
+    # Never send a second constraint field alongside the schema.
+    assert "grammar" not in body
+
+
 # --- feature detection: /tokenize, /props (LLM-04, Lemonade-safe) -------------
 
 
