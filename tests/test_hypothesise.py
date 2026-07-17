@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 
 from sift.config import ClusteringConfig
 from sift.llm.client import Endpoint, InferenceClient
@@ -283,5 +284,81 @@ def test_transport_error_is_failed_not_persisted(tmp_path: Path) -> None:
         assert outcome.failed
         assert outcome.hypotheses is None
         assert store.query_hypotheses() == []  # nothing persisted on a failed run
+    finally:
+        store.close()
+
+
+# --- Task 3: citation gate (cited ⊆ prompted) + atomic persist ------------
+
+
+def test_citation_valid_golden(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        outcome, chat_calls = _run(store, "good")
+        assert outcome.citations_valid
+        assert not outcome.degraded
+        assert chat_calls == 1  # no regeneration needed
+        rows = store.query_hypotheses()
+        assert rows and all(r.citations_valid for r in rows)  # 100% valid
+        assert store.get_meta("triage_degraded") == "0"
+    finally:
+        store.close()
+
+
+def test_regenerate_badcite_then_good(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        outcome, chat_calls = _run(store, "badcite_then_goodcite")
+        assert outcome.citations_valid  # succeeded after one regeneration
+        assert not outcome.degraded
+        assert chat_calls == 2  # generation + exactly one regeneration
+        assert all(r.citations_valid for r in store.query_hypotheses())
+    finally:
+        store.close()
+
+
+def test_flagged_badcite_twice(tmp_path: Path) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        outcome, chat_calls = _run(store, "bad_citation")
+        assert outcome.degraded
+        assert not outcome.citations_valid
+        assert chat_calls == 2  # generation + one regeneration, no more
+        rows = store.query_hypotheses()
+        assert rows
+        offender = rows[0]
+        # NEVER silently accepted: flagged invalid AND the bad id kept visible.
+        assert offender.citations_valid is False
+        assert _BAD_ID in offender.supporting_event_ids
+        assert store.get_meta("triage_degraded") == "1"
+    finally:
+        store.close()
+
+
+def test_atomic_persist_rolls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        # Fail mid-persist AFTER replace_hypotheses inserted rows: the whole
+        # transaction must roll back to zero hypotheses (T-04-11).
+        real_set_meta = store.set_meta
+
+        def _boom(key: str, value: str) -> None:
+            if key == "triage_prompt_hash":
+                raise RuntimeError("disk full mid-persist")
+            real_set_meta(key, value)
+
+        monkeypatch.setattr(store, "set_meta", _boom)
+        client = _client(_handler(_scenarios()["good"]))
+        with pytest.raises(RuntimeError):
+            hypothesise.hypothesise(
+                store, client, top_clusters=10, incident_time=None
+            )
+        assert store.query_hypotheses() == []  # rolled back to zero rows
     finally:
         store.close()

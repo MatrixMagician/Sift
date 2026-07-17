@@ -23,7 +23,9 @@ from __future__ import annotations
 
 import hashlib
 import importlib.resources
+import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import httpx
@@ -31,11 +33,13 @@ import httpx
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
 from sift.pipeline.salience import rank_clusters
+from sift.store import StoredHypothesis
 
 if TYPE_CHECKING:
     from datetime import datetime as _dt
 
     from sift.llm.client import InferenceClient
+    from sift.models import Hypothesis
     from sift.store import CaseStore, Cluster, TemplateGroup
 
 _PROMPT_PACKAGE = "sift.prompts"
@@ -276,8 +280,7 @@ def hypothesise(
     # has_tokenize is a read-only property vs the protocol's plain attribute,
     # which pyright flags as a false mismatch (same as cluster.py).
     budget = PromptBudget(client, ctx, reserve_out)  # pyright: ignore[reportArgumentType]
-    # prompted_ids (the citable universe) is consumed by the Task-3 gate.
-    chat_messages, _prompted_ids, prompt_text = _assemble(
+    chat_messages, prompted_ids, prompt_text = _assemble(
         ranked, group_index, messages_map, template, hint, budget
     )
     prompt_hash = _prompt_hash(prompt_text)
@@ -285,7 +288,22 @@ def hypothesise(
 
     try:
         hset, raw = _generate(client, chat_messages, rf)
+        if hset is None:
+            outcome = Outcome(
+                hypotheses=None,
+                raw=raw,
+                degraded=True,
+                failed=False,
+                citations_valid=False,
+                prompt_hash=prompt_hash,
+            )
+        else:
+            outcome = _citation_gate(
+                client, hset, chat_messages, rf, prompted_ids, prompt_hash
+            )
     except httpx.HTTPError:
+        # A transport failure produced no output — nothing is persisted (CLI-04
+        # exit 1), distinct from a degraded-but-produced run (exit 3).
         return Outcome(
             hypotheses=None,
             raw=None,
@@ -295,26 +313,121 @@ def hypothesise(
             prompt_hash=prompt_hash,
         )
 
-    if hset is None:
+    _persist(store, outcome, prompted_ids, prompt_hash, client.embedding_model)
+    return outcome
+
+
+def _row_citations_valid(hyp: Hypothesis, prompted_ids: set[str]) -> bool:
+    """Whether every id this hypothesis cites was actually shown to the model."""
+    return all(eid in prompted_ids for eid in hyp.supporting_event_ids)
+
+
+def _all_cited_within(hset: HypothesisSet, prompted_ids: set[str]) -> bool:
+    """cited ⊆ prompted for the whole set (T-04-02, the anti-hallucination gate).
+
+    Because ``prompted_ids`` are stored exemplar ids, this transitively enforces
+    cited ⊆ prompted ⊆ store: a hypothesis cannot cite an unseen or fabricated
+    event.
+    """
+    return all(_row_citations_valid(h, prompted_ids) for h in hset.hypotheses)
+
+
+def _citation_gate(
+    client: InferenceClient,
+    hset: HypothesisSet,
+    messages: list[dict[str, str]],
+    rf: dict[str, object],
+    prompted_ids: set[str],
+    prompt_hash: str,
+) -> Outcome:
+    """Enforce cited ⊆ prompted with exactly one regeneration, then flag (RAG-04).
+
+    All cited within prompted -> success. Otherwise regenerate once (the fresh
+    output must itself pass schema validation); if it now cites within prompted,
+    success. Still invalid -> the offending hypotheses are FLAGGED
+    (``citations_valid=False`` per row at persist, offending ids kept visible)
+    and the run degrades — never silently accepted, never dropped.
+    """
+    if _all_cited_within(hset, prompted_ids):
         return Outcome(
-            hypotheses=None,
-            raw=raw,
-            degraded=True,
+            hypotheses=hset,
+            raw=None,
+            degraded=False,
             failed=False,
-            citations_valid=False,
+            citations_valid=True,
             prompt_hash=prompt_hash,
         )
-
-    # Citation gate + atomic persistence land in Task 3; a schema-valid set is
-    # returned here so the gate can enforce cited ⊆ prompted over prompted_ids.
+    regen, _error = _validate(client.chat(messages, response_format=rf))
+    if regen is not None and _all_cited_within(regen, prompted_ids):
+        return Outcome(
+            hypotheses=regen,
+            raw=None,
+            degraded=False,
+            failed=False,
+            citations_valid=True,
+            prompt_hash=prompt_hash,
+        )
+    # A failed re-validate keeps the original set so the flagged output is still
+    # the schema-valid one the operator can inspect.
+    winner = regen if regen is not None else hset
     return Outcome(
-        hypotheses=hset,
+        hypotheses=winner,
         raw=None,
-        degraded=False,
+        degraded=True,
         failed=False,
-        citations_valid=True,
+        citations_valid=False,
         prompt_hash=prompt_hash,
     )
+
+
+def _persist(
+    store: CaseStore,
+    outcome: Outcome,
+    prompted_ids: set[str],
+    prompt_hash: str,
+    model: str | None,
+) -> None:
+    """Persist hypotheses + triage run-meta inside ONE transaction (T-04-11).
+
+    Rows are built first (pure), then written; a mid-persist failure rolls back
+    to zero hypotheses — never partial state. Each row carries its own
+    ``citations_valid`` verdict so the report can flag the offending ones. The
+    raw output is stored only when nothing schema-valid was produced (a hard
+    degrade), so an operator can still see what the model returned.
+    """
+    hset = outcome.hypotheses
+    rows: list[StoredHypothesis] = []
+    if hset is not None:
+        for index, hyp in enumerate(hset.hypotheses):
+            rows.append(
+                StoredHypothesis(
+                    hyp_index=index,
+                    title=hyp.title,
+                    narrative=hyp.narrative,
+                    confidence=hyp.confidence,
+                    confidence_reasoning=hyp.confidence_reasoning,
+                    supporting_event_ids=list(hyp.supporting_event_ids),
+                    contradicting_evidence=hyp.contradicting_evidence,
+                    suggested_next_steps=list(hyp.suggested_next_steps),
+                    citations_valid=_row_citations_valid(hyp, prompted_ids),
+                )
+            )
+
+    with store.transaction():
+        store.replace_hypotheses(rows)
+        store.set_meta("triage_degraded", "1" if outcome.degraded else "0")
+        store.set_meta("triage_prompt_hash", prompt_hash)
+        store.set_meta("triage_created_at", datetime.now(UTC).isoformat())
+        if model is not None:
+            store.set_meta("triage_model", model)
+        if hset is not None:
+            store.set_meta("triage_timeline_summary", hset.timeline_summary)
+            store.set_meta(
+                "triage_unexplained_signals",
+                json.dumps(list(hset.unexplained_signals)),
+            )
+        elif outcome.raw is not None:
+            store.set_meta("triage_raw", outcome.raw)
 
 
 __all__ = ["Outcome", "hypothesise"]
