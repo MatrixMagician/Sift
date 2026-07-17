@@ -142,7 +142,7 @@ Plans:
   4. Clusters are ranked by salience combining severity, count, burstiness, novelty, and temporal proximity to a user-supplied incident time, budgeted breadth-first to fit the model's context
   5. User can scope analysis with `--hint` free text and `--since/--until` time-window filters
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 **Wave 1** *(parallel — no shared files)*
@@ -157,7 +157,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 04-05-PLAN.md — `sift analyze` `--hint/--since/--until/--top-clusters` + 0/3/1 exit-code contract + `sift show hypotheses` + ADR (wave 3)
+- [x] 04-05-PLAN.md — `sift analyze` `--hint/--since/--until/--top-clusters` + 0/3/1 exit-code contract + `sift show hypotheses` + ADR (wave 3)
 
 ### Phase 5: Domain Adapters (journald, dsserrors, eustack)
 
@@ -228,7 +228,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
-| 4. Salience, RAG & Citation-Gated Hypotheses | 4/5 | In Progress|  |
+| 4. Salience, RAG & Citation-Gated Hypotheses | 5/5 | In Progress|  |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |

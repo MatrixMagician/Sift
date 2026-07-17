@@ -63,7 +63,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **CLI-01**: CLI exposes `new`, `ingest`, `analyze`, `report`, `show`, `eval`, `doctor` subcommands with config precedence: flags > `SIFT_*` env > `~/.config/sift/config.toml` > defaults
 - [x] **CLI-02**: All prompts live as versioned template files in the package; changing a prompt requires no Python changes
 - [x] **CLI-03**: Long operations (ingest, embedding, generation) show progress feedback *(partial scope: ingest leg delivered Phase 2; embedding/generation legs Phases 3-4)*
-- [ ] **CLI-04**: Exit codes form a documented contract (success / degraded run / failure) so `sift` is scriptable in CI
+- [x] **CLI-04**: Exit codes form a documented contract (success / degraded run / failure) so `sift` is scriptable in CI
 
 ### Evaluation
 
@@ -147,7 +147,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RAG-03 | Phase 4 | Complete |
 | RAG-04 | Phase 4 | Complete |
 | RAG-06 | Phase 4 | Complete |
-| CLI-04 | Phase 4 | Pending |
+| CLI-04 | Phase 4 | Complete |
 | INGST-07 | Phase 5 | Pending |
 | INGST-08 | Phase 5 | Pending |
 | INGST-09 | Phase 5 | Pending |
