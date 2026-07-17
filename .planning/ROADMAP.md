@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Skeleton, Event Contract & genericlog Adapter** - CLI skeleton, frozen Event schema, format auto-detection, robust fallback parser with idempotent ingest (M1) (completed 2026-07-16)
 - [x] **Phase 2: Case Store & Template Dedup** - Portable SQLite case store with migrations, zstd compression, and no-ML template deduplication at 100 MB scale (M2) (completed 2026-07-17)
-- [ ] **Phase 3: Inference Client, Doctor, Embeddings & Clustering** - Loopback-guarded OpenAI-compatible client, `sift doctor`, batched embeddings, HDBSCAN semantic clustering, LLM cluster labels (M3)
+- [x] **Phase 3: Inference Client, Doctor, Embeddings & Clustering** - Loopback-guarded OpenAI-compatible client, `sift doctor`, batched embeddings, HDBSCAN semantic clustering, LLM cluster labels (M3) (completed 2026-07-17)
 - [ ] **Phase 4: Salience, RAG & Citation-Gated Hypotheses** - Salience ranking, budgeted triage prompt, enforced JSON contract, "cited ⊆ prompted" citation validation (M4)
 - [ ] **Phase 5: Domain Adapters (journald, dsserrors, eustack)** - Parallel-safe leaf adapters encoding MicroStrategy and systemd domain knowledge (M5)
 - [ ] **Phase 6: Renderers & KB Retrieval** - Markdown/JSON/PDF reports with evidence appendix, reproducibility contract, knowledge-base retrieval (M6)
@@ -107,7 +107,7 @@ Plans:
 
 **Carried forward from Phase 2**: WR-07 — a disk-full error (SQLITE_FULL/IOERR) mid-ingest triggers SQLite auto-rollback that destroys the per-file SAVEPOINTs, leaving the interrupted-ingest atomicity guarantee with a known hole. Plan a fix in this phase (signed off as a deferred follow-up in 02-UAT.md, 2026-07-17).
 
-**Plans:** 6/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1**
@@ -212,7 +212,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 |-------|----------------|--------|-----------|
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
-| 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | In Progress|  |
+| 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 0/TBD | Not started | - |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |

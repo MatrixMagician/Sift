@@ -1,8 +1,9 @@
 ---
 phase: 03-inference-client-doctor-embeddings-clustering
 verified: 2026-07-17T00:00:00Z
-status: human_needed
-score: 5/5 must-haves verified (code + automated tests); 1 live-server confirmation deferred to human
+status: passed
+resolution: "Live-server UAT signed off 2026-07-17 on Fedora Strix Halo (AMD Ryzen AI MAX+ 395) against Lemonade Server v10.4.0 on :13305. sift doctor passed with a real /v1/embeddings round-trip (dim 1024, vec_version v0.1.9), correctly named the embeddings-unsupported failure when no embedding model is loaded, and the case dim-vs-index check matched; sift analyze merged synonymous template groups into 3 labelled clusters offline, with graceful signature fallback when the model returned no parseable labels; loopback/RFC1918 refusal confirmed; embedding model identity + dim + metric persisted in meta. pytest -m live PASSES with LIVE_EMBEDDING_MODEL set (test made multi-model-server-aware). See 03-UAT.md."
+score: 5/5 must-haves verified (code + automated tests) + live-server UAT confirmed
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:

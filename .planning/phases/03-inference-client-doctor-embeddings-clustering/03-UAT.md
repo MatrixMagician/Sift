@@ -1,5 +1,5 @@
 ---
-status: testing
+status: passed
 phase: 03-inference-client-doctor-embeddings-clustering
 source: [03-VERIFICATION.md]
 started: 2026-07-17
@@ -35,14 +35,14 @@ suggested steps (scope to a fresh isolated case dir — do NOT point at a broad 
   4. `uv run pytest -m live` — the opt-in live suite (excluded from the default gate).
   5. `uv run sift analyze <case>` then `uv run sift show clusters <case>` — labelled clusters.
   6. (Optional) Point at a Lemonade OGA/ONNX chat model to confirm the named embeddings-unsupported failure.
-result: [pending]
+result: passed — 2026-07-17, Fedora Strix Halo (AMD Ryzen AI MAX+ 395), Lemonade Server v10.4.0 on :13305 (embeddings=Qwen3-Embedding-0.6B-GGUF/1024-dim, generation=Qwen3-0.6B-GGUF, both llamacpp). `sift doctor`: real /v1/embeddings round-trip dim 1024, vec_version v0.1.9, case dim-vs-index match, all checks passed (exit 0); correctly named the "embeddings unsupported on this model/recipe" failure when no embedding model is loaded. `sift analyze` merged 18 template groups → 3 labelled clusters ("Database Connectivity Error" / "Cache Expired Session" / "Cache Miss"), offline; graceful signature fallback on a nondeterministic no-label run (never crashed). Loopback/RFC1918 refusal confirmed (public endpoint refused without `--i-know-what-im-doing`). Embedding model identity + dim + metric persisted in meta. `pytest -m live` PASSES with `LIVE_EMBEDDING_MODEL` set (test made multi-model-server aware). Note: cluster-label quality is nondeterministic with a 0.6B model — the signature fallback is by design.
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
