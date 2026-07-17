@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.progress import (
     BarColumn,
     DownloadColumn,
+    MofNCompleteColumn,
     Progress,
     TextColumn,
     TimeElapsedColumn,
@@ -31,6 +32,7 @@ from sift.adapters.genericlog import GenericLogAdapter
 from sift.config import SiftConfig, load_config
 from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import dedup
+from sift.pipeline.cluster import cluster_and_label
 from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
@@ -537,10 +539,118 @@ def show(
 
 
 @app.command()
-def analyze() -> None:
-    """Cluster events and generate ranked root-cause hypotheses."""
-    print("analyze arrives in Phase 4 (M4)")
-    raise typer.Exit(1)
+def analyze(
+    case: str,
+    i_know_what_im_doing: Annotated[
+        bool,
+        typer.Option(
+            "--i-know-what-im-doing",
+            help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
+        ),
+    ] = False,
+    no_label: Annotated[
+        bool,
+        typer.Option(
+            "--no-label",
+            help="Skip LLM cluster labels; clusters keep their signature (D-01)",
+        ),
+    ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Override the generation+embeddings model id"),
+    ] = None,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Embed template groups, cluster them, and label the clusters (M3 slice).
+
+    This is the clustering leg of the pipeline only: synonymous template groups
+    are embedded, clustered (HDBSCAN / agglomerative fallback) and eagerly
+    labelled by the local LLM (D-01). ``--no-label`` skips the label call and
+    clusters keep their signature. Salience ranking and citation-gated
+    hypotheses arrive in Phase 4 (M4). ``sift show clusters`` renders the result.
+    """
+    # D-03 precedence: --model feeds BOTH roles' config (flags win, deep-merged).
+    overrides: dict[str, object] = {"data_dir": data_dir}
+    if model is not None:
+        overrides["generation"] = {"model": model}
+        overrides["embeddings"] = {"model": model}
+    config = load_config(overrides)
+    store = _case_store(case, config)
+    try:
+        # CLUS-01: zero template groups means ingest has not run (or produced
+        # nothing) — there is nothing to embed, so skip the client entirely and
+        # exit cleanly. groups > 0 always yields >= 1 cluster (auto-singleton).
+        groups = store.query_template_groups()
+        if not groups:
+            print("Nothing to cluster; run 'sift ingest' first")
+            return
+
+        gen_ep = Endpoint(
+            base_url=config.generation.base_url, model=config.generation.model
+        )
+        emb_ep = Endpoint(
+            base_url=config.embeddings.base_url, model=config.embeddings.model
+        )
+        http = _make_http_client(
+            max(config.generation.timeout, config.embeddings.timeout)
+        )
+        try:
+            # Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
+            # base_urls (LLM-02). A public endpoint without the override refuses.
+            try:
+                client = InferenceClient(
+                    generation=gen_ep,
+                    embeddings=emb_ep,
+                    http=http,
+                    allow_public=i_know_what_im_doing,
+                    retries=config.generation.retries,
+                    backoff_base=config.generation.backoff_base,
+                    batch_size=config.embeddings.batch_size,
+                )
+            except ValueError as exc:
+                print(f"Error: {_sanitise(str(exc))}")
+                raise typer.Exit(1) from None
+
+            # CLI-03: transient stderr-only progress with a STATIC description —
+            # untrusted server/DB text never enters a rich renderable (T-03-23).
+            # stdout stays scriptable; a non-TTY run renders nothing (disable=).
+            # The embed + cluster + label + persist is one opaque call, so the
+            # count column ticks from 0/N to N/N once it completes.
+            err_console = Console(stderr=True)
+            with Progress(
+                TextColumn("Embedding"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TimeElapsedColumn(),
+                console=err_console,
+                transient=True,
+                disable=not err_console.is_terminal,
+            ) as progress:
+                ptask = progress.add_task("embed", total=len(groups))
+                try:
+                    # T-03-22: cluster_and_label persists everything inside ONE
+                    # store.transaction(); an interrupted embed (client raises)
+                    # rolls back to zero clusters/vectors — the embed call is the
+                    # first step and precedes every write, so nothing survives.
+                    n_clusters = cluster_and_label(
+                        store, client, config.clustering, label=not no_label
+                    )
+                except (httpx.HTTPError, ValueError) as exc:
+                    print(f"Error: embedding/clustering failed: {_sanitise(str(exc))}")
+                    raise typer.Exit(1) from None
+                progress.update(ptask, completed=len(groups))
+        finally:
+            http.close()
+
+        # Counts are ints — no untrusted text. The labels themselves are only
+        # rendered by `show clusters`, where the whole line is _sanitise'd.
+        labelled = sum(1 for c in store.query_clusters() if c.label)
+        print(f"Clusters: {n_clusters} ({labelled} labelled)")
+        print("Run 'sift show clusters' to view them")
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
+        # ingest — the case directory holds only case.db afterwards.
+        store.close()
 
 
 @app.command()
