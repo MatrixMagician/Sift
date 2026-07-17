@@ -390,6 +390,10 @@ _SEVERITIES = ("fatal", "error", "warn", "info", "debug", "unknown")
 _FILTER_KEYS: dict[str, tuple[str, ...]] = {
     "events": ("severity", "source", "file", "since", "until", "limit"),
     "clusters": ("severity", "min-count", "contains", "limit"),
+    # hypotheses: no filters yet (query_hypotheses returns the whole ranked set).
+    # An empty allowlist means any --filter fails loudly (exit 2) rather than
+    # being silently ignored — a richer filter set is out of scope for M4.
+    "hypotheses": (),
 }
 
 
@@ -482,10 +486,7 @@ def show(
     since/until timestamps are treated as UTC; since/until exclude events
     without a timestamp (a documented filter semantic, not silent loss).
     """
-    if what == "hypotheses":
-        print("show hypotheses arrives in Phase 4 (M4)")
-        raise typer.Exit(1)
-    if what not in ("events", "clusters"):
+    if what not in ("events", "clusters", "hypotheses"):
         print(f"Error: unknown target {what!r}; expected events|clusters|hypotheses")
         raise typer.Exit(1)
     try:
@@ -497,6 +498,37 @@ def show(
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
+        if what == "hypotheses":
+            # RAG-02: the persisted, ranked hypotheses (query_hypotheses orders
+            # by hyp_index ASC). Nothing yet means analyze has not run — say so
+            # and exit 0 (not the old Phase-4-pending stub).
+            hyps = store.query_hypotheses()
+            if not hyps:
+                print("No hypotheses yet; run 'sift analyze' first")
+                return
+            # A degraded run flagged rows or persisted raw output — warn on
+            # stderr (mirrors the stale-groups warning) so stdout stays scriptable.
+            if store.get_meta("triage_degraded") == "1":
+                print(
+                    "Warning: last analyze degraded — some hypotheses are FLAGGED "
+                    "(invalid citations) or raw output was persisted; treat "
+                    "flagged rows with care",
+                    file=sys.stderr,
+                )
+            # WR-01: titles and cited ids are model-generated / DB-sourced and
+            # attacker-controlled in a shared case.db — sanitise the COMPLETE
+            # rendered line, never per field (T-04-03). FLAGGED marks a row whose
+            # citations were not all shown to the model (never silently dropped).
+            for h in hyps:
+                marker = "OK" if h.citations_valid else "FLAGGED"
+                title = h.title.replace("\n", " ")[:100]
+                print(_sanitise(
+                    f"{h.hyp_index}  {h.confidence:<6}  {marker:<7}  {title}"
+                ))
+                print(_sanitise(
+                    f"    cites: {' '.join(map(str, h.supporting_event_ids))}"
+                ))
+            return
         if what == "clusters":
             # WR-03: events committed but groups never rebuilt (crash between
             # the event transaction and the rebuild) — warn, still render.

@@ -1101,3 +1101,121 @@ def test_analyze_exit_2_on_bad_since(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, ["analyze", "demo", "--since", "not-a-time"])
     assert result.exit_code == 2, result.output
     assert "not an ISO 8601 timestamp" in result.output
+
+
+# --- show hypotheses: sanitised render, citation flag, empty message ----------
+
+
+def _analyze_with_hyp(monkeypatch: pytest.MonkeyPatch, hyp: str) -> None:
+    """Seed one event and run analyze so the hypothesis cites a prompted id."""
+    _seed_analyzable("demo", ["solo memory pressure warning"])
+    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code in (0, 3)
+
+
+def test_show_hypotheses_renders_after_analyze(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ids = _seed_analyzable("demo", ["solo memory pressure warning"])
+    hyp = json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": "Memory exhaustion likely",
+                    "narrative": "the box ran out of memory",
+                    "confidence": "high",
+                    "confidence_reasoning": "clear signal",
+                    "supporting_event_ids": [ids[0]],
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": ["add RAM"],
+                }
+            ],
+            "timeline_summary": "one event",
+            "unexplained_signals": [],
+        }
+    )
+    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
+    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
+    assert shown.exit_code == 0, shown.output
+    assert "Memory exhaustion likely" in shown.output
+    assert "OK" in shown.output  # citations-valid marker
+    assert ids[0] in shown.output  # the cited id is rendered
+
+
+def test_show_hypotheses_flags_invalid_citation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hyp = json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": "Fabricated cause",
+                    "narrative": "cites an unseen event",
+                    "confidence": "low",
+                    "confidence_reasoning": "made up",
+                    "supporting_event_ids": ["deadbeefdeadbeef"],
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": [],
+                }
+            ],
+            "timeline_summary": "x",
+            "unexplained_signals": [],
+        }
+    )
+    _analyze_with_hyp(monkeypatch, hyp)
+    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
+    assert shown.exit_code == 0, shown.output
+    assert "FLAGGED" in shown.output  # invalid citation surfaced, never dropped
+    assert "degraded" in shown.stderr.lower()  # degraded banner on stderr
+
+
+def test_show_hypotheses_strips_control_bytes_from_hostile_title(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ids = _seed_analyzable("demo", ["solo memory pressure warning"])
+    # A model title carrying a C1 CSI byte (U+009B) and a bidi override (U+202E):
+    # T-04-03 sanitises the whole rendered line, so neither reaches the terminal.
+    hostile = "clean\x9b31mRED\u202e"
+    hyp = json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": hostile,
+                    "narrative": "n",
+                    "confidence": "medium",
+                    "confidence_reasoning": "r",
+                    "supporting_event_ids": [ids[0]],
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": [],
+                }
+            ],
+            "timeline_summary": "t",
+            "unexplained_signals": [],
+        }
+    )
+    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
+    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
+    assert shown.exit_code == 0, shown.output
+    assert "\x9b" not in shown.output  # C1 CSI stripped
+    assert "\u202e" not in shown.output  # bidi override stripped
+    assert "clean31mRED" in shown.output  # printable text survives
+
+
+def test_show_hypotheses_empty_before_analyze(tmp_path: Path) -> None:
+    """An un-analysed case prints the empty message and exits 0 (no old stub)."""
+    _seed_analyzable("demo", ["alpha"])  # events but no analyze/hypotheses
+    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
+    assert shown.exit_code == 0, shown.output
+    assert "No hypotheses" in shown.output
+    assert "sift analyze" in shown.output
+
+
+def test_show_hypotheses_rejects_filter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The empty filter allowlist fails a --filter loudly (exit 2), never silent."""
+    _seed_analyzable("demo", ["alpha"])
+    shown = runner.invoke(
+        app, ["show", "demo", "hypotheses", "--filter", "limit=5"]
+    )
+    assert shown.exit_code == 2, shown.output
