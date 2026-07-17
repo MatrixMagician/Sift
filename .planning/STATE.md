@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 04
 current_phase_name: Salience, RAG & Citation-Gated Hypotheses
 status: verifying
-stopped_at: Completed 04-05-PLAN.md
-last_updated: "2026-07-17T16:31:13.986Z"
+stopped_at: Completed 04-06-PLAN.md (gap G1 closed)
+last_updated: "2026-07-17T17:33:32.166Z"
 last_activity: 2026-07-17
 last_activity_desc: Phase 04 execution started
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 21
+  completed_plans: 21
 ---
 
 # Project State
@@ -79,6 +79,7 @@ Progress: [██████████] 100%
 | Phase 04 P03 | 6m | 1 tasks | 2 files |
 | Phase 04 P04 | 9min | 3 tasks | 3 files |
 | Phase 04 P05 | 12m | 3 tasks | 4 files |
+| Phase 04 P06 | 3 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Salience window filter drops no-timestamp clusters when since/until is set (04-02)
 - [Phase ?]: chat response_format is keyword-only/optional (RAG-03); client stays generic, hypothesise.py owns the llama.cpp {type:json_schema,schema} shape; Pydantic validation is the backstop
 - [Phase ?]: 04-04: prompted_ids (printed exemplar ids) IS the citation gate's allowed set; cited ⊆ prompted transitively guarantees cited ⊆ store
+- [Phase ?]: 04-06: malformed/empty 200 inference response maps to failed (exit 1, nothing persisted), not degraded — symmetric with transport failure; empty/whitespace content normalised to a ValueError in client.chat, hypothesise catches (httpx.HTTPError, ValueError). Closes G1 (RAG-03 never-crash).
 
 ### Pending Todos
 
@@ -148,6 +150,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-17T16:31:13.976Z
-Stopped at: Completed 04-05-PLAN.md
+Last session: 2026-07-17T17:33:17.823Z
+Stopped at: Completed 04-06-PLAN.md (gap G1 closed)
 Resume file: None

@@ -142,7 +142,7 @@ Plans:
   4. Clusters are ranked by salience combining severity, count, burstiness, novelty, and temporal proximity to a user-supplied incident time, budgeted breadth-first to fit the model's context
   5. User can scope analysis with `--hint` free text and `--since/--until` time-window filters
 
-**Plans:** 5/5 plans executed + 1 gap-closure plan
+**Plans:** 6/6 plans executed
 
 Plans:
 **Wave 1** *(parallel — no shared files)*
@@ -161,7 +161,7 @@ Plans:
 
 **Gap closure** *(from live-server UAT — G1)*
 
-- [ ] 04-06-PLAN.md — Map a malformed/empty 200 inference response (no `choices` / empty `content`, reasoning-model budget exhaustion) to a clean failed run — never crash (G1, RAG-03) (wave 1)
+- [x] 04-06-PLAN.md — Map a malformed/empty 200 inference response (no `choices` / empty `content`, reasoning-model budget exhaustion) to a clean failed run — never crash (G1, RAG-03) (wave 1)
 
 ### Phase 5: Domain Adapters (journald, dsserrors, eustack)
 
@@ -232,7 +232,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 1. Skeleton, Event Contract & genericlog Adapter | 5/5 | Complete    | 2026-07-16 |
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
-| 4. Salience, RAG & Citation-Gated Hypotheses | 5/5 | In Progress|  |
+| 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | In Progress|  |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 0/TBD | Not started | - |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
