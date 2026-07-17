@@ -1,14 +1,19 @@
 ---
 phase: 04-salience-rag-citation-gated-hypotheses
 verified: 2026-07-17T00:00:00Z
-status: human_needed
+status: gaps_found
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-human_verification:
-  - test: "Run `sift analyze <case>` against a live `llama-server -m <model>` whose /v1/chat/completions performs schema-constrained decoding, on the first golden case, passing HypothesisSet.model_json_schema() (which contains $defs/$ref for the nested Hypothesis)."
-    expected: "The server accepts the response_format `{\"type\":\"json_schema\",\"schema\":{…$defs…}}` and returns schema-valid JSON on the FIRST try (no repair round-trip). If the server 400s on $defs/$ref, the run must still degrade gracefully (exit 3, raw persisted) rather than crash — the automated backstop, which IS covered by tests."
-    why_human: "Requires a real local inference server with constrained decoding; the zero-network-in-tests invariant forbids automating a live HTTP round-trip. This is the single manual-only item declared in 04-VALIDATION.md. It is a confirmation that constrained decoding actively engages, NOT a load-bearing gap — the validate→repair→degrade pipeline is the automated safety net and is fully tested."
+human_verification_resolved:
+  - test: "Live llama-server constrained-decoding round-trip accepts HypothesisSet.model_json_schema() ($defs/$ref)."
+    result: passed
+    note: "Run 2026-07-17 on Strix Halo / Lemonade v10.4.0. Server ACCEPTS the $defs/$ref schema (HTTP 200, no 400) — Open Question 1 resolved. `sift analyze` with the configured Qwen3-0.6B degraded gracefully (exit 3, flagged, no crash, zero invalid citations). See 04-UAT.md test 1 evidence."
+gaps:
+  - id: G1
+    severity: high
+    requirement: RAG-03
+    summary: "reasoning/empty/'no choices' 200 inference response crashes `sift analyze` with an uncaught ValueError traceback (exit 1) instead of degrading/failing cleanly — violates the load-bearing never-crash invariant. Found via live UAT (Qwen3.5-27B reasoning model). Root cause + fix in 04-UAT.md §Gaps G1."
 ---
 
 # Phase 4: Salience, RAG & Citation-Gated Hypotheses — Verification Report
