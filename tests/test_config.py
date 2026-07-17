@@ -93,3 +93,48 @@ def test_malformed_toml_is_a_loud_error() -> None:
     cfg_path = _write_toml("data_dir = [unclosed\n")
     with pytest.raises(ValueError, match=str(cfg_path)):
         load_config()
+
+
+def test_new_sections_have_tuned_defaults() -> None:
+    config = load_config()
+    # D-03: no baked embedding-model default; scalar knobs are tuned.
+    assert config.embeddings.model is None
+    assert config.generation.model is None
+    assert config.embeddings.base_url == "http://localhost:13305/v1"
+    assert config.embeddings.batch_size == 64
+    assert config.clustering.algorithm == "hdbscan"
+    assert config.clustering.min_samples == 1  # sklearn self-count (+1 vs standalone)
+
+
+def test_embeddings_section_round_trips_from_toml() -> None:
+    _write_toml(
+        '[embeddings]\nmodel = "nomic-embed"\nbatch_size = 8\n'
+    )
+    config = load_config()
+    assert config.embeddings.model == "nomic-embed"
+    assert config.embeddings.batch_size == 8
+
+
+def test_env_beats_toml_for_embeddings_base_url_but_flag_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIFT_* scalar env sits between toml and flags (precedence matrix)."""
+    _write_toml('[embeddings]\nbase_url = "http://localhost:1/v1"\n')
+    monkeypatch.setenv("SIFT_EMBEDDINGS_BASE_URL", "http://localhost:2/v1")
+    # Env overrides the toml value...
+    assert load_config().embeddings.base_url == "http://localhost:2/v1"
+    # ...but a flag override still wins over env, without clobbering siblings.
+    config = load_config({"embeddings": {"base_url": "http://localhost:3/v1"}})
+    assert config.embeddings.base_url == "http://localhost:3/v1"
+
+
+def test_env_batch_size_coerced_to_int(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIFT_EMBEDDINGS_BATCH_SIZE", "16")
+    assert load_config().embeddings.batch_size == 16
+
+
+def test_unknown_key_under_clustering_is_a_loud_error() -> None:
+    """T-04-02: extra=forbid on every nested model, not just the root."""
+    _write_toml('[clustering]\nmin_cluster_sze = 4\n')  # typo'd key
+    with pytest.raises(ValidationError, match="min_cluster_sze"):
+        load_config()
