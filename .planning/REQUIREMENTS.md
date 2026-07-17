@@ -48,7 +48,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **LLM-01**: All inference goes through one OpenAI-compatible client (`/v1/chat/completions`, `/v1/embeddings`) with per-role base_urls, timeouts, retries with backoff, and batched embeddings — no vendor SDK
 - [x] **LLM-02**: Non-loopback/non-RFC1918 endpoints are refused unless `--i-know-what-im-doing` is set; zero network egress otherwise
-- [ ] **LLM-03**: `sift doctor` verifies both endpoints with real round-trips (including an actual embedding call), reports model IDs, checks embedding dimension against existing index, and warns on determinism-breaking server configs (e.g. multi-slot)
+- [x] **LLM-03**: `sift doctor` verifies both endpoints with real round-trips (including an actual embedding call), reports model IDs, checks embedding dimension against existing index, and warns on determinism-breaking server configs (e.g. multi-slot)
 - [x] **LLM-04**: llama.cpp-specific features (`/props`, `/tokenize`, grammar-constrained decoding, non-OpenAI `response_format` nesting) are feature-detected, never required — Lemonade Server works unmodified
 
 ### Reports
@@ -134,7 +134,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CLI-03 | Phase 2 | Complete (partial scope: ingest leg Phase 2; embedding/generation Phases 3-4) |
 | LLM-01 | Phase 3 | Complete |
 | LLM-02 | Phase 3 | Complete |
-| LLM-03 | Phase 3 | Pending |
+| LLM-03 | Phase 3 | Complete |
 | LLM-04 | Phase 3 | Complete |
 | STORE-03 | Phase 3 | Complete |
 | CLUS-02 | Phase 3 | Complete |
