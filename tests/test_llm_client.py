@@ -92,10 +92,8 @@ def test_embed_batches_whole_list() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         inputs = json.loads(request.content)["input"]
         seen.append(len(inputs))
-        return httpx.Response(
-            200,
-            json={"data": [{"index": i, "embedding": [1.0]} for i in range(len(inputs))]},
-        )
+        data = [{"index": i, "embedding": [1.0]} for i in range(len(inputs))]
+        return httpx.Response(200, json={"data": data})
 
     vecs = _client(handler, batch_size=2).embed(["a", "b", "c"])
     assert len(vecs) == 3
@@ -170,7 +168,8 @@ def test_invalid_json_raises_value_error() -> None:
 
 def test_chat_returns_content() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"choices": [{"message": {"content": "hello"}}]})
+        body = {"choices": [{"message": {"content": "hello"}}]}
+        return httpx.Response(200, json=body)
 
     assert _client(handler).chat([{"role": "user", "content": "hi"}]) == "hello"
 
