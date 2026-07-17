@@ -5,10 +5,13 @@ description = "Fully local, privacy-preserving incident triage engine"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 dependencies = [
+    "httpx==0.28.1",
     "pydantic>=2.13.4",
     # Already installed transitively via typer standard; declared explicitly
     # because cli.py imports rich.progress directly (CLI-03).
     "rich>=15.0.0",
+    "scikit-learn==1.9.0",
+    "sqlite-vec==0.1.9",
     "typer>=0.27.0",
     "zstandard>=0.25.0",
 ]
@@ -17,6 +20,7 @@ dependencies = [
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "respx>=0.23.1",
     "ruff>=0.15.22",
 ]
 
@@ -29,11 +33,13 @@ build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Pitfall 5: the default suite excludes 100 MB-scale gates; an explicit
-# `uv run pytest -m perf` on the command line overrides this addopts filter.
-addopts = "-m 'not perf'"
+# Pitfall 5: the default suite excludes 100 MB-scale gates and live-server
+# integration tests; an explicit `uv run pytest -m perf` (or `-m live`) on the
+# command line overrides this addopts filter.
+addopts = "-m 'not perf and not live'"
 markers = [
     "perf: 100 MB-scale gates, run explicitly via -m perf",
+    "live: real-inference-server integration tests, run explicitly via -m live",
 ]
 
 [tool.ruff]
