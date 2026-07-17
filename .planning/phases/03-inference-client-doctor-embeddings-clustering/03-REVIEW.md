@@ -64,6 +64,7 @@ pre-transaction dimension lock that can wedge a case after a transient failure
 
 ### WR-01: `_coerce_vector` accepts NaN / ±Infinity despite its "finite" contract
 
+**Status:** fixed (03-fix, commit 1bee0a0) — `math.isfinite` guard added; NaN/±Infinity now rejected.
 **File:** `src/sift/llm/client.py:106-116`
 **Issue:** The docstring states "Validate one embedding is a non-empty list of
 **finite** numbers (T-03-06)", but the code only rejects `bool` and non-`int/float`
@@ -88,6 +89,7 @@ if isinstance(value, bool) or not isinstance(value, (int, float)) \
 
 ### WR-02: embedding dimension is committed outside the transaction — a transient failure permanently locks a zero-vector case
 
+**Status:** fixed (03-fix, commit eaa48bd) — `ensure_vectors_table` folded into the persistence `store.transaction()`; the dim lock now rolls back on any mid-run failure.
 **File:** `src/sift/pipeline/cluster.py:300-342` and `src/sift/store.py:594-620`
 **Issue:** `cluster_and_label` calls `store.ensure_vectors_table(dim)` *before*
 `with store.transaction():`. `ensure_vectors_table` runs `CREATE VIRTUAL TABLE`
@@ -117,6 +119,7 @@ the pinned sqlite-vec 0.1.9 — it is supported; the M4 live UAT can confirm.)
 
 ### WR-03: embedding-model provenance is never persisted on the production path
 
+**Status:** fixed (03-fix, commit 62e2437) — `InferenceClient.embedding_model` captures the server-reported model; `cluster_and_label` records it via `record_embedding_identity` inside the persistence transaction.
 **File:** `src/sift/store.py:622-638` and `src/sift/pipeline/cluster.py:300-302`
 **Issue:** `record_embedding_identity(model, dim)` is the STORE-03 method meant to
 record the embedding model for provenance/determinism, but it is called *only from
