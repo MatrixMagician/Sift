@@ -8,7 +8,7 @@ case is built via the ``MockTransport`` fake server in ``_report_fixtures``.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from _report_fixtures import (
     PROMPT_HASH,
@@ -47,17 +47,17 @@ def test_render_json_carries_full_document(monkeypatch: pytest.MonkeyPatch) -> N
     finally:
         store.close()
 
-    doc = json.loads(raw)
+    doc: dict[str, object] = json.loads(raw)
 
-    hyps = doc["hypotheses"]
-    assert isinstance(hyps, list) and hyps
+    hyps = cast("list[dict[str, object]]", doc["hypotheses"])
+    assert hyps
     for h in hyps:
         for field in _HYP_FIELDS:
             assert field in h, f"hypothesis missing {field}"
     assert isinstance(hyps[0]["citations_valid"], bool)
 
-    clusters = doc["clusters"]
-    assert isinstance(clusters, list) and clusters
+    clusters = cast("list[dict[str, object]]", doc["clusters"])
+    assert clusters
     for c in clusters:
         for field in _CLUSTER_FIELDS:
             assert field in c, f"cluster missing {field}"
@@ -66,7 +66,7 @@ def test_render_json_carries_full_document(monkeypatch: pytest.MonkeyPatch) -> N
     assert doc["unexplained_signals"] == UNEXPLAINED
     assert isinstance(doc["unexplained_signals"], list)
 
-    run = doc["run"]
+    run = cast("dict[str, object]", doc["run"])
     for field in _RUN_FIELDS:
         assert field in run, f"run block missing {field}"
     assert run["model"] == TRIAGE_MODEL
