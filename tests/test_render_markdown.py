@@ -139,3 +139,71 @@ def test_degraded_run_shows_banner_and_flagged_marker(
     assert "FLAGGED" in md
     # The OK hypothesis is still marked OK.
     assert "OK" in md
+
+
+def _render_with_raw(
+    monkeypatch: pytest.MonkeyPatch, *, case: str, raw: str
+) -> str:
+    """Build a case whose sole cited event carries exactly ``raw`` and render it."""
+    from sift.models import Event, event_id
+    from sift.store import StoredHypothesis
+
+    build_analysed_case(monkeypatch, case=case)
+    eid = event_id("b.log", 0)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.insert_events(
+                [
+                    Event(
+                        event_id=eid,
+                        case_id="demo",
+                        ts=None,
+                        ts_confidence="missing",
+                        source="genericlog",
+                        source_file="b.log",
+                        line_start=1,
+                        line_end=1,
+                        severity="error",
+                        component=None,
+                        thread=None,
+                        session=None,
+                        message="m",
+                        attrs={},
+                        raw=raw,
+                    )
+                ]
+            )
+            store.replace_hypotheses(
+                [
+                    StoredHypothesis(
+                        hyp_index=0,
+                        title="raw boundary",
+                        narrative=f"See [evt:{eid}].",
+                        confidence="low",
+                        confidence_reasoning="n/a",
+                        supporting_event_ids=[eid],
+                        contradicting_evidence=None,
+                        suggested_next_steps=[],
+                        citations_valid=True,
+                    )
+                ]
+            )
+        return render_markdown(store)
+    finally:
+        store.close()
+
+
+def test_appendix_raw_truncation_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sift.render.markdown import RAW_BYTE_CAP
+
+    at_cap = "Y" * RAW_BYTE_CAP  # ASCII → 1 byte per char
+    over_cap = "Z" * (RAW_BYTE_CAP + 1)
+    md_at = _render_with_raw(monkeypatch, case="atcap", raw=at_cap)
+    md_over = _render_with_raw(monkeypatch, case="overcap", raw=over_cap)
+    # Exactly at the cap: verbatim, no elision marker.
+    assert at_cap in md_at
+    assert "truncated" not in md_at
+    # One byte over: elided, full body never emitted.
+    assert "truncated" in md_over
+    assert over_cap not in md_over
