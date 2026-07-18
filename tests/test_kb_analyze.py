@@ -305,3 +305,55 @@ def test_analyze_kb_citation_is_flagged(
         assert store.get_meta("triage_degraded") == "1"
     finally:
         store.close()
+
+
+def test_analyze_kb_context_present_yet_noncitable_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The full RAG-07 slice: retrieved KB context reaches the triage prompt, yet
+    a hypothesis citing a KB chunk is FLAGGED — ``cited ⊆ prompted ⊆ store`` holds
+    transitively with KB active (D-01), the KB block never citable (D-02).
+    """
+    _seed_case("demo")
+    kb = _kb_dir(tmp_path)
+    prompts: list[str] = []
+    handler = _handler(hyp_content=_hset_body([_KB_CITE_ID]), prompts=prompts)
+    _patch_http(monkeypatch, handler)
+    result = runner.invoke(
+        app, ["analyze", "demo", "--kb", str(kb), "--no-label"]
+    )
+    assert result.exit_code == 3, result.output
+    # KB context DID reach the real triage prompt (retrieved + threaded, D-02)…
+    assert prompts
+    assert any(_KB_RUNBOOK in prompt for prompt in prompts)
+    # …yet the KB citation is FLAGGED, never presented as clean (D-01).
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        rows = store.query_hypotheses()
+        assert rows and rows[0].citations_valid is False
+        assert _KB_CITE_ID in rows[0].supporting_event_ids
+    finally:
+        store.close()
+
+
+def test_analyze_kb_valid_citation_is_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With --kb active, citing a real exemplar id is still a clean success — KB
+    enrichment does not disturb the golden path (D-02 additive)."""
+    _seed_case("demo")
+    kb = _kb_dir(tmp_path)
+    prompts: list[str] = []
+    handler = _handler(hyp_content=_hset_body([_ID_ALPHA]), prompts=prompts)
+    _patch_http(monkeypatch, handler)
+    result = runner.invoke(
+        app, ["analyze", "demo", "--kb", str(kb), "--no-label"]
+    )
+    assert result.exit_code == 0, result.output
+    assert any(_KB_RUNBOOK in prompt for prompt in prompts)  # KB still threaded
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        rows = store.query_hypotheses()
+        assert rows and all(r.citations_valid for r in rows)
+    finally:
+        store.close()
