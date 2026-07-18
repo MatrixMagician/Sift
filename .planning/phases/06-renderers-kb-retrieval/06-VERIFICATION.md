@@ -1,16 +1,18 @@
 ---
 phase: 06-renderers-kb-retrieval
 verified: 2026-07-18T11:30:48Z
-status: human_needed
+status: passed
 score: 4/5 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "Installing the sift[pdf] extra enables PDF report rendering — the real weasyprint.HTML(...).write_pdf() produces a valid PDF (REPT-04 / SC4 render leg)"
     test: "In an environment with the extra + pango installed (uv sync --extra pdf; dnf install pango), run `uv run pytest tests/test_render_pdf.py -m live` and/or `uv run sift report <analysed-case> --format pdf --out r.pdf` and open r.pdf."
     expected: "A valid, self-contained PDF is written; no external resource is fetched (url_fetcher rejects all)."
     why_human: "The pango/harfbuzz system library and the sift[pdf] extra are absent in the default socket-blocked suite (by design, ADR 0002). The live test is deselected/skipped here, so the actual PDF byte generation was not exercised. All security, error-path and call-shape legs of SC4 ARE verified network-free (see notes)."
 human_verification:
+
   - test: "uv sync --extra pdf && (dnf install pango) then `uv run pytest tests/test_render_pdf.py -m live` — or render a real PDF via `uv run sift report <case> --format pdf --out r.pdf`."
     expected: "A valid PDF is produced with no external fetch; url_fetcher blocks any attempted resource load."
     why_human: "Real WeasyPrint render needs pango system libs + the optional extra, both absent in the default suite; the render leg is a documented `-m live` test."

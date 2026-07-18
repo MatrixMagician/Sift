@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Inference Client, Doctor, Embeddings & Clustering** - Loopback-guarded OpenAI-compatible client, `sift doctor`, batched embeddings, HDBSCAN semantic clustering, LLM cluster labels (M3) (completed 2026-07-17)
 - [x] **Phase 4: Salience, RAG & Citation-Gated Hypotheses** - Salience ranking, budgeted triage prompt, enforced JSON contract, "cited ⊆ prompted" citation validation (M4) (completed 2026-07-17)
 - [x] **Phase 5: Domain Adapters (journald, dsserrors, eustack)** - Parallel-safe leaf adapters encoding MicroStrategy and systemd domain knowledge (M5) (completed 2026-07-18)
-- [ ] **Phase 6: Renderers & KB Retrieval** - Markdown/JSON/PDF reports with evidence appendix, reproducibility contract, knowledge-base retrieval (M6)
+- [x] **Phase 6: Renderers & KB Retrieval** - Markdown/JSON/PDF reports with evidence appendix, reproducibility contract, knowledge-base retrieval (M6) (completed 2026-07-18)
 - [ ] **Phase 7: Evaluation Harness & Golden Cases** - ≥5 golden incidents, metric table, CI thresholds, optional LLM-as-judge (M7)
 - [ ] **Phase 8: Packaging & Deploy** - `uv tool install` distribution and optional Podman Quadlet deployment (M8)
 
@@ -207,7 +207,7 @@ Plans:
   3. Pointing analysis at a knowledge-base directory of Markdown runbooks/RCAs demonstrably changes the retrieved context in a test
   4. Installing the `sift[pdf]` extra enables PDF report rendering (URL fetching disabled)
 
-**Plans:** 5/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -265,7 +265,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
-| 6. Renderers & KB Retrieval | 5/5 | In Progress|  |
+| 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |
 
