@@ -192,10 +192,10 @@ def _assemble(
     groups = store.query_template_groups()
     ranked = rank_clusters(clusters, groups, incident_time=None)
     group_index = {g.template_id: g for g in groups}
-    messages = hypothesise._gather_exemplar_messages(store, groups)
-    template = hypothesise._load_triage_template()
+    messages = hypothesise._gather_exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
+    template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
     budget = PromptBudget(client, 8192, 1024)  # pyright: ignore[reportArgumentType]
-    _msgs, prompted_ids, prompt = hypothesise._assemble(
+    _msgs, prompted_ids, prompt = hypothesise._assemble(  # pyright: ignore[reportPrivateUsage]
         ranked, group_index, messages, template, None, budget, kb_context=kb_context
     )
     return prompted_ids, prompt
@@ -215,8 +215,10 @@ def test_assemble_kb_block_present_and_stripped(tmp_path: Path) -> None:
         assert _KB_RUNBOOK in prompt_kb
         assert _KB_RUNBOOK not in prompt_no
         assert prompt_kb != prompt_no
-        # The KB block is delimited from the citable evidence (appears before it).
-        assert prompt_kb.index(_KB_RUNBOOK) < prompt_kb.index("Evidence:")
+        # The KB block is delimited from the citable evidence: it appears before
+        # the trailing `Evidence:` SECTION marker (rindex — the word also occurs
+        # earlier in the instruction prose).
+        assert prompt_kb.index(_KB_RUNBOOK) < prompt_kb.rindex("Evidence:")
         # No sentinel markers leak into either rendered prompt.
         assert "KB_CONTEXT" not in prompt_kb
         assert "KB_BLOCK" not in prompt_kb
@@ -231,7 +233,7 @@ def test_assemble_no_kb_is_byte_identical_baseline(tmp_path: Path) -> None:
         _seed_clustered(store)
         _ids, prompt_no = _assemble(store, _client(_handler()), None)
         # Byte-identity: sha256(prompt)[:16] must equal the pre-change golden.
-        assert hypothesise._prompt_hash(prompt_no) == _NO_KB_PROMPT_HASH
+        assert hypothesise._prompt_hash(prompt_no) == _NO_KB_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
     finally:
         store.close()
 

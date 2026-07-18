@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import importlib.resources
 import json
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -33,6 +34,7 @@ import httpx
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
 from sift.pipeline.salience import rank_clusters
+from sift.render._util import sanitise
 from sift.store import StoredHypothesis
 
 if TYPE_CHECKING:
@@ -44,6 +46,32 @@ if TYPE_CHECKING:
 
 _PROMPT_PACKAGE = "sift.prompts"
 _PROMPT_FILE = "triage.md"
+
+# The KB reference-material block in triage.md is delimited by these HTML-comment
+# sentinels; all KB prose lives in the template (CLI-02). ``_apply_kb_block``
+# either fills the slot and drops the marker lines (KB present) or removes the
+# whole block start-through-end (no KB) so the no-KB prompt is byte-identical.
+_KB_SLOT = "<<KB_CONTEXT>>"
+_KB_BLOCK_RE = re.compile(
+    r"<!-- KB_BLOCK_START.*?-->\n.*?<!-- KB_BLOCK_END.*?-->\n", re.DOTALL
+)
+_KB_MARKER_RE = re.compile(r"<!-- KB_BLOCK_(?:START|END).*?-->\n", re.DOTALL)
+
+
+def _apply_kb_block(template: str, kb_context: list[str] | None) -> str:
+    """Resolve the triage template's KB block against ``kb_context`` (D-02, D-01).
+
+    No KB → the entire sentinel block (start marker through end marker) is
+    removed, leaving the pre-change prompt bytes unchanged. KB present → the two
+    marker lines are dropped and the ``<<KB_CONTEXT>>`` slot is replaced with the
+    joined, control-char-``sanitise``d chunks (T-06-16: KB text is untrusted data
+    inserted as reference material, never instructions). KB never becomes citable
+    — that guarantee lives in ``_assemble``'s ``prompted_ids``, not here.
+    """
+    if not kb_context:
+        return _KB_BLOCK_RE.sub("", template)
+    joined = "\n\n".join(sanitise(chunk) for chunk in kb_context)
+    return _KB_MARKER_RE.sub("", template).replace(_KB_SLOT, joined)
 
 # Explicit severity rank, mirroring cluster._SEVERITY_RANK — never lexicographic
 # ('unknown' > 'error' as a string would be wrong). Frozen by the clusters
@@ -164,6 +192,8 @@ def _assemble(
     template: str,
     hint: str | None,
     budget: PromptBudget,
+    *,
+    kb_context: list[str] | None = None,
 ) -> tuple[list[dict[str, str]], set[str], str]:
     """Assemble the triage prompt breadth-first over the ranked clusters.
 
@@ -171,9 +201,13 @@ def _assemble(
     representative exemplar message is available, in ranked order.
     ``PromptBudget.fit`` trims excerpts breadth-first (never dropping a whole
     cluster). The hint, when given, is appended verbatim — never parsed for a
-    timestamp. Returns the chat ``messages``, the ``prompted_ids`` set (the
-    citable universe), and the exact assembled prompt text (for hashing).
+    timestamp. ``kb_context`` (retrieved KB reference material) enriches the
+    prompt via the template's delimited KB block but is NEVER added to
+    ``prompted_ids`` — KB chunks stay structurally non-citable (D-01). Returns
+    the chat ``messages``, the ``prompted_ids`` set (the citable universe), and
+    the exact assembled prompt text (for hashing).
     """
+    template = _apply_kb_block(template, kb_context)
     event_ids: list[str] = []
     excerpts: list[str] = []
     for cluster, _score in ranked:
@@ -257,6 +291,7 @@ def hypothesise(
     since: _dt | None = None,
     until: _dt | None = None,
     hint: str | None = None,
+    kb_context: list[str] | None = None,
     ctx_fallback: int = 8192,
     reserve_out: int = 1024,
 ) -> Outcome:
@@ -266,7 +301,10 @@ def hypothesise(
     over the top ``top_clusters`` (tracking the prompted-id universe), runs the
     constrained-decode -> validate -> repair -> degrade state machine, then the
     citation gate (cited ⊆ prompted, regenerate once, flag), and persists the
-    result atomically. Never raises on malformed model output: a schema-invalid
+    result atomically. ``kb_context`` (retrieved KB reference material, RAG-07)
+    enriches the prompt via the template's delimited KB block but never enters
+    ``prompted_ids`` — KB chunks stay structurally non-citable (D-01). Never
+    raises on malformed model output: a schema-invalid
     body degrades (persists the raw text), while a malformed/empty 200 body — a
     ``ValueError`` from ``client.chat`` (no/absent choices, absent content,
     empty/whitespace content) — or a transport failure maps to a clean failed
@@ -287,7 +325,8 @@ def hypothesise(
     # which pyright flags as a false mismatch (same as cluster.py).
     budget = PromptBudget(client, ctx, reserve_out)  # pyright: ignore[reportArgumentType]
     chat_messages, prompted_ids, prompt_text = _assemble(
-        ranked, group_index, messages_map, template, hint, budget
+        ranked, group_index, messages_map, template, hint, budget,
+        kb_context=kb_context,
     )
     prompt_hash = _prompt_hash(prompt_text)
     rf = _schema_rf(HypothesisSet.model_json_schema())

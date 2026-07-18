@@ -32,7 +32,7 @@ from sift.adapters.base import ConfigurableAdapter
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.config import SiftConfig, load_config
 from sift.llm.client import Endpoint, InferenceClient
-from sift.pipeline import dedup
+from sift.pipeline import dedup, retrieve
 from sift.pipeline.cluster import cluster_and_label
 from sift.pipeline.hypothesise import hypothesise
 from sift.render._util import PdfExtraMissing
@@ -636,6 +636,15 @@ def analyze(
             help="Operator context appended verbatim to the prompt (never a time)",
         ),
     ] = None,
+    kb: Annotated[
+        Path | None,
+        typer.Option(
+            "--kb",
+            help="Index a directory of runbooks/RCAs and thread the nearest "
+            "chunks into the triage prompt as non-citable reference material "
+            "(RAG-07, D-01)",
+        ),
+    ] = None,
     since: Annotated[
         str | None,
         typer.Option(
@@ -670,6 +679,8 @@ def analyze(
     context verbatim (never parsed as a time); ``--since``/``--until`` scope the
     ranked clusters (``--until`` also anchors the incident time, defaulting to
     case end); ``--top-clusters`` caps how many clusters feed the prompt.
+    ``--kb <dir>`` indexes a directory of runbooks/RCAs and threads the nearest
+    chunks into the prompt as NON-citable reference material (RAG-07, D-01).
     ``sift show clusters`` / ``sift show hypotheses`` render the result.
 
     Exit-code contract (CLI-04, scriptable — see ADR 0005):
@@ -760,6 +771,26 @@ def analyze(
                     raise typer.Exit(1) from None
                 progress.update(ptask, completed=len(groups))
 
+            # RAG-07: when --kb is given, index the runbook/RCA directory and
+            # retrieve the nearest chunks against the top salient clusters, then
+            # thread them into the triage prompt as NON-citable reference
+            # material (D-01). KB embeds through the SAME injected client whose
+            # SSRF guard already ran on both base_urls (LLM-02) — no new HTTP
+            # path. An embed/index failure maps to exit 1 with a sanitised
+            # message, mirroring the cluster-embed failure above (T-06-19).
+            kb_context: list[str] | None = None
+            if kb is not None:
+                try:
+                    retrieve.index_kb(store, client, kb)
+                    query_texts = [
+                        c.label or c.signature
+                        for c in store.query_clusters()[:top_clusters]
+                    ]
+                    kb_context = retrieve.retrieve_kb(store, client, query_texts)
+                except (httpx.HTTPError, ValueError) as exc:
+                    print(f"Error: KB indexing/retrieval failed: {_sanitise(str(exc))}")
+                    raise typer.Exit(1) from None
+
             # RAG-02: salience + citation-gated hypotheses over the fresh
             # clusters, still inside the http lifecycle so the same client is
             # reused. hypothesise NEVER raises on bad model output — it degrades
@@ -774,6 +805,7 @@ def analyze(
                 since=since_dt,
                 until=until_dt,
                 hint=hint,
+                kb_context=kb_context,
                 ctx_fallback=_TRIAGE_CTX_FALLBACK,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
