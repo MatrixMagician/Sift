@@ -6,8 +6,23 @@ from pathlib import Path
 import pytest
 
 from sift import adapters
-from sift.adapters import REGISTRY, detect, parse_adapter_overrides
+from sift.adapters import REGISTRY, SNIFF_THRESHOLD, detect, parse_adapter_overrides
 from sift.models import Event
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+# The three Phase-5 domain adapters and a representative fixture for each:
+# (registered adapter name, fixture path, its case-relative path).
+_PHASE5_CASES = [
+    ("journald", FIXTURES / "journald" / "basic.json", "basic.json"),
+    (
+        "dsserrors",
+        FIXTURES / "dsserrors" / "node1" / "DSSErrors.log",
+        "node1/DSSErrors.log",
+    ),
+    ("eustack", FIXTURES / "eustack" / "threaddump.txt", "threaddump.txt"),
+]
+_DOMAIN_ADAPTERS = ("journald", "dsserrors", "eustack")
 
 
 class DummyAdapter:
@@ -116,3 +131,35 @@ def test_parse_adapter_overrides_unknown_name_lists_registered() -> None:
 def test_parse_adapter_overrides_malformed_spec_rejected(spec: str) -> None:
     with pytest.raises(ValueError, match="expected glob=name"):
         parse_adapter_overrides([spec])
+
+
+# --- plan 05-06: Phase-5 domain-adapter detection routing ----------------
+# SPEC §5.2 "new module + registration only": once journald/dsserrors/eustack
+# are registered, the unchanged generic detect() routes each real fixture to
+# its own adapter, each beats the genericlog fallback, and no two collide.
+
+
+@pytest.mark.parametrize(("name", "path", "relpath"), _PHASE5_CASES)
+def test_phase5_fixture_routes_to_own_adapter(
+    name: str, path: Path, relpath: str
+) -> None:
+    """Each Phase-5 fixture detect()s to its own registered domain adapter."""
+    assert detect(path, relpath, {}) is REGISTRY[name]
+
+
+@pytest.mark.parametrize(("name", "path", "relpath"), _PHASE5_CASES)
+def test_phase5_fixture_beats_genericlog(
+    name: str, path: Path, relpath: str
+) -> None:
+    """The domain adapter's sniff strictly beats the genericlog fallback."""
+    assert REGISTRY[name].sniff(path) > REGISTRY["genericlog"].sniff(path)
+
+
+@pytest.mark.parametrize(("name", "path", "relpath"), _PHASE5_CASES)
+def test_phase5_no_cross_collision(name: str, path: Path, relpath: str) -> None:
+    """Exactly one domain adapter clears the threshold on each fixture, so the
+    detect() maximum is unique and routing is never ambiguous."""
+    claimants = [
+        n for n in _DOMAIN_ADAPTERS if REGISTRY[n].sniff(path) >= SNIFF_THRESHOLD
+    ]
+    assert claimants == [name]

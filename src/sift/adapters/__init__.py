@@ -8,12 +8,18 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from sift.adapters.base import Adapter
+from sift.adapters.dsserrors import DsserrorsAdapter
+from sift.adapters.eustack import EustackAdapter
 from sift.adapters.genericlog import GenericLogAdapter
+from sift.adapters.journald import JournaldAdapter
 
 SNIFF_THRESHOLD = 0.5
 
 REGISTRY: dict[str, Adapter] = {
     "genericlog": GenericLogAdapter(),
+    "journald": JournaldAdapter(),
+    "dsserrors": DsserrorsAdapter(),
+    "eustack": EustackAdapter(),
 }
 
 
