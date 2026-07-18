@@ -23,7 +23,11 @@ from typer.testing import CliRunner
 
 from sift.cli import app
 from sift.render._util import PdfExtraMissing
-from sift.render.pdf import _block_all, _wrap_html, render_pdf
+from sift.render.pdf import (
+    _block_all,  # pyright: ignore[reportPrivateUsage]
+    _wrap_html,  # pyright: ignore[reportPrivateUsage]
+    render_pdf,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -165,7 +169,7 @@ def test_render_pdf_live_writes_real_pdf_without_external_fetch(
     from sift.render import pdf as pdf_mod
 
     fetched: list[str] = []
-    original = pdf_mod._block_all
+    original = pdf_mod._block_all  # pyright: ignore[reportPrivateUsage]
 
     def _spy(url: str) -> dict[str, object]:
         fetched.append(url)

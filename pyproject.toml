@@ -16,6 +16,13 @@ dependencies = [
     "zstandard>=0.25.0",
 ]
 
+# Optional PDF report (REPT-04, ADR 0002): WeasyPrint needs the pango system
+# library, which pip cannot install — so it lives behind an opt-in extra and
+# the core install stays system-dep-free. `sift report --format pdf` errors
+# helpfully when this extra (or pango) is absent.
+[project.optional-dependencies]
+pdf = ["markdown==3.10.2", "weasyprint==69.0"]
+
 [dependency-groups]
 dev = [
     "pyright>=1.1.411",
