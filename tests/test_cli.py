@@ -1229,3 +1229,95 @@ def test_show_hypotheses_rejects_filter(monkeypatch: pytest.MonkeyPatch) -> None
         app, ["show", "demo", "hypotheses", "--filter", "limit=5"]
     )
     assert shown.exit_code == 2, shown.output
+
+
+# --- plan 05-06: Phase-5 domain-adapter end-to-end ingest slices ----------
+# new -> ingest -> show for each real domain fixture, through the CLI boundary
+# that wires input_root onto the ConfigurableAdapter. Proves: canonical events
+# land and render; the deliberate unparseable region yields REAL coverage below
+# 100% (never the fabricated 1.0 of the pre-05-01 bug); a second ingest is
+# idempotent (INGST-02) for the newly-registered domain adapters.
+
+_FIXTURES = Path(__file__).parent / "fixtures"
+
+# (format dir, total events across the bundle, the file with a deliberate
+# unparseable region, a stable substring `show events` renders).
+_PHASE5_E2E = [
+    ("journald", 15, "basic.json", "emergency shutdown"),
+    ("dsserrors", 14, "node1/DSSErrors.log", "node2/DSSErrors.log"),
+    ("eustack", 6, "threaddump.txt", "clock_nanosleep"),
+]
+
+
+def _copy_fixture(tmp_path: Path, fmt: str) -> Path:
+    input_dir = tmp_path / "input"
+    shutil.copytree(_FIXTURES / fmt, input_dir)
+    return input_dir
+
+
+@pytest.mark.parametrize(("fmt", "total", "unparseable", "shown"), _PHASE5_E2E)
+def test_phase5_e2e_ingest_show_real_coverage_idempotent(
+    tmp_path: Path, fmt: str, total: int, unparseable: str, shown: str
+) -> None:
+    input_dir = _copy_fixture(tmp_path, fmt)
+    assert runner.invoke(app, ["new", fmt, "--input", str(input_dir)]).exit_code == 0
+
+    first = runner.invoke(app, ["ingest", fmt])
+    assert first.exit_code == 0, first.output
+
+    # (b) REAL coverage below 100% on the unparseable-region file — the 05-01
+    # non-vacuous-coverage fix, proven on a real domain fixture (not the stub).
+    cov = _read_coverage_meta(fmt)
+    file_cov = cov[unparseable]["coverage"]
+    assert isinstance(file_cov, float)
+    assert 0.0 < file_cov < 1.0, (
+        f"{unparseable} should have real sub-100% coverage, got {file_cov}"
+    )
+    # ...and the ingest stdout reports that same sub-100% percentage (never a
+    # fabricated 100.0%).
+    match = re.search(
+        rf"{re.escape(unparseable)}\s+coverage\s+([\d.]+)%", first.output
+    )
+    assert match is not None, f"no coverage line for {unparseable}: {first.output!r}"
+    assert float(match.group(1)) < 100.0
+
+    # (a) canonical events landed and render (event ids + a known message token;
+    # the unparseable file's relpath appears as a source_file, and for dsserrors
+    # node2's relpath proves multi-node tagging is visible).
+    shown_out = runner.invoke(app, ["show", fmt, "events"])
+    assert shown_out.exit_code == 0, shown_out.output
+    event_ids = set(re.findall(r"\b[0-9a-f]{16}\b", shown_out.output))
+    assert len(event_ids) == total, f"unexpected event count for {fmt}"
+    assert shown in shown_out.output
+    assert unparseable in shown_out.output
+
+    # (c) re-ingesting the same snapshot adds zero events (INGST-02).
+    second = runner.invoke(app, ["ingest", fmt])
+    assert second.exit_code == 0, second.output
+    assert "0 new" in second.output
+    reshown = runner.invoke(app, ["show", fmt, "events"])
+    assert set(re.findall(r"\b[0-9a-f]{16}\b", reshown.output)) == event_ids
+
+
+def test_phase5_show_sanitises_domain_adapter_escape_bytes(tmp_path: Path) -> None:
+    """T-05-41: a terminal-escape byte in a domain-adapter event field is
+    stripped by the existing whole-line _sanitise on `show`, never reaching
+    stdout raw (proven here for a journald MESSAGE field)."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    entry = {
+        "__REALTIME_TIMESTAMP": "1784160000000000",
+        "_BOOT_ID": "aabbccddeeff00112233445566778899",
+        "PRIORITY": "3",
+        # \x1b is escape NOTATION in this source; json.dumps writes the
+        # escaped \\u001b to disk, json.loads decodes a real ESC into MESSAGE.
+        "MESSAGE": "boot \x1b[31mRED ALERT\x1b[0m failure",
+    }
+    (input_dir / "dump.json").write_text(json.dumps(entry) + "\n", encoding="utf-8")
+    assert runner.invoke(app, ["new", "esc", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "esc"]).exit_code == 0
+
+    shown = runner.invoke(app, ["show", "esc", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert "\x1b" not in shown.output
+    assert "RED ALERT" in shown.output
