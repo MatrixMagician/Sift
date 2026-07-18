@@ -883,12 +883,19 @@ class CaseStore:
         ids, because the KB namespace has no event_id (D-01).
         """
         self._ensure_vec_loaded()
-        rows = self._conn.execute(
-            "SELECT kb.text FROM kb_vectors v "
-            "JOIN kb_chunks kb ON kb.kb_chunk_id = v.kb_chunk_id "
-            "WHERE v.embedding MATCH ? AND k = ? ORDER BY distance",
-            (_vec_to_blob(qvec), int(k)),
-        ).fetchall()
+        try:
+            rows = self._conn.execute(
+                "SELECT kb.text FROM kb_vectors v "
+                "JOIN kb_chunks kb ON kb.kb_chunk_id = v.kb_chunk_id "
+                "WHERE v.embedding MATCH ? AND k = ? ORDER BY distance",
+                (_vec_to_blob(qvec), int(k)),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            # CR-01: the lazy kb_vectors vec0 table is only created once a KB is
+            # actually indexed (index_kb short-circuits on an empty/Markdown-free
+            # --kb dir). An un-indexed KB is an empty index, not a crash — never
+            # let a raw OperationalError escape to the CLI (never-crash invariant).
+            return []
         return [str(r[0]) for r in rows]
 
     def replace_clusters(self, clusters: Iterable[Cluster]) -> None:

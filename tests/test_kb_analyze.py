@@ -336,6 +336,26 @@ def test_analyze_kb_context_present_yet_noncitable_end_to_end(
         store.close()
 
 
+def test_analyze_kb_empty_dir_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CR-01: a --kb dir with no indexable *.md must not crash. index_kb
+    short-circuits before creating the kb_vectors table, so retrieve_kb must
+    treat the un-indexed KB as empty rather than raising a raw
+    sqlite3.OperationalError (never-crash invariant)."""
+    _seed_case("demo")
+    empty_kb = tmp_path / "kb_empty"
+    empty_kb.mkdir()
+    (empty_kb / "notes.txt").write_text("not markdown", encoding="utf-8")
+    _patch_http(monkeypatch, _handler(hyp_content=_VALID_HYPSET))
+    result = runner.invoke(
+        app, ["analyze", "demo", "--kb", str(empty_kb), "--no-label"]
+    )
+    # Clean completion (exit 0 for an empty valid hypset), never a traceback.
+    assert result.exit_code == 0, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
 def test_analyze_kb_valid_citation_is_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
