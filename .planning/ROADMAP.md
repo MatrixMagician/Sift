@@ -207,7 +207,7 @@ Plans:
   3. Pointing analysis at a knowledge-base directory of Markdown runbooks/RCAs demonstrably changes the retrieved context in a test
   4. Installing the `sift[pdf]` extra enables PDF report rendering (URL fetching disabled)
 
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1**
@@ -216,7 +216,7 @@ Plans:
 
 **Wave 2** *(parallel — no shared files; blocked on 06-01)*
 
-- [ ] 06-02-PLAN.md — JSON report + reproducibility (REPT-02/03): canonical render_json, byte-identical determinism test, ADR 0008 determinism scope (wave 2)
+- [x] 06-02-PLAN.md — JSON report + reproducibility (REPT-02/03): canonical render_json, byte-identical determinism test, ADR 0008 determinism scope (wave 2)
 - [ ] 06-03-PLAN.md — KB index + retrieval data path (RAG-07): migration 5 separate kb namespace, confined KB store methods, pipeline/retrieve.py, ADR 0009 per-case KB (wave 2)
 - [ ] 06-05-PLAN.md — PDF extra (REPT-04): import-guarded render/pdf.py, egress-blocked url_fetcher, `sift[pdf]` optional-dependency (wave 2)
 
@@ -265,7 +265,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
-| 6. Renderers & KB Retrieval | 1/5 | In Progress|  |
+| 6. Renderers & KB Retrieval | 2/5 | In Progress|  |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |
 
