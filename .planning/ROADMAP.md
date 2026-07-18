@@ -176,7 +176,7 @@ Plans:
   3. eustack adapter yields exactly one event per thread on a fixture dump, with condensed top frames in `message`, full stack in `raw`, and lock info in attrs
   4. A mixed-timezone multi-node fixture produces a correctly ordered UTC timeline (causality never silently inverted)
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans executed
 
 Plans:
 **Wave 1** *(shared enabler + format checkpoint)*
@@ -192,7 +192,7 @@ Plans:
 
 **Wave 3** *(integration — shared registry + CLI e2e; blocked on 05-03/04/05)*
 
-- [ ] 05-06-PLAN.md — register all three adapters + detect-routing tests + CliRunner e2e slices (real coverage not 1.0, idempotent re-ingest) (wave 3)
+- [x] 05-06-PLAN.md — register all three adapters + detect-routing tests + CliRunner e2e slices (real coverage not 1.0, idempotent re-ingest) (wave 3)
 
 ### Phase 6: Renderers & KB Retrieval
 
@@ -249,7 +249,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
-| 5. Domain Adapters (journald, dsserrors, eustack) | 5/6 | In Progress|  |
+| 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 0/TBD | Not started | - |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |
