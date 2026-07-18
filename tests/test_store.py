@@ -147,8 +147,8 @@ def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
     CaseStore(db).close()
     conn = sqlite3.connect(db)
     try:
-        # Plan 04-01 migration 4 adds the hypotheses table, head schema is v4.
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        # Plan 06-03 migration 5 adds the KB namespace, head schema is v5.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         tables = {
             row[0]
             for row in conn.execute(
@@ -162,7 +162,7 @@ def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
 
 def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
     """Pitfall 7: a Phase-1 case.db reopened with later code migrates through
-    to the latest schema (v4) with oversized raw compressed in place and still
+    to the latest schema (v5) with oversized raw compressed in place and still
     readable — migration 2's zstd-in-place upgrade still runs on the way up."""
     db = tmp_path / "case.db"
     conn = sqlite3.connect(db)
@@ -201,7 +201,7 @@ def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         assert conn.execute("SELECT typeof(raw) FROM events").fetchone()[0] == "blob"
     finally:
         conn.close()
@@ -250,7 +250,7 @@ def test_zstd_threshold_measured_in_encoded_bytes(tmp_path: Path) -> None:
 
 def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
     """Migration idempotency: reopening a fully-migrated store leaves
-    user_version at the latest schema (4) and stored row bytes unchanged."""
+    user_version at the latest schema (5) and stored row bytes unchanged."""
     db = tmp_path / "case.db"
     store = CaseStore(db)
     store.insert_events([_ev(offset=0, raw="z" * 5000), _ev(offset=1, raw="small")])
@@ -268,7 +268,7 @@ def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
         return ver, rows
 
     first = snapshot()
-    assert first[0] == 4
+    assert first[0] == 5
     CaseStore(db).close()
     assert snapshot() == first
 
@@ -504,11 +504,11 @@ def test_v3_to_v4_migration_adds_hypotheses_table(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
 
-    CaseStore(db).close()  # applies migration 4
+    CaseStore(db).close()  # applies migrations 4 and 5
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         tables = {
             row[0]
             for row in conn.execute(

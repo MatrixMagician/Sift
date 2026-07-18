@@ -268,11 +268,34 @@ def _migration_4(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_5(conn: sqlite3.Connection) -> None:
+    """Add the separate, structurally non-citable KB namespace (RAG-07, D-01).
+
+    KB chunks live in their OWN table with NO ``event_id`` column anywhere —
+    so a KB row can never be assigned an event id and can never enter the
+    citable set (``prompted_ids`` / ``supporting_event_ids``). Non-citability
+    is a structural guarantee here, not a prompt wording. The ``kb_vectors``
+    vec0 table is created lazily (dim unknown until the first embed), mirroring
+    ``ensure_vectors_table`` — it is deliberately NOT created in this migration.
+    """
+    conn.execute(
+        """
+        CREATE TABLE kb_chunks (
+            kb_chunk_id INTEGER PRIMARY KEY,
+            source_file TEXT NOT NULL,    -- runbook path, KB-relative
+            ordinal     INTEGER NOT NULL, -- chunk index within the file
+            text        TEXT NOT NULL     -- chunk text (NEVER an event, NEVER cited)
+        )
+        """
+    )
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migration_1,
     2: _migration_2,
     3: _migration_3,  # chunks + clusters tables (NOT vectors — that is lazy)
     4: _migration_4,  # hypotheses table (citation-gated triage output)
+    5: _migration_5,  # kb_chunks table (separate non-citable KB namespace, D-01)
 }
 
 _EVENT_COLUMNS = (
@@ -287,6 +310,9 @@ _TEMPLATE_GROUP_COLUMNS = (
 )
 
 _CHUNK_COLUMNS = "chunk_id, template_id, text, event_ids"
+
+# KB namespace columns (D-01): deliberately NO event_id — KB is never citable.
+_KB_CHUNK_COLUMNS = "kb_chunk_id, source_file, ordinal, text"
 
 _CLUSTER_COLUMNS = (
     "cluster_id, label, signature, severity_max, count, template_ids"
@@ -787,6 +813,83 @@ class CaseStore:
                 for chunk_id, template_id, text, event_ids in chunks
             ],
         )
+
+    def ensure_kb_vectors_table(self, dim: int) -> None:
+        """Lazily create the sqlite-vec vec0 ``kb_vectors`` table at ``dim``.
+
+        Mirrors :meth:`ensure_vectors_table`: the KB shares the case's embedding
+        model and dimension, so it reuses the SAME ``meta.embedding_dim`` guard
+        (STORE-03) — a mismatch is a hard error, never a silent re-index
+        (Pitfall 3). The vec0 table is created lazily here (dim unknown until
+        the first embed), never in a migration. The KB namespace is physically
+        separate from the citable ``vectors`` table (D-01).
+        """
+        existing = self.get_meta("embedding_dim")
+        if existing is not None and int(existing) != dim:
+            raise ValueError(
+                f"embedding dimension mismatch: index has {existing}, "
+                f"server returned {dim}"
+            )
+        self._ensure_vec_loaded()
+        self._conn.execute(
+            # dim is our validated int, never user text (the PRAGMA
+            # user_version precedent, T-02-13).
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS kb_vectors "  # noqa: S608 — dim is our int, never user text
+            f"USING vec0(kb_chunk_id INTEGER PRIMARY KEY, embedding FLOAT[{int(dim)}])"
+        )
+        if existing is None:
+            self.set_meta("embedding_dim", str(dim))
+            self.set_meta("embedding_metric", "cosine")
+
+    def replace_kb_chunks(
+        self, chunks: Iterable[tuple[int, str, int, str]]
+    ) -> None:
+        """DELETE FROM kb_chunks then insert (kb_chunk_id, source_file, ordinal, text).
+
+        The CALLER owns the transaction (mirrors replace_chunks): retrieve.py
+        wraps this with the KB vector writes so an interrupted index rolls back
+        to zero KB rows. KB rows carry NO event_id — non-citability is
+        structural (D-01).
+        """
+        self._conn.execute("DELETE FROM kb_chunks")
+        self._conn.executemany(
+            f"INSERT INTO kb_chunks ({_KB_CHUNK_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            "VALUES (?, ?, ?, ?)",
+            list(chunks),
+        )
+
+    def upsert_kb_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
+        """Write (kb_chunk_id, embedding) pairs to the KB vec0 table.
+
+        The CALLER owns the transaction (mirrors upsert_vectors). Every vector
+        byte is produced here via ``_vec_to_blob`` — the confinement invariant.
+        vec0 has no ``INSERT OR REPLACE`` so a prior row is deleted first.
+        """
+        self._ensure_vec_loaded()
+        pairs = [(kb_chunk_id, _vec_to_blob(vec)) for kb_chunk_id, vec in rows]
+        self._conn.executemany(
+            "DELETE FROM kb_vectors WHERE kb_chunk_id = ?",
+            [(kb_chunk_id,) for kb_chunk_id, _ in pairs],
+        )
+        self._conn.executemany(
+            "INSERT INTO kb_vectors (kb_chunk_id, embedding) VALUES (?, ?)", pairs
+        )
+
+    def knn_kb_chunks(self, qvec: list[float], k: int) -> list[str]:
+        """Return the k nearest KB chunk texts by vector similarity (RAG-07).
+
+        The vec0 KNN idiom (``WHERE embedding MATCH ? AND k = ?``) confined to
+        store.py alongside the blob pair. Returns KB texts only — NEVER event
+        ids, because the KB namespace has no event_id (D-01).
+        """
+        self._ensure_vec_loaded()
+        rows = self._conn.execute(
+            "SELECT kb.text FROM kb_vectors v "
+            "JOIN kb_chunks kb ON kb.kb_chunk_id = v.kb_chunk_id "
+            "WHERE v.embedding MATCH ? AND k = ? ORDER BY distance",
+            (_vec_to_blob(qvec), int(k)),
+        ).fetchall()
+        return [str(r[0]) for r in rows]
 
     def replace_clusters(self, clusters: Iterable[Cluster]) -> None:
         """DELETE FROM clusters then insert all clusters (CLUS-02).
