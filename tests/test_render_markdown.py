@@ -177,6 +177,65 @@ def test_model_text_is_escaped_against_markdown_and_html_injection(
     assert f"[evt:{REAL_ID}](#evt-{REAL_ID})" in md
 
 
+def test_appendix_nonconforming_event_id_is_inert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-05: a tampered case.db could carry a cited event_id that is not the
+    # sha256[:16] hex shape. It must not flow verbatim into a raw HTML id
+    # attribute (attribute break-out / anchor spoofing) — render it inert.
+    from sift.models import Event
+    from sift.store import StoredHypothesis
+
+    bad_id = '"><b>evil'  # not [0-9a-f]{16}
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.insert_events(
+                [
+                    Event(
+                        event_id=bad_id,
+                        case_id="demo",
+                        ts=None,
+                        ts_confidence="missing",
+                        source="genericlog",
+                        source_file="x.log",
+                        line_start=1,
+                        line_end=1,
+                        severity="error",
+                        component=None,
+                        thread=None,
+                        session=None,
+                        message="m",
+                        attrs={},
+                        raw="r",
+                    )
+                ]
+            )
+            store.replace_hypotheses(
+                [
+                    StoredHypothesis(
+                        hyp_index=0,
+                        title="tampered id",
+                        narrative="see it",
+                        confidence="low",
+                        confidence_reasoning="n/a",
+                        supporting_event_ids=[bad_id],
+                        contradicting_evidence=None,
+                        suggested_next_steps=[],
+                        citations_valid=True,
+                    )
+                ]
+            )
+        md = render_markdown(store)
+    finally:
+        store.close()
+    # No raw HTML anchor is emitted for the non-conforming id.
+    assert f'id="evt-{bad_id}"' not in md
+    assert '<a id="evt-"><b>' not in md
+    assert "<b>evil" not in md  # the raw break-out never reaches the output
+
+
 def test_degraded_run_shows_banner_and_flagged_marker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

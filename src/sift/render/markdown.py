@@ -152,7 +152,15 @@ def _appendix_section(events: dict[str, Event]) -> list[str]:
     lines = ["## Evidence appendix", ""]
     for eid in sorted(events):
         ev = events[eid]
-        lines.append(f'#### <a id="evt-{eid}"></a>`evt:{eid}`')
+        # WR-05: eid flows verbatim into a raw HTML id attribute. Normally it is
+        # sha256(...)[:16] (safe hex), but a tampered/shared case.db could carry a
+        # non-conforming event_id. Only emit the HTML anchor when eid is the same
+        # [0-9a-f]{16} shape _link_citations gates on; otherwise render an inert,
+        # escaped code span (no anchor) so it can never break out of the attribute.
+        if _ID_RE.fullmatch(eid):
+            lines.append(f'#### <a id="evt-{eid}"></a>`evt:{eid}`')
+        else:
+            lines.append(f"#### `evt:{_field(eid)}`")
         provenance = f"{ev.source_file}:{ev.line_start}-{ev.line_end} · {ev.severity}"
         lines.append(_field(provenance))
         lines.append("")
