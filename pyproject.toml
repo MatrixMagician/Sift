@@ -60,3 +60,9 @@ include = ["src", "tests"]
 [[tool.pyright.executionEnvironments]]
 root = "tests/perf"
 extraPaths = ["tests/perf", "src"]
+
+# tests/ is likewise not a package: pytest prepend mode puts it on sys.path, so
+# the shared `import _report_fixtures` helper resolves at runtime — mirror that.
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+extraPaths = ["tests", "src"]
