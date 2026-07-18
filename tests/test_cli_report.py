@@ -62,6 +62,21 @@ def test_report_out_writes_file_and_prints_nothing(
     assert result.output.strip() == ""
 
 
+def test_report_out_write_failure_exits_one_no_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+) -> None:
+    # WR-01: an unwritable --out (missing parent directory) is a clean exit 1
+    # with a helpful message (ADR 0007), never a raw OSError traceback.
+    from pathlib import Path
+
+    case = build_analysed_case(monkeypatch)
+    out = Path(str(tmp_path)) / "no_such_dir" / "report.md"
+    result = runner.invoke(app, ["report", case, "--out", str(out)])
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "cannot write report" in result.output
+
+
 def test_report_degraded_case_exits_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     # Degradation is communicated by the banner, NOT the exit code (ADR 0007).
     case = build_analysed_case(monkeypatch, degraded=True)

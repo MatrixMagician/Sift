@@ -907,7 +907,14 @@ def report(
 
             text = render_json(store)
         if out is not None:
-            out.write_text(text, encoding="utf-8")
+            try:
+                out.write_text(text, encoding="utf-8")
+            except OSError as exc:
+                # ADR 0007: a --out write failure (unwritable path, missing
+                # parent, full disk) is exit 1 with a helpful message, never a
+                # raw traceback — mirroring the pdf branch.
+                print(f"Error: cannot write report to {out}: {_sanitise(str(exc))}")
+                raise typer.Exit(1) from None
         else:
             print(text)
     finally:
