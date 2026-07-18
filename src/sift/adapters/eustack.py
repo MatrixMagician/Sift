@@ -22,7 +22,6 @@ present it stamps *every* thread from the dump, when absent every thread is
 ``ts=None``/``ts_confidence="missing"`` — per-thread times are never invented.
 """
 
-import io
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -37,16 +36,16 @@ from sift.adapters.base import (
     to_utc,
     tz_override_for,
 )
+from sift.adapters.genericlog import byte_lines
 from sift.models import Event, event_id
 
-# Local safety caps (leaf adapters stay decoupled — do NOT import genericlog
-# internals). On breach the open thread closes and a severity="unknown"
-# continuation event opens: bounded memory for a monster/never-terminated
-# thread block (Pitfall 5 / T-05-30).
+# Record-accumulation safety caps: on breach the open thread closes and a
+# severity="unknown" continuation event opens — bounded memory for a
+# monster/never-terminated thread block (Pitfall 5 / T-05-30). The byte-line
+# splitter (with its own MAX_EVENT_BYTES force-split) is shared from genericlog
+# (IN-01) to avoid a drifting verbatim copy.
 MAX_EVENT_LINES = 256
 MAX_EVENT_BYTES = 65536
-
-_CHUNK = 65536
 
 # Condensed message: the first few frame symbols (SPEC "condensed top frames").
 CONDENSED_FRAMES = 5
@@ -89,35 +88,6 @@ def _match_ts(text: str, override_tz: str | None) -> tuple[datetime, str] | None
         return None
     dt_utc, confidence = to_utc(dt, override_tz)
     return dt_utc, confidence
-
-
-def byte_lines(stream: io.BufferedIOBase) -> Iterator[bytes]:
-    """Yield UTF-8 byte lines (terminator included), split on ``b"\\n"``.
-
-    A newline-less run longer than ``MAX_EVENT_BYTES`` is force-split so a
-    single monster line cannot slurp unbounded memory (T-05-30).
-    """
-    buf = b""
-    eof = False
-    while True:
-        i = buf.find(b"\n")
-        if 0 <= i < MAX_EVENT_BYTES:
-            yield buf[: i + 1]
-            buf = buf[i + 1 :]
-            continue
-        if len(buf) >= MAX_EVENT_BYTES:
-            yield buf[:MAX_EVENT_BYTES]
-            buf = buf[MAX_EVENT_BYTES:]
-            continue
-        if eof:
-            break
-        chunk = stream.read(_CHUNK)
-        if not chunk:
-            eof = True
-        else:
-            buf += chunk
-    if buf:
-        yield buf
 
 
 @dataclass
@@ -203,7 +173,10 @@ class EustackAdapter(ConfigurableAdapter):
             rec.byte_len += blen
 
         with open_bytes(path) as stream:
-            for bline in byte_lines(stream):
+            # eu-stack output is UTF-8: a plain b"\n" byte split suffices;
+            # byte_lines still force-splits a monster line at MAX_EVENT_BYTES
+            # (T-05-30).
+            for bline in byte_lines(stream, b"\n", b"", unit=1):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline too
                 line_no += 1
