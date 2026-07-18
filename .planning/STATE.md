@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 5
-current_phase_name: domain-adapters-journald-dsserrors-eustack
+current_phase: 6
+current_phase_name: Renderers & KB Retrieval
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-07-18T10:15:28.013Z"
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-07-18T10:38:07.859Z"
 last_activity: 2026-07-18
-last_activity_desc: Completed 05-06 (adapter registration + e2e ingest slice)
+last_activity_desc: Phase 6 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 27
-  completed_plans: 27
+  total_plans: 32
+  completed_plans: 28
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-16)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 5 — domain-adapters-journald-dsserrors-eustack
+**Current focus:** Phase 6 — Renderers & KB Retrieval
 
 ## Current Position
 
-Phase: 5 (domain-adapters-journald-dsserrors-eustack) — EXECUTING
-Plan: 6 of 6 (all Phase 5 plans executed)
+Phase: 6 (Renderers & KB Retrieval) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-18 — Completed 05-06 (adapter registration + e2e ingest slice)
+Last activity: 2026-07-18 — Phase 6 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 88%
 
 ## Performance Metrics
 
@@ -86,6 +86,7 @@ Progress: [██████████] 100%
 | Phase 05 P04 | 22min | 2 tasks | 6 files |
 | Phase 5 P05 | 18min | 2 tasks | 3 files |
 | Phase 5 P06 | 6min | 2 tasks | 3 files |
+| Phase 06 P01 | 40 | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -138,6 +139,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-01: ConfigurableAdapter base delivers config + real coverage to any adapter; fabricated-100%-coverage bug closed (ADR 0006)
 - [Phase ?]: 05-04: DsserrorsAdapter — token-anchored extraction ([*.cpp:NNNN]/0x/GUID/SID=), MCM sentinel grouping with 256-line/64 KB caps, node from case-relative path, rotation-ordered-by-ts, criterion-4 mixed-tz via shared base.to_utc; SID shape [ASSUMED] per 05-02
 - [Phase ?]: 05-05: eustack format frozen as native elfutils eu-stack (TID headers + #N 0xADDR frames, NO lock info); INGST-09 lock clause met by asserting absence — a later JVM-shape sample is a localised regex+attr add
+- [Phase ?]: sift report renders degraded cases at exit 0 (banner communicates degradation); exit 3 not propagated from report (ADR 0007)
+- [Phase ?]: Renderers are pure store->str functions; render/_util.sanitise shared with cli to avoid a cli<->render import cycle
 
 ### Pending Todos
 
@@ -159,6 +162,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T09:37:07.505Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-renderers-kb-retrieval/06-CONTEXT.md
+Last session: 2026-07-18T10:37:56.798Z
+Stopped at: Completed 06-01-PLAN.md
+Resume file: None

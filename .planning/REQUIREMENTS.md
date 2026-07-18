@@ -53,7 +53,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Reports
 
-- [ ] **REPT-01**: `sift report` renders Markdown (primary) with executive summary, ranked hypotheses, inline `[evt:…]` citations linked to an evidence appendix showing raw text with file:line provenance, cluster inventory, timeline, unexplained signals, and run metadata
+- [x] **REPT-01**: `sift report` renders Markdown (primary) with executive summary, ranked hypotheses, inline `[evt:…]` citations linked to an evidence appendix showing raw text with file:line provenance, cluster inventory, timeline, unexplained signals, and run metadata
 - [ ] **REPT-02**: JSON report contains the full hypotheses object plus cluster stats for downstream tooling
 - [ ] **REPT-03**: Identical case + config + model + seed produces byte-identical JSON apart from timestamps (determinism scoped and documented against known llama-server caveats)
 - [ ] **REPT-04**: User can optionally render a PDF report (via `sift[pdf]` extra)
@@ -151,7 +151,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INGST-07 | Phase 5 | Complete |
 | INGST-08 | Phase 5 | Complete |
 | INGST-09 | Phase 5 | Complete |
-| REPT-01 | Phase 6 | Pending |
+| REPT-01 | Phase 6 | Complete |
 | REPT-02 | Phase 6 | Pending |
 | REPT-03 | Phase 6 | Pending |
 | REPT-04 | Phase 6 | Pending |
