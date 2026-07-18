@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 6
 current_phase_name: Renderers & KB Retrieval
 status: executing
-stopped_at: Completed 06-02-PLAN.md
-last_updated: "2026-07-18T10:48:08.446Z"
+stopped_at: Completed 06-03-PLAN.md
+last_updated: "2026-07-18T10:58:06.148Z"
 last_activity: 2026-07-18
 last_activity_desc: Phase 6 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 32
-  completed_plans: 29
+  completed_plans: 30
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 6 (Renderers & KB Retrieval) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-07-18 — Phase 6 execution started
 
-Progress: [█████████░] 91%
+Progress: [█████████░] 94%
 
 ## Performance Metrics
 
@@ -88,6 +88,7 @@ Progress: [█████████░] 91%
 | Phase 5 P06 | 6min | 2 tasks | 3 files |
 | Phase 06 P01 | 40 | 3 tasks | 10 files |
 | Phase 06 P02 | 25min | 3 tasks | 5 files |
+| Phase 06 P03 | 20min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -142,6 +143,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 05-05: eustack format frozen as native elfutils eu-stack (TID headers + #N 0xADDR frames, NO lock info); INGST-09 lock clause met by asserting absence — a later JVM-shape sample is a localised regex+attr add
 - [Phase ?]: sift report renders degraded cases at exit 0 (banner communicates degradation); exit 3 not propagated from report (ADR 0007)
 - [Phase ?]: Renderers are pure store->str functions; render/_util.sanitise shared with cli to avoid a cli<->render import cycle
+- [Phase ?]: KB index lives per-case in case.db, separate non-citable namespace (no event_id column); ADR 0009
 
 ### Pending Todos
 
@@ -163,6 +165,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T10:48:08.440Z
-Stopped at: Completed 06-02-PLAN.md
+Last session: 2026-07-18T10:58:06.138Z
+Stopped at: Completed 06-03-PLAN.md
 Resume file: None

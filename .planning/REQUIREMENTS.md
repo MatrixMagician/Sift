@@ -42,7 +42,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **RAG-04**: Every cited event ID must exist in the case store AND have been present in the prompt ("cited ⊆ prompted"); invalid hypotheses are regenerated (max 1 retry) then flagged in the report
 - [x] **RAG-05**: A PromptBudget utility estimates tokens (server tokenize endpoint or chars/4 heuristic), reserves output headroom, and truncates exemplars breadth-first
 - [x] **RAG-06**: User can supply `--hint` free text and `--since/--until` time-window filters to scope analysis
-- [ ] **RAG-07**: User can point analysis at a knowledge-base directory of Markdown runbooks/RCAs, retrieved by similarity into the triage context
+- [x] **RAG-07**: User can point analysis at a knowledge-base directory of Markdown runbooks/RCAs, retrieved by similarity into the triage context
 
 ### Inference Client
 
@@ -155,7 +155,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REPT-02 | Phase 6 | Complete |
 | REPT-03 | Phase 6 | Complete |
 | REPT-04 | Phase 6 | Pending |
-| RAG-07 | Phase 6 | Pending |
+| RAG-07 | Phase 6 | Complete |
 | EVAL-01 | Phase 7 | Pending |
 | EVAL-02 | Phase 7 | Pending |
 | EVAL-03 | Phase 7 | Pending |
