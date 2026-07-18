@@ -491,6 +491,18 @@ def show(
             # and exit 0 (not the old Phase-4-pending stub).
             hyps = store.query_hypotheses()
             if not hyps:
+                # WR-03: distinguish "analyze never ran" from a hard-degraded run
+                # that persisted zero schema-valid rows but stored raw output —
+                # the latter must not claim analyze never ran (nothing disappears
+                # silently). triage_created_at is the "did analyze run" signal.
+                if store.get_meta("triage_created_at") is not None:
+                    print(
+                        "No schema-valid hypotheses; the last analyze degraded "
+                        "and persisted raw model output — run 'sift report' to "
+                        "view the DEGRADED banner and raw output",
+                        file=sys.stderr,
+                    )
+                    return
                 print("No hypotheses yet; run 'sift analyze' first")
                 return
             # A degraded run flagged rows or persisted raw output — warn on
@@ -879,7 +891,14 @@ def report(
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
-        if not store.query_hypotheses():
+        # WR-03/IN-04: gate on whether analyze RAN (triage_created_at present),
+        # not on whether it produced schema-valid rows. A hard-degraded run
+        # persists zero hypotheses but sets triage_created_at and triage_raw —
+        # that is a reportable degraded run (banner + raw), never "run analyze
+        # first". Reserve the no-triage message for the genuine never-analysed
+        # case. Gating on run-meta also drops the redundant second
+        # query_hypotheses (the renderer runs it once) — IN-04.
+        if store.get_meta("triage_created_at") is None:
             print("No hypotheses to report; run 'sift analyze' first")
             raise typer.Exit(1)
         if fmt is ReportFormat.pdf:

@@ -6,7 +6,7 @@ Cases are built network-free via ``_report_fixtures.build_analysed_case``.
 from __future__ import annotations
 
 import pytest
-from _report_fixtures import REAL_ID, build_analysed_case
+from _report_fixtures import REAL_ID, build_analysed_case, open_case
 from typer.testing import CliRunner
 
 from sift.cli import app
@@ -14,6 +14,26 @@ from sift.config import load_config
 from sift.store import CaseStore, case_db_path
 
 runner = CliRunner()
+
+_HARD_DEGRADED_RAW = "the-model-emitted-unparseable-BLARG-not-json"
+
+
+def _build_hard_degraded_case(
+    monkeypatch: pytest.MonkeyPatch, *, case: str = "harddeg"
+) -> str:
+    """A run that RAN but persisted zero schema-valid rows + a triage_raw blob
+    (WR-03): triage_created_at + triage_degraded set, no hypotheses rows."""
+    build_analysed_case(monkeypatch, case=case)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_hypotheses([])
+            store.set_meta("triage_degraded", "1")
+            store.set_meta("triage_created_at", "2026-07-17T09:10:00+00:00")
+            store.set_meta("triage_raw", _HARD_DEGRADED_RAW)
+    finally:
+        store.close()
+    return case
 
 
 def test_report_md_prints_report_and_exits_zero(
@@ -83,3 +103,29 @@ def test_report_degraded_case_exits_zero(monkeypatch: pytest.MonkeyPatch) -> Non
     result = runner.invoke(app, ["report", case])
     assert result.exit_code == 0, result.output
     assert "DEGRADED" in result.output
+
+
+def test_report_hard_degraded_zero_rows_surfaces_banner_and_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-03: a hard-degraded run persisted zero schema-valid hypotheses but a
+    # triage_raw blob. report must render (exit 0) with the DEGRADED banner and
+    # the raw output — never "run analyze first" (analyze DID run).
+    case = _build_hard_degraded_case(monkeypatch)
+    result = runner.invoke(app, ["report", case])
+    assert result.exit_code == 0, result.output
+    assert "DEGRADED" in result.output
+    assert _HARD_DEGRADED_RAW in result.output
+    assert "run 'sift analyze' first" not in result.output
+
+
+def test_show_hypotheses_hard_degraded_points_at_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-03 mirror: show hypotheses must not claim analyze never ran when a
+    # hard-degraded run persisted raw output.
+    case = _build_hard_degraded_case(monkeypatch, case="harddeg2")
+    result = runner.invoke(app, ["show", case, "hypotheses"])
+    assert result.exit_code == 0, result.output
+    assert "run 'sift analyze' first" not in result.output
+    assert "degraded" in result.output.lower()

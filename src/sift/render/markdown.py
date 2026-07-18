@@ -161,6 +161,25 @@ def render_markdown(store: CaseStore) -> str:
     out.append("")
 
     out.extend(_hypotheses_section(hyps, appendix_ids))
+
+    # WR-03: a hard-degraded run persists zero schema-valid hypotheses but stores
+    # the raw model output in triage_raw so the operator can inspect it. Surface
+    # it here (fenced + byte-capped, like the appendix raw) so "nothing
+    # disappears silently" — otherwise the raw is unreachable without opening the
+    # sqlite file by hand.
+    raw = store.get_meta("triage_raw")
+    if raw:
+        out.append("## Raw model output (unvalidated)")
+        out.append("")
+        out.append(
+            "_The model output could not be schema-validated even after the "
+            "repair round-trip; the unvalidated raw is shown below for "
+            "inspection._"
+        )
+        out.append("")
+        out.append(_truncate_raw(raw))
+        out.append("")
+
     out.extend(_appendix_section(events))
     out.extend(_cluster_section(clusters))
 
