@@ -48,14 +48,34 @@ _PRIORITY_SEVERITY: dict[int, str] = {
 _SIGNATURE_KEYS = ("__REALTIME_TIMESTAMP", "__CURSOR", "_BOOT_ID")
 
 
-def _severity(priority: object) -> str:
-    """PRIORITY → six-value severity; missing/invalid/out-of-range → unknown."""
-    if isinstance(priority, (str, int)):
+def _priority_level(value: object) -> int | None:
+    """A single PRIORITY value → its syslog level int, or None if not numeric."""
+    if isinstance(value, (str, int)):
         try:
-            return _PRIORITY_SEVERITY.get(int(priority), "unknown")
+            return int(value)
         except ValueError:
-            return "unknown"
-    return "unknown"
+            return None
+    return None
+
+
+def _severity(priority: object) -> str:
+    """PRIORITY → six-value severity; missing/invalid/out-of-range → unknown.
+
+    A repeated PRIORITY field (merged journals) arrives as a JSON array; take
+    the most-severe (lowest-numbered) entry per journald semantics rather than
+    silently dropping a severity that is present in the source.
+    """
+    if isinstance(priority, list):
+        levels = [
+            n
+            for x in cast(list[object], priority)
+            if (n := _priority_level(x)) is not None
+        ]
+        priority = min(levels) if levels else None
+    level = _priority_level(priority)
+    if level is None:
+        return "unknown"
+    return _PRIORITY_SEVERITY.get(level, "unknown")
 
 
 def _field_to_str(v: object) -> str | None:

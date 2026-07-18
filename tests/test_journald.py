@@ -91,6 +91,21 @@ def test_priority_invalid_or_missing_maps_to_unknown(tmp_path: Path) -> None:
     assert [e.severity for e in events] == ["unknown", "unknown", "unknown"]
 
 
+def test_priority_array_takes_most_severe(tmp_path: Path) -> None:
+    # A repeated PRIORITY field (merged journals) is delivered as a JSON array;
+    # take the most-severe (lowest-numbered) entry per journald semantics
+    # rather than dropping the severity to unknown (IN-02).
+    lines = [
+        '{"__REALTIME_TIMESTAMP":"1784160000000000","PRIORITY":["6","3"],'
+        '"MESSAGE":"a"}',
+        '{"__REALTIME_TIMESTAMP":"1784160001000000","PRIORITY":["4","6"],'
+        '"MESSAGE":"b"}',
+    ]
+    events, _ = parse_lines(tmp_path, lines)
+    # 3=err (most severe of 6,3) → error; 4=warning (most severe of 4,6) → warn.
+    assert [e.severity for e in events] == ["error", "warn"]
+
+
 def test_no_emitted_severity_outside_check_set(tmp_path: Path) -> None:
     allowed = {"fatal", "error", "warn", "info", "debug", "unknown"}
     events, _ = run_parse_fixture(tmp_path, "basic.json")
