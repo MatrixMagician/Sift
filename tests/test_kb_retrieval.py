@@ -140,6 +140,32 @@ def test_index_kb_interrupted_embed_rolls_back(tmp_path: Path) -> None:
         store.close()
 
 
+# --- IN-03: symlinked KB files are skipped (trust-boundary parity) --------
+
+
+def test_index_kb_skips_symlinks(tmp_path: Path) -> None:
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    (kb / "real.md").write_text("planted real runbook", encoding="utf-8")
+    # A file OUTSIDE the kb dir, reached only via a symlink inside it.
+    secret = tmp_path / "secret.md"
+    secret.write_text("planted secret leak", encoding="utf-8")
+    (kb / "link.md").symlink_to(secret)
+
+    store = CaseStore(tmp_path / "case.db")
+    client = _client(_handler())
+    try:
+        retrieve.index_kb(store, client, kb)
+        rows = store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT DISTINCT source_file FROM kb_chunks"
+        ).fetchall()
+        sources = {r[0] for r in rows}
+        assert "real.md" in sources
+        assert "link.md" not in sources  # the symlinked target was never indexed
+    finally:
+        store.close()
+
+
 # --- Determinism: re-indexing yields identical chunk text/ordinals --------
 
 

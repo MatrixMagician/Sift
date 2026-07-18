@@ -71,7 +71,11 @@ def index_kb(store: CaseStore, client: InferenceClient, kb_dir: Path | str) -> i
     rows: list[tuple[int, str, int, str]] = []
     texts: list[str] = []
     for path in sorted(root.rglob("*.md")):
-        if not path.is_file():
+        # IN-03: skip symlinks for parity with ingest's trust boundary — a
+        # symlinked runbook (x.md → /etc/…) must not have its target read and
+        # embedded into the prompt. Directory-symlink loops are avoided too, as a
+        # symlinked .md never gets indexed.
+        if path.is_symlink() or not path.is_file():
             continue
         content = path.read_text(encoding="utf-8", errors="replace")
         rel = path.relative_to(root).as_posix()
