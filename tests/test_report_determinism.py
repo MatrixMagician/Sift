@@ -89,6 +89,30 @@ def test_normalise_drops_exactly_the_d06_fields() -> None:
     assert clusters[0]["signature"] == "case.log:12"
 
 
+def test_normalise_retains_slash_value_under_non_path_key() -> None:
+    """IN-01: a content value that merely starts with '/' under a NON-path key
+    (a signature/narrative quoting a log path) is retained — only absolute paths
+    under path-named keys are volatile. Stripping by value alone could mask a
+    real run-to-run difference and contradicts the ADR 0008 promise."""
+    doc: dict[str, object] = {
+        "run": {"generated_at": "t"},
+        "clusters": [{"signature": "/var/log/app spike", "cluster_id": 1}],
+        "hypotheses": [{"narrative": "/etc/passwd was read", "hyp_index": 0}],
+    }
+    out = normalise_for_determinism(doc)
+
+    run = out["run"]
+    assert isinstance(run, dict)
+    assert "generated_at" not in run  # the sole wall-clock field still goes
+
+    clusters = out["clusters"]
+    assert isinstance(clusters, list)
+    assert clusters[0]["signature"] == "/var/log/app spike"  # retained (non-path key)
+    hyps = out["hypotheses"]
+    assert isinstance(hyps, list)
+    assert hyps[0]["narrative"] == "/etc/passwd was read"  # retained
+
+
 def test_normalise_does_not_mutate_input() -> None:
     doc: dict[str, object] = {"run": {"generated_at": "x", "model": "m"}}
     normalise_for_determinism(doc)

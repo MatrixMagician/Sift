@@ -32,6 +32,12 @@ if TYPE_CHECKING:
 DETERMINISM_EXCLUDED: tuple[str, ...] = ("generated_at",)
 
 _DURATION_MARKERS: tuple[str, ...] = ("duration", "elapsed")
+# IN-01: an absolute path is only volatile when it is a genuine filesystem-path
+# field. A narrative/signature/next-step value that merely *starts* with "/"
+# (e.g. quoting "/etc/…") is content, identical across runs, and must be retained
+# — stripping its key by value alone could mask a real run-to-run difference and
+# contradicts the ADR 0008 promise that only generated_at + real paths go.
+_PATH_MARKERS: tuple[str, ...] = ("path", "file", "dir")
 
 
 def render_json(store: CaseStore) -> str:
@@ -74,10 +80,11 @@ def normalise_for_determinism(doc: dict[str, object]) -> dict[str, object]:
     """Return a copy of ``doc`` with ONLY the D-06 excluded fields removed.
 
     Drops ``run.generated_at`` (the sole wall-clock field in scope), plus — as
-    defence-in-depth (T-06-06) — any string value that is an absolute filesystem
-    path and any key that names a wall-clock duration, anywhere in the document.
-    Case-relative paths and every other field are retained. The input is not
-    mutated.
+    defence-in-depth (T-06-06) — any absolute filesystem path held under a
+    path-named key (``*path*``/``*file*``/``*dir*``) and any key that names a
+    wall-clock duration, anywhere in the document. Case-relative paths, and any
+    content value that merely starts with ``/`` under a non-path key, are
+    retained (IN-01). The input is not mutated.
     """
     out = copy.deepcopy(doc)
     run = out.get("run")
@@ -95,7 +102,7 @@ def _strip_volatile(value: object) -> None:
         mapping = cast("dict[object, object]", value)
         for key in list(mapping.keys()):
             item = mapping[key]
-            if _is_abs_path(item) or _is_duration_key(key):
+            if (_is_path_key(key) and _is_abs_path(item)) or _is_duration_key(key):
                 del mapping[key]
             else:
                 _strip_volatile(item)
@@ -106,6 +113,10 @@ def _strip_volatile(value: object) -> None:
 
 def _is_abs_path(value: object) -> bool:
     return isinstance(value, str) and value.startswith("/")
+
+
+def _is_path_key(key: object) -> bool:
+    return isinstance(key, str) and any(m in key.lower() for m in _PATH_MARKERS)
 
 
 def _is_duration_key(key: object) -> bool:
