@@ -6,12 +6,12 @@ Cases are built network-free via ``_report_fixtures.build_analysed_case``.
 from __future__ import annotations
 
 import pytest
+from _report_fixtures import REAL_ID, build_analysed_case
 from typer.testing import CliRunner
 
 from sift.cli import app
 from sift.config import load_config
 from sift.store import CaseStore, case_db_path
-from _report_fixtures import REAL_ID, build_analysed_case
 
 runner = CliRunner()
 

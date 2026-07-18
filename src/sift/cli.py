@@ -9,8 +9,8 @@ implemented command exposes ``--data-dir`` as the flags layer.
 import json
 import sqlite3
 import sys
-import unicodedata
 from datetime import UTC, datetime
+from enum import StrEnum
 from itertools import batched
 from pathlib import Path
 from typing import Annotated, cast
@@ -35,6 +35,8 @@ from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import dedup
 from sift.pipeline.cluster import cluster_and_label
 from sift.pipeline.hypothesise import hypothesise
+from sift.render._util import PdfExtraMissing
+from sift.render._util import sanitise as _sanitise
 from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
@@ -52,28 +54,6 @@ DataDirOption = Annotated[
     Path | None,
     typer.Option("--data-dir", help="Override the case data directory"),
 ]
-
-
-def _sanitise(text: str) -> str:
-    """Strip control characters (except newline and tab) from rendered text.
-
-    T-04-01: hostile log bytes must never drive the operator's terminal.
-    Removes C0 controls (below 0x20), DEL (0x7f), C1 controls (0x80-0x9f,
-    e.g. the single-byte CSI) and Unicode format characters (category Cf:
-    bidi overrides like U+202E, zero-width characters) that can visually
-    reorder or hide rendered triage output. Applied at render time only —
-    stored raw and message text stay verbatim for citation fidelity.
-    """
-    return "".join(
-        ch
-        for ch in text
-        if ch in "\n\t"
-        or (
-            ord(ch) >= 0x20
-            and not (0x7F <= ord(ch) <= 0x9F)
-            and unicodedata.category(ch) != "Cf"
-        )
-    )
 
 
 def _case_store(case: str, config: SiftConfig) -> CaseStore:
@@ -834,11 +814,73 @@ def analyze(
         store.close()
 
 
+class ReportFormat(StrEnum):
+    """Output formats for ``sift report`` (an unknown value is a Typer usage
+    error, exit 2 — never a semantic outcome; ADR 0007)."""
+
+    md = "md"
+    json = "json"
+    pdf = "pdf"
+
+
 @app.command()
-def report() -> None:
-    """Render the triage report."""
-    print("report arrives in Phase 6 (M6)")
-    raise typer.Exit(1)
+def report(
+    case: str,
+    fmt: Annotated[
+        ReportFormat,
+        typer.Option("--format", help="Output format: md (default), json or pdf"),
+    ] = ReportFormat.md,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Write to this file instead of stdout"),
+    ] = None,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Render a self-contained triage report from a case (REPT-01).
+
+    A pure function of ``case.db``: no inference client is constructed and no
+    network call is made (zero-egress invariant). Exit-code contract (ADR 0007):
+    0 = rendered (including a degraded case — the banner communicates
+    degradation), 1 = no hypotheses / render-or-IO failure / missing sift[pdf],
+    2 = Typer usage (bad ``--format``).
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        if not store.query_hypotheses():
+            print("No hypotheses to report; run 'sift analyze' first")
+            raise typer.Exit(1)
+        if fmt is ReportFormat.pdf:
+            if out is None:
+                print("Error: --format pdf requires --out <path>")
+                raise typer.Exit(1)
+            try:
+                # Renderer delivered in 06-05 — lazy so md/json need no WeasyPrint.
+                from sift.render.pdf import render_pdf  # type: ignore
+
+                render_pdf(store, out)
+            except (ImportError, PdfExtraMissing, OSError) as exc:
+                print(
+                    "Error: PDF rendering unavailable; install the sift[pdf] "
+                    f"extra and pango ({_sanitise(str(exc))})"
+                )
+                raise typer.Exit(1) from None
+            return
+        if fmt is ReportFormat.md:
+            from sift.render.markdown import render_markdown
+
+            text = render_markdown(store)
+        else:  # ReportFormat.json — renderer delivered in 06-02
+            from sift.render.json_out import render_json  # type: ignore
+
+            text = cast("str", render_json(store))
+        if out is not None:
+            out.write_text(text, encoding="utf-8")
+        else:
+            print(text)
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4).
+        store.close()
 
 
 @app.command("eval")

@@ -6,16 +6,15 @@ Every case.db is built network-free via ``_report_fixtures.build_analysed_case``
 from __future__ import annotations
 
 import pytest
-
-from sift.render.markdown import render_markdown
 from _report_fixtures import (
     MISSING_ID,
     REAL_ID,
     REAL_RAW,
-    TIMELINE_SUMMARY,
     build_analysed_case,
     open_case,
 )
+
+from sift.render.markdown import render_markdown
 
 _SECTIONS = [
     "Executive summary",
@@ -78,12 +77,12 @@ def test_appendix_truncates_oversized_raw_with_elision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from sift.models import Event, event_id
-    from sift.render.markdown import _RAW_BYTE_CAP
+    from sift.render.markdown import RAW_BYTE_CAP
     from sift.store import StoredHypothesis
 
     case = build_analysed_case(monkeypatch)
     big_id = event_id("big.log", 0)
-    big_raw = "X" * (_RAW_BYTE_CAP + 500)
+    big_raw = "X" * (RAW_BYTE_CAP + 500)
     store = open_case(case)
     try:
         with store.transaction():
@@ -127,7 +126,7 @@ def test_appendix_truncates_oversized_raw_with_elision(
     finally:
         store.close()
     assert "truncated" in md
-    assert str(_RAW_BYTE_CAP) in md
+    assert str(RAW_BYTE_CAP) in md
     # The full oversized body is never emitted verbatim.
     assert big_raw not in md
 

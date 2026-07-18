@@ -155,7 +155,7 @@ def _default_hypotheses() -> list[StoredHypothesis]:
         StoredHypothesis(
             hyp_index=1,
             title="SMTP backlog is a secondary symptom",
-            narrative="Queue growth follows the memory event; see [evt:%s]." % REAL_ID,
+            narrative=f"Queue growth follows the memory event; see [evt:{REAL_ID}].",
             confidence="low",
             confidence_reasoning="Weak temporal correlation only.",
             supporting_event_ids=[REAL_ID],

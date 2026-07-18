@@ -10,7 +10,14 @@ import json
 import re
 import sqlite3
 import sys
-from collections.abc import Callable, Generator, Iterable, Iterator, Mapping
+from collections.abc import (
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -553,6 +560,47 @@ class CaseStore:
             )
             for r in rows
         ]
+
+    def get_events_by_ids(self, ids: Sequence[str]) -> dict[str, Event]:
+        """Fetch ONLY the requested events, keyed by event_id (REPT-01, Pitfall 1).
+
+        The evidence appendix needs raw + provenance for the handful of cited
+        ids — NOT ``query_events()``, which hydrates and zstd-decompresses the
+        whole case. This selects just the rows whose event_id is in ``ids`` via
+        a ``?``-bound ``IN (...)`` placeholder list (the id never reaches SQL
+        text, T-06-03) and decodes raw through the single ``_decode_raw`` path.
+        Unknown ids are simply absent from the returned dict; an empty ``ids``
+        returns ``{}`` without a query.
+        """
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        rows = self._conn.execute(
+            # S608: column list is a module constant; every id is ?-bound.
+            f"SELECT {_EVENT_COLUMNS} FROM events "  # noqa: S608
+            f"WHERE event_id IN ({placeholders})",
+            tuple(ids),
+        ).fetchall()
+        return {
+            r[0]: Event(
+                event_id=r[0],
+                case_id=r[1],
+                ts=datetime.fromisoformat(r[2]) if r[2] is not None else None,
+                ts_confidence=r[3],
+                source=r[4],
+                source_file=r[5],
+                line_start=r[6],
+                line_end=r[7],
+                severity=r[8],
+                component=r[9],
+                thread=r[10],
+                session=r[11],
+                message=r[12],
+                attrs=json.loads(r[13]),
+                raw=_decode_raw(r[14]),  # single raw read path (Pitfall 1)
+            )
+            for r in rows
+        }
 
     def iter_event_summaries(self) -> Iterator[tuple[str, str | None, str, str]]:
         """Yield (event_id, ts, severity, message) in canonical order (CLUS-01).
