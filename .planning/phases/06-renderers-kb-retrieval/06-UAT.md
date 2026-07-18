@@ -1,5 +1,5 @@
 ---
-status: passed
+status: complete
 phase: 06-renderers-kb-retrieval
 source: [06-VERIFICATION.md]
 started: 2026-07-18
@@ -8,14 +8,7 @@ updated: 2026-07-18
 
 ## Current Test
 
-number: 1
-name: Real PDF byte generation via the sift[pdf] extra (REPT-04, SC4)
-expected: |
-  With the optional extra and its system library installed
-  (`uv sync --extra pdf` + `dnf install pango`), `sift report <case> --format pdf`
-  produces a valid PDF (starts with the %PDF magic bytes) rendered from the
-  Markdown report, and the egress-blocking url_fetcher (`_block_all`) never fires.
-awaiting: none (passed)
+[testing complete]
 
 ## Tests
 
