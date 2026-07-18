@@ -275,6 +275,31 @@ def test_sniff_non_signature_json_zero(tmp_path: Path) -> None:
     assert JournaldAdapter().sniff(tmp_path / "o.json") == 0.0
 
 
+def test_sniff_journald_with_leading_noise(tmp_path: Path) -> None:
+    # A stray non-JSON preamble line (a banner / "--" marker) before the first
+    # signature object must not defeat detection: sniff samples a few head
+    # lines rather than giving up on the first non-signature line (IN-04).
+    body = (
+        b"-- Journal begins at Mon 2026-07-13 09:00:00 UTC. --\n"
+        b'{"__REALTIME_TIMESTAMP":"1784160000000000","PRIORITY":"6",'
+        b'"MESSAGE":"m"}\n'
+    )
+    write(tmp_path, "j.json", body)
+    assert JournaldAdapter().sniff(tmp_path / "j.json") == 0.95
+
+
+def test_sniff_plain_multiline_log_zero(tmp_path: Path) -> None:
+    # Several plain non-JSON lines must stay a firm 0.0 — sampling more lines
+    # must not manufacture a false positive on ordinary logs.
+    write(
+        tmp_path,
+        "p.log",
+        b"2026-07-16T10:00:00Z INFO start\n2026-07-16T10:00:01Z INFO tick\n"
+        b"2026-07-16T10:00:02Z WARN slow\n",
+    )
+    assert JournaldAdapter().sniff(tmp_path / "p.log") == 0.0
+
+
 # --- helpers -----------------------------------------------------------------
 
 

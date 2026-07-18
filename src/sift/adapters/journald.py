@@ -47,6 +47,11 @@ _PRIORITY_SEVERITY: dict[int, str] = {
 # journald head keys that unambiguously identify a ``-o json`` export.
 _SIGNATURE_KEYS = ("__REALTIME_TIMESTAMP", "__CURSOR", "_BOOT_ID")
 
+# How many leading non-blank head lines to sample for a signature object before
+# giving up — tolerates a stray banner / "--" marker without weakening the
+# no-false-positive-on-plain-logs guarantee (IN-04).
+_SNIFF_MAX_LINES = 5
+
 
 def _priority_level(value: object) -> int | None:
     """A single PRIORITY value → its syslog level int, or None if not numeric."""
@@ -116,20 +121,28 @@ class JournaldAdapter(ConfigurableAdapter):
     name = "journald"
 
     def sniff(self, path: Path) -> float:
-        """~0.95 on a journald head (first non-blank line is a JSON object with
-        a signature key), else 0.0 — highly discriminative, never collides."""
+        """~0.95 when one of the first few non-blank head lines is a JSON object
+        with a signature key, else 0.0 — highly discriminative, never collides.
+
+        Sampling a small head window (not just the first non-blank line) means a
+        stray leading banner / ``--`` marker does not silently demote a real
+        journald export to genericlog (IN-04). A non-signature line is skipped,
+        not treated as a verdict, so ordinary plain logs still score 0.0."""
         head = read_head(path).decode("utf-8", errors="replace")
+        seen = 0
         for line in head.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
+            seen += 1
+            if seen > _SNIFF_MAX_LINES:
+                break
             try:
                 obj: object = json.loads(stripped)
             except json.JSONDecodeError:
-                return 0.0
+                continue
             if isinstance(obj, dict) and any(k in obj for k in _SIGNATURE_KEYS):
                 return 0.95
-            return 0.0
         return 0.0
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
