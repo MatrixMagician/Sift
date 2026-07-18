@@ -202,9 +202,12 @@ def test_never_terminated_thread_is_bounded(tmp_path: Path) -> None:
 
 def test_coverage_bounded_non_vacuous() -> None:
     events, stats = run_parse(FIXTURES, "threaddump.txt")
-    # Bounded: the unparseable preamble + the cap overflow are fallback bytes,
-    # the thread blocks are covered.
-    assert 0.95 <= stats.coverage < 1.0
+    # Bounded: the cap overflow and the non-timestamp preamble lines are
+    # fallback bytes, the thread blocks are covered. The dump-timestamp line in
+    # the preamble is genuinely parsed (it stamps every thread) so it is
+    # credited as parsed, not fallback (IN-03) — lifting coverage above the
+    # ~0.970 it sat at when that line was miscounted, while staying <100%.
+    assert 0.974 <= stats.coverage < 1.0
     assert stats.unknown_fallback_bytes > 0
     assert_span_partition(events, stats.total_bytes)
 

@@ -104,6 +104,11 @@ class _Record:
     thread: str | None = None
     line_end: int = 0
     byte_len: int = 0
+    # Bytes of an otherwise-fallback preamble that carried genuinely-parsed
+    # signal (the dump-time timestamp line) — credited as parsed, not fallback
+    # (IN-03), so coverage isn't understated on a region the adapter extracts
+    # a real, thread-stamping value from.
+    parsed_bytes: int = 0
     message_lines: list[str] = field(default_factory=list[str])
     raw_parts: list[str] = field(default_factory=list[str])
     frames: list[str] = field(default_factory=list[str])
@@ -140,7 +145,7 @@ class EustackAdapter(ConfigurableAdapter):
         def finish(rec: _Record) -> Event:
             stats.event_count += 1
             if rec.is_fallback:
-                stats.unknown_fallback_bytes += rec.byte_len
+                stats.unknown_fallback_bytes += rec.byte_len - rec.parsed_bytes
             raw = "".join(rec.raw_parts)
             message = (
                 "\n".join(rec.frames) if rec.is_thread else "\n".join(rec.message_lines)
@@ -229,6 +234,7 @@ class EustackAdapter(ConfigurableAdapter):
                         ts_result = _match_ts(text, override_tz)
                         if ts_result is not None:
                             dump_ts, dump_ts_confidence = ts_result
+                            current.parsed_bytes += len(bline)  # credited (IN-03)
                 else:
                     # Leading preamble/header region before the first thread ->
                     # its own severity=unknown, ts=None fallback event; scan it
@@ -245,6 +251,7 @@ class EustackAdapter(ConfigurableAdapter):
                     ts_result = _match_ts(text, override_tz)
                     if ts_result is not None:
                         dump_ts, dump_ts_confidence = ts_result
+                        current.parsed_bytes += len(bline)  # credited (IN-03)
         if current is not None:
             yield finish(current)
         stats.total_bytes = offset
