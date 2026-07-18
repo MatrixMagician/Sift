@@ -57,7 +57,9 @@ def test_cited_id_not_in_store_stays_plain_text(
 ) -> None:
     md = _render(monkeypatch)
     # A cited-but-absent id is never turned into a dangling link (Pitfall 2).
-    assert f"[evt:{MISSING_ID}]" in md
+    # WR-04: the token stays plain text but its brackets are now backslash-escaped
+    # (inert Markdown), so it renders as literal text rather than a link.
+    assert f"\\[evt:{MISSING_ID}\\]" in md
     assert f"[evt:{MISSING_ID}](#evt-{MISSING_ID})" not in md
     assert f'<a id="evt-{MISSING_ID}"></a>' not in md
 
@@ -129,6 +131,50 @@ def test_appendix_truncates_oversized_raw_with_elision(
     assert str(RAW_BYTE_CAP) in md
     # The full oversized body is never emitted verbatim.
     assert big_raw not in md
+
+
+def test_model_text_is_escaped_against_markdown_and_html_injection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-04: attacker-influenced title/narrative must not inject Markdown
+    # structure or raw HTML (the PDF path turns raw HTML real). Escaping must
+    # neutralise it while the legitimate [evt:] citation link still renders.
+    from sift.store import StoredHypothesis
+
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_hypotheses(
+                [
+                    StoredHypothesis(
+                        hyp_index=0,
+                        title="Pwned <img src=x> # Heading [evil](http://evil)",
+                        narrative=(
+                            "Injected <script>alert(1)</script> and a fake "
+                            f"[link](http://evil), yet [evt:{REAL_ID}] still links."
+                        ),
+                        confidence="high",
+                        confidence_reasoning="ok",
+                        supporting_event_ids=[REAL_ID],
+                        contradicting_evidence=None,
+                        suggested_next_steps=[],
+                        citations_valid=True,
+                    )
+                ]
+            )
+        md = render_markdown(store)
+    finally:
+        store.close()
+    # Raw HTML is neutralised to entities (no live <img>/<script> reaches the PDF).
+    assert "<img" not in md
+    assert "<script>" not in md
+    assert "&lt;img" in md
+    # Injected Markdown heading / link syntax is backslash-escaped, not structural.
+    assert "\\# Heading" in md
+    assert "\\[evil\\]" in md
+    # The genuine citation token is still rewritten to an anchor link.
+    assert f"[evt:{REAL_ID}](#evt-{REAL_ID})" in md
 
 
 def test_degraded_run_shows_banner_and_flagged_marker(

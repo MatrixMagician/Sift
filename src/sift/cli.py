@@ -922,6 +922,12 @@ def report(
                 # be the file write. Report it as such, not as "install pango".
                 print(f"Error: cannot write report to {out}: {_sanitise(str(exc))}")
                 raise typer.Exit(1) from None
+            except ValueError as exc:
+                # WR-04: the zero-egress url_fetcher raises ValueError on any
+                # blocked fetch (e.g. an injected <img> in model text). Egress is
+                # still blocked; surface a clean render failure, never a traceback.
+                print(f"Error: PDF rendering failed: {_sanitise(str(exc))}")
+                raise typer.Exit(1) from None
             return
         if fmt is ReportFormat.md:
             from sift.render.markdown import render_markdown

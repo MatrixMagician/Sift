@@ -185,6 +185,34 @@ def test_report_pdf_write_failure_reports_write_error_not_pango(
     assert "pango" not in result.output
 
 
+def test_report_pdf_blocked_fetch_valueerror_is_clean_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # WR-04: a blocked-egress fetch during rendering raises ValueError from the
+    # url_fetcher. cli.report must map it to a clean exit 1, never a traceback.
+    captured = _install_fake_pdf_libs(monkeypatch)
+    fake_weasy = sys.modules["weasyprint"]
+
+    class _RaisingHTML:
+        def __init__(self, *, string: str, url_fetcher: object) -> None:
+            captured["string"] = string
+
+        def write_pdf(self) -> bytes:
+            raise ValueError("external fetch blocked (zero-egress): 'http://evil'")
+
+    fake_weasy.HTML = _RaisingHTML  # type: ignore[attr-defined]
+
+    case = build_analysed_case(monkeypatch)
+    out = tmp_path / "r.pdf"
+    result = runner.invoke(
+        app, ["report", case, "--format", "pdf", "--out", str(out)]
+    )
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "PDF rendering failed" in result.output
+    assert not out.exists()
+
+
 def test_block_all_and_wrap_html_are_importable_without_the_extra() -> None:
     # These helpers must not import weasyprint/markdown at module level.
     with pytest.raises(ValueError, match="zero-egress"):
