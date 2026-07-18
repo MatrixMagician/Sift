@@ -65,10 +65,10 @@ def _install_fake_pdf_libs(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]
             captured["string"] = string
             captured["url_fetcher"] = url_fetcher
 
-        def write_pdf(self, target: str) -> None:
-            captured["target"] = target
-            with open(target, "wb") as fh:
-                fh.write(b"%PDF-1.7 fake")
+        def write_pdf(self) -> bytes:
+            # WR-02: render_pdf now renders to bytes and writes the file itself,
+            # so the fake returns bytes (no target argument) rather than writing.
+            return b"%PDF-1.7 fake"
 
     fake_weasy = types.ModuleType("weasyprint")
     fake_weasy.HTML = _FakeHTML  # type: ignore[attr-defined]
@@ -148,6 +148,41 @@ def test_render_pdf_url_fetcher_blocks_every_url(
     for url in ("http://evil.example/x", "file:///etc/passwd", "data:text/css,x"):
         with pytest.raises(ValueError, match="zero-egress"):
             fetcher(url)
+
+
+def test_render_pdf_write_target_error_is_not_pdfextramissing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # WR-02: an unwritable --out (missing parent dir) is a genuine write
+    # failure — it must surface as OSError, never be misdiagnosed as a missing
+    # pango/harfbuzz extra (PdfExtraMissing).
+    _install_fake_pdf_libs(monkeypatch)
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    bad_out = tmp_path / "no_such_dir" / "r.pdf"
+    try:
+        with pytest.raises(OSError) as exc_info:
+            render_pdf(store, bad_out)
+        assert not isinstance(exc_info.value, PdfExtraMissing)
+    finally:
+        store.close()
+
+
+def test_report_pdf_write_failure_reports_write_error_not_pango(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # WR-02: the CLI must report a write-target failure as a write error, not
+    # "install the sift[pdf] extra and pango".
+    _install_fake_pdf_libs(monkeypatch)
+    case = build_analysed_case(monkeypatch)
+    bad_out = tmp_path / "no_such_dir" / "r.pdf"
+    result = runner.invoke(
+        app, ["report", case, "--format", "pdf", "--out", str(bad_out)]
+    )
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "cannot write report" in result.output
+    assert "pango" not in result.output
 
 
 def test_block_all_and_wrap_html_are_importable_without_the_extra() -> None:

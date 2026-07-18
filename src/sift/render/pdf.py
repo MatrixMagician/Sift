@@ -17,7 +17,7 @@ traceback across the CLI boundary (D-10).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sift.render._util import PdfExtraMissing
 from sift.render.markdown import render_markdown
@@ -84,9 +84,17 @@ def render_pdf(store: CaseStore, out: Path) -> None:
     body: str = markdown.markdown(md_text, extensions=["fenced_code", "tables"])
     html = _wrap_html(body)
     try:
-        HTML(string=html, url_fetcher=_block_all).write_pdf(  # pyright: ignore[reportUnknownMemberType]
-            str(out)
+        pdf_bytes = cast(
+            "bytes",
+            HTML(string=html, url_fetcher=_block_all).write_pdf(),  # pyright: ignore[reportUnknownMemberType]
         )
     except OSError as exc:
-        # pango/harfbuzz absent → cffi surfaces an OSError deep in write_pdf.
+        # WR-02: reserve the pango/harfbuzz diagnosis for the RENDER step —
+        # cffi surfaces an OSError deep in write_pdf when the system libraries
+        # are absent. Rendering to bytes (no output path) means this except can
+        # never catch a write-target error, so an unwritable --out is reported
+        # as a write failure below, not misdiagnosed as a missing extra.
         raise PdfExtraMissing(_PDF_EXTRA_MSG) from exc
+    # A write-target OSError (unwritable/missing --out dir, full disk) propagates
+    # as an OSError — cli.report maps it to a distinct "cannot write" message.
+    out.write_bytes(pdf_bytes)

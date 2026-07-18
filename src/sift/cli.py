@@ -891,11 +891,17 @@ def report(
                 from sift.render.pdf import render_pdf  # type: ignore
 
                 render_pdf(store, out)
-            except (ImportError, PdfExtraMissing, OSError) as exc:
+            except (ImportError, PdfExtraMissing) as exc:
                 print(
                     "Error: PDF rendering unavailable; install the sift[pdf] "
                     f"extra and pango ({_sanitise(str(exc))})"
                 )
+                raise typer.Exit(1) from None
+            except OSError as exc:
+                # WR-02: a write-target failure is NOT a missing-extra problem —
+                # render_pdf renders to bytes first, so an OSError here can only
+                # be the file write. Report it as such, not as "install pango".
+                print(f"Error: cannot write report to {out}: {_sanitise(str(exc))}")
                 raise typer.Exit(1) from None
             return
         if fmt is ReportFormat.md:
