@@ -202,7 +202,11 @@ class DsserrorsAdapter(ConfigurableAdapter):
         relpath = (
             path.relative_to(self.input_root) if self.input_root else Path(path.name)
         ).as_posix()
-        node = Path(relpath).parts[0]
+        # Only a real subdirectory (nodeN/DSSErrors.log) names a node; a file
+        # placed directly under the case root has parts[0] == the filename, so
+        # omit the attr rather than mislabel it (WR-01).
+        parts = Path(relpath).parts
+        node = parts[0] if len(parts) > 1 else None
         override_tz = tz_override_for(relpath, self.tz_overrides)
         stats = ParseStats(path=relpath)
         current: _Record | None = None
@@ -218,8 +222,9 @@ class DsserrorsAdapter(ConfigurableAdapter):
             attrs: dict[str, str] = {
                 "byte_offset": str(rec.offset),
                 "byte_len": str(rec.byte_len),
-                "node": node,
             }
+            if node is not None:
+                attrs["node"] = node
             if rec.error_code is not None:
                 attrs["error_code"] = rec.error_code
             if rec.oid is not None:

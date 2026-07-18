@@ -161,6 +161,20 @@ def test_node_tagging_distinct_per_subdirectory() -> None:
     assert {e.attrs["node"] for e in n2} == {"node2"}
 
 
+def test_node_omitted_for_root_level_file(tmp_path: Path) -> None:
+    # Single-node layout: DSSErrors.log sits directly under the case root, so
+    # the first path component is the *filename*, not a node. Omit the attr
+    # rather than mislabel node="DSSErrors.log" (WR-01).
+    body = (
+        b"2026-01-15T10:00:01 [Error] [ContractManagerImpl.cpp:1235] boom\n"
+        b"2026-01-15T10:00:02 [Info] steady\n"
+    )
+    write(tmp_path, "DSSErrors.log", body)
+    events, _ = run_parse(tmp_path, "DSSErrors.log")
+    assert events
+    assert all("node" not in e.attrs for e in events)
+
+
 # ---------------------------------------------------------------- rotation ---
 
 
