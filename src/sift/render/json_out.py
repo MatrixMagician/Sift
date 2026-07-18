@@ -4,9 +4,15 @@ helper (REPT-03).
 ``render_json`` is a pure function of an analysed ``case.db`` — it reads
 persisted rows and serialises them, constructing no inference client and making
 no network call (T-06-08). Serialisation is key-sorted and stable
-(``json.dumps(sort_keys=True, ensure_ascii=False, indent=2)`` + trailing
+(``json.dumps(sort_keys=True, ensure_ascii=True, indent=2)`` + trailing
 newline), so two runs over an identical case are byte-identical apart from the
 D-06 excluded fields.
+
+``ensure_ascii=True`` (IN-02) backslash-u-escapes every non-ASCII code point, so
+the JSON report carries no raw C1 controls (0x80-0x9F, single-byte CSI) or Cf format
+characters (bidi overrides, zero-width) — ``cat report.json`` in a terminal is
+safe from the same terminal-injection the Markdown renderer strips, while
+round-trip fidelity is preserved (a JSON parser decodes the escapes back).
 
 The D-06 excluded-field set (generated-at timestamp, absolute filesystem paths,
 wall-clock durations) is defined ONCE here — in ``DETERMINISM_EXCLUDED`` plus
@@ -73,7 +79,7 @@ def render_json(store: CaseStore) -> str:
             "generated_at": store.get_meta("triage_created_at"),
         },
     }
-    return json.dumps(doc, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
+    return json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
 
 
 def normalise_for_determinism(doc: dict[str, object]) -> dict[str, object]:

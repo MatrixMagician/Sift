@@ -85,8 +85,35 @@ def test_render_json_is_key_sorted_canonical(monkeypatch: pytest.MonkeyPatch) ->
         store.close()
 
     doc = json.loads(raw)
-    assert raw == json.dumps(doc, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
+    assert raw == json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
     assert raw.endswith("\n")
+
+
+def test_render_json_escapes_c1_and_bidi_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """IN-02: the JSON report must not emit raw C1 controls or bidi/format
+    characters (terminal-injection), while preserving round-trip fidelity."""
+    # U+009B single-byte CSI (C1) and U+202E right-to-left override (bidi),
+    # built from escapes so no raw hazardous byte lands in this source file.
+    csi = "\u009b"
+    rlo = "\u202e"
+    hostile = f"watermark {csi}31m {rlo} overrides"
+    case = build_analysed_case(monkeypatch, case="c1bidi")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.set_meta("triage_timeline_summary", hostile)
+        raw = render_json(store)
+    finally:
+        store.close()
+
+    # The raw hazardous code points never appear literally in the emitted text.
+    assert csi not in raw
+    assert rlo not in raw
+    # They are backslash-u escaped instead (terminal-safe).
+    assert "\\u009b" in raw
+    assert "\\u202e" in raw
+    # A JSON parser round-trips them back verbatim (fidelity preserved).
+    assert json.loads(raw)["timeline_summary"] == hostile
 
 
 def test_render_json_degraded_run_flags_row(monkeypatch: pytest.MonkeyPatch) -> None:
