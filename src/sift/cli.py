@@ -870,10 +870,10 @@ def report(
             from sift.render.markdown import render_markdown
 
             text = render_markdown(store)
-        else:  # ReportFormat.json — renderer delivered in 06-02
-            from sift.render.json_out import render_json  # type: ignore
+        else:  # ReportFormat.json
+            from sift.render.json_out import render_json
 
-            text = cast("str", render_json(store))
+            text = render_json(store)
         if out is not None:
             out.write_text(text, encoding="utf-8")
         else:
