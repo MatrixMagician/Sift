@@ -19,7 +19,7 @@ created: 2026-07-18
 
 | Property | Value |
 |----------|-------|
-| **Framework** | pytest 8.x |
+| **Framework** | pytest 9.1.1 |
 | **Config file** | pyproject.toml (`[tool.pytest.ini_options]`) |
 | **Quick run command** | `uv run pytest tests/test_render.py tests/test_report.py -q` |
 | **Full suite command** | `uv run pytest` |
