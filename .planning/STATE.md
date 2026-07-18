@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 6
 current_phase_name: Renderers & KB Retrieval
-status: executing
-stopped_at: Completed 06-05-PLAN.md
-last_updated: "2026-07-18T11:07:51.064Z"
+status: verifying
+stopped_at: Completed 06-04-PLAN.md
+last_updated: "2026-07-18T11:24:51.915Z"
 last_activity: 2026-07-18
 last_activity_desc: Phase 6 execution started
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 32
-  completed_plans: 31
+  completed_plans: 32
 ---
 
 # Project State
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 
 Phase: 6 (Renderers & KB Retrieval) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-18 — Phase 6 execution started
 
-Progress: [██████████] 97%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -90,6 +90,7 @@ Progress: [██████████] 97%
 | Phase 06 P02 | 25min | 3 tasks | 5 files |
 | Phase 06 P03 | 20min | 3 tasks | 6 files |
 | Phase 06 P05 | 20min | 3 tasks | 4 files |
+| Phase 06 P04 | 13m | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Renderers are pure store->str functions; render/_util.sanitise shared with cli to avoid a cli<->render import cycle
 - [Phase ?]: KB index lives per-case in case.db, separate non-citable namespace (no event_id column); ADR 0009
 - [Phase ?]: PDF report (REPT-04) behind sift[pdf] extra: MD->HTML->WeasyPrint, egress blocked by self-contained HTML + rejecting url_fetcher; missing extra/pango -> helpful PdfExtraMissing exit 1
+- [Phase ?]: KB context threaded into analyze --kb via a sentinel-delimited triage.md block; non-citability enforced mechanically (prompted_ids unchanged), no-KB prompt byte-identical (golden hash guard)
 
 ### Pending Todos
 
@@ -167,6 +169,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T11:07:51.050Z
-Stopped at: Completed 06-05-PLAN.md
+Last session: 2026-07-18T11:24:51.903Z
+Stopped at: Completed 06-04-PLAN.md
 Resume file: None

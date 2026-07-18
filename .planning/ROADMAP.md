@@ -207,7 +207,7 @@ Plans:
   3. Pointing analysis at a knowledge-base directory of Markdown runbooks/RCAs demonstrably changes the retrieved context in a test
   4. Installing the `sift[pdf]` extra enables PDF report rendering (URL fetching disabled)
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -222,7 +222,7 @@ Plans:
 
 **Wave 3** *(blocked on 06-03)*
 
-- [ ] 06-04-PLAN.md — KB into analyze (RAG-07): triage.md reference block, `kb_context` threading, `sift analyze --kb`, D-01 non-citability preserved (wave 3)
+- [x] 06-04-PLAN.md — KB into analyze (RAG-07): triage.md reference block, `kb_context` threading, `sift analyze --kb`, D-01 non-citability preserved (wave 3)
 
 ### Phase 7: Evaluation Harness & Golden Cases
 
@@ -265,7 +265,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
-| 6. Renderers & KB Retrieval | 4/5 | In Progress|  |
+| 6. Renderers & KB Retrieval | 5/5 | In Progress|  |
 | 7. Evaluation Harness & Golden Cases | 0/TBD | Not started | - |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |
 
