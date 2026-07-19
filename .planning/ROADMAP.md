@@ -353,7 +353,7 @@ Plans:
   4. An MCM golden case (denial episode with a known breakdown) is added to the eval suite with `truth.yaml`, and `sift eval` exits non-zero when its scores regress
   5. With no dsserrors/MCM data present, `sift analyze` output is byte-identical to before — the MCM block is purely additive
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -366,7 +366,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 11-03-PLAN.md — `cli.analyze` threads `config.mcm.thresholds` (no new flag) + `mcm-denial` golden eval case with frozen `truth.yaml` (regression-gated) (wave 3)
+- [x] 11-03-PLAN.md — `cli.analyze` threads `config.mcm.thresholds` (no new flag) + `mcm-denial` golden eval case with frozen `truth.yaml` (regression-gated) (wave 3)
 
 ## Progress
 
@@ -385,7 +385,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
 | 9. MCM Episode Detection & Denial-Time Memory Breakdown | 3/2 | Complete    | 2026-07-19 |
 | 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 4/4 | Complete    | 2026-07-19 |
-| 11. MCM Facts into `sift analyze` + Golden Eval Case | 2/3 | In Progress|  |
+| 11. MCM Facts into `sift analyze` + Golden Eval Case | 3/3 | In Progress|  |
 
 ---
 *Roadmap created: 2026-07-16 — Phases 1–8 map 1:1 to SPEC.md milestones M1–M8*
