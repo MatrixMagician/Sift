@@ -297,7 +297,7 @@ Plans:
   4. A log that ends mid-episode with no recovery line (as the Hartford deny log does — it contains no `State=normal`) is reported as an open/truncated episode rather than dropped or crashed
   5. Re-running on the same case yields byte-identical episodes and numbers — determinism holds because no model is involved
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 **Wave 1**
@@ -306,7 +306,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 09-02-PLAN.md — Port `prescan`/block parsers into `pipeline/mcm.py` over the event-id line stream + lifecycle capture + open/truncated + in-span MCM Settings; suite GREEN (wave 2)
+- [x] 09-02-PLAN.md — Port `prescan`/block parsers into `pipeline/mcm.py` over the event-id line stream + lifecycle capture + open/truncated + in-span MCM Settings; suite GREEN (wave 2)
 
 ### Phase 10: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV
 
@@ -353,7 +353,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
 | 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
-| 9. MCM Episode Detection & Denial-Time Memory Breakdown | 1/2 | In Progress|  |
+| 9. MCM Episode Detection & Denial-Time Memory Breakdown | 2/2 | In Progress|  |
 | 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 0/— | Not started |  |
 | 11. MCM Facts into `sift analyze` + Golden Eval Case | 0/— | Not started |  |
 

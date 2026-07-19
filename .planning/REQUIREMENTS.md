@@ -86,8 +86,8 @@ alters the figures. Validated against the real Hartford deny log.
 
 ### MCM Analysis
 
-- [ ] **MCM-01**: User can run a deterministic MCM memory-pressure analysis over a `dsserrors` case that detects every distinct denial episode non-interactively, bounded by the denial banner and recovery (`State=normal`, resumed contract activity, or `AvailableMCM` climbing back), and captures full lifecycle signals (`memory-status-low`, emergency working-set offload, recovery) as episode context
-- [ ] **MCM-02**: For each episode, the analysis parses the denial-time memory breakdown (physical/virtual split, cube caches, cube growth/index, MMF, SmartHeap pool, working set, other memory) and MCM settings from the log's memory-dump block
+- [x] **MCM-01**: User can run a deterministic MCM memory-pressure analysis over a `dsserrors` case that detects every distinct denial episode non-interactively, bounded by the denial banner and recovery (`State=normal`, resumed contract activity, or `AvailableMCM` climbing back), and captures full lifecycle signals (`memory-status-low`, emergency working-set offload, recovery) as episode context
+- [x] **MCM-02**: For each episode, the analysis parses the denial-time memory breakdown (physical/virtual split, cube caches, cube growth/index, MMF, SmartHeap pool, working set, other memory) and MCM settings from the log's memory-dump block
 - [ ] **MCM-03**: The analysis emits deterministic diagnostic flags with machine-independent thresholds (working-set % of IServer virtual, other-processes % of physical, cube-cache/MMF coverage, SmartHeap releasability, system-free headroom) — expressed as % of HWM/total, never absolute GB
 - [ ] **MCM-04**: The analysis attributes memory granted in each episode's auto-selected lead-up window (AvailableMCM-descent thresholds as % of HWM) by **OID, by `Source=` request type, and by SID (session)** — SID resolves the one-object/many-session fan-out
 - [ ] **MCM-05**: User gets a deterministic report and a CSV export of the per-OID/per-Source/per-SID attribution table via a dedicated command (e.g. `sift mcm <case>`)
@@ -179,8 +179,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-04 | Phase 7 | Complete |
 | PKG-01 | Phase 8 | Complete |
 | PKG-02 | Phase 8 | Complete |
-| MCM-01 | Phase 9 | Pending |
-| MCM-02 | Phase 9 | Pending |
+| MCM-01 | Phase 9 | Complete |
+| MCM-02 | Phase 9 | Complete |
 | MCM-03 | Phase 10 | Pending |
 | MCM-04 | Phase 10 | Pending |
 | MCM-05 | Phase 10 | Pending |

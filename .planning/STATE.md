@@ -4,16 +4,16 @@ milestone: v1.1
 milestone_name: MCM Memory-Pressure Analysis
 current_phase: 09
 current_phase_name: mcm-episode-detection-memory-breakdown
-status: executing
-stopped_at: Completed 09-01-PLAN.md (RED contract)
-last_updated: "2026-07-19T18:33:50.448Z"
+status: verifying
+stopped_at: Completed 09-02-PLAN.md (MCM analyser GREEN)
+last_updated: "2026-07-19T18:50:55.885Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 09 execution started
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 
 Phase: 09 (mcm-episode-detection-memory-breakdown) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-19 — Phase 09 execution started
 
 ## Performance Metrics
@@ -100,6 +100,7 @@ Last activity: 2026-07-19 — Phase 09 execution started
 | Phase 08 P01 | 13m | 2 tasks | 3 files |
 | Phase 08 P02 | ~12m | 3 tasks | 4 files |
 | Phase 09 P01 | 6min | 2 tasks | 3 files |
+| Phase 09 P02 | ~35m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -168,6 +169,7 @@ Recent decisions affecting current work:
 - [Phase ?]: PKG-01 offline install proof uses --offline/UV_OFFLINE=1 (cache-backed), not --no-index; an offline wheelhouse cannot be built here
 - [Phase ?]: PKG-02 deploy default ships Network=host + literal 127.0.0.1 (guard-clean); host.containers.internal rejected by DNS-free guard — ADR 0011 (D-06 corrected)
 - [Phase ?]: Phase 9 RED (09-01): pinned sift.pipeline.mcm public API (detect_episodes/McmEpisode/MemoryBreakdown/LifecycleSignal) via 8 failing golden tests + verbatim Hartford deny slice; MCM-01/02 completed at GREEN 09-02
+- [Phase ?]: MCM breakdown non-Optional: absent block is EMPTY MemoryBreakdown (accessors None) per D-03, honouring the fixed test contract
 
 ### Pending Todos
 
@@ -191,6 +193,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-19T18:33:50.440Z
-Stopped at: Completed 09-01-PLAN.md (RED contract)
+Last session: 2026-07-19T18:50:55.879Z
+Stopped at: Completed 09-02-PLAN.md (MCM analyser GREEN)
 Resume file: None
