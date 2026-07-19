@@ -26,17 +26,19 @@ Turn a directory of raw diagnostics into a structured, evidence-cited triage rep
 
 - ✓ Deterministic ingestion pipeline via genericlog: canonical frozen Event schema, sniff-based auto-detection with `--adapter` override, idempotent re-ingest, per-file parse coverage, gzip/zstd streaming, UTC normalisation with `ts_confidence`, CLI config precedence — Phase 1 (M1, 2026-07-16; 108 tests, human-verified prohibitions incl. loud symlink skip)
 
+**v1.1 — MCM Memory-Pressure Analysis (✓ shipped 2026-07-20)**
+
+- ✓ Deterministic detection of every distinct MCM denial episode with full lifecycle signals (MCM-01) — v1.1
+- ✓ Parse denial-time memory breakdown + MCM settings from the log's memory-dump block (MCM-02) — v1.1
+- ✓ Deterministic, machine-independent memory-pressure diagnostic flags (MCM-03) — v1.1
+- ✓ Auto-selected lead-up window with per-OID / per-Source / per-SID memory attribution (MCM-04) — v1.1
+- ✓ Deterministic MCM report + CSV export (MCM-05) — v1.1
+- ✓ Structured MCM facts fed into `sift analyze` as cited evidence (MCM-06) — v1.1
+- ✓ Golden MCM eval case, regression-gated (MCM-07) — v1.1
+
 ### Active
 
-**v1.1 — MCM Memory-Pressure Analysis (this milestone)**
-
-- [ ] Deterministic detection of every distinct MCM denial episode with full lifecycle signals (MCM-01)
-- [ ] Parse denial-time memory breakdown + MCM settings from the log's memory-dump block (MCM-02)
-- [ ] Deterministic, machine-independent memory-pressure diagnostic flags (MCM-03)
-- [ ] Auto-selected lead-up window with per-OID / per-Source / per-SID memory attribution (MCM-04)
-- [ ] Deterministic MCM report + CSV export (MCM-05)
-- [ ] Structured MCM facts fed into `sift analyze` as cited evidence (MCM-06)
-- [ ] Golden MCM eval case, regression-gated (MCM-07)
+_No active requirements — v1.0 and v1.1 both shipped. Start the next milestone with `/gsd-new-milestone`._
 
 **Carried from v1.0 (validated, listed for continuity)**
 
@@ -106,4 +108,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-19 — v1.1 milestone started (MCM Memory-Pressure Analysis). v1.0 complete (Phases 1–8, M1–M8).*
+*Last updated: 2026-07-20 — v1.1 milestone shipped (MCM Memory-Pressure Analysis, Phases 9–11, MCM-01..07). v1.0 + v1.1 both complete and archived under `.planning/milestones/`. Next: `/gsd-new-milestone`.*

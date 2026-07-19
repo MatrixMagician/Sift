@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: MCM Memory-Pressure Analysis
-current_phase: 11
-status: completed
+status: Awaiting next milestone
 stopped_at: Completed 11-03-PLAN.md
-last_updated: "2026-07-19T23:16:07.688Z"
+last_updated: "2026-07-19T23:25:09.068Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 11 complete
+last_activity_desc: Milestone v1.1 completed and archived
 progress:
   total_phases: 3
   completed_phases: 3
   total_plans: 9
   completed_plans: 9
+current_phase: 11
 current_phase_name: mcm-facts-into-sift-analyze-golden-eval-case
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-07-20 — Phase 11 complete
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-20 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -210,3 +210,7 @@ Items acknowledged and carried forward:
 Last session: 2026-07-19T22:59:55.719Z
 Stopped at: Completed 11-03-PLAN.md
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
