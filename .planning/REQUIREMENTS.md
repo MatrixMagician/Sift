@@ -91,7 +91,7 @@ alters the figures. Validated against the real Hartford deny log.
 - [x] **MCM-03**: The analysis emits deterministic diagnostic flags with machine-independent thresholds (working-set % of IServer virtual, other-processes % of physical, cube-cache/MMF coverage, SmartHeap releasability, system-free headroom) — expressed as % of HWM/total, never absolute GB
 - [x] **MCM-04**: The analysis attributes memory granted in each episode's auto-selected lead-up window (AvailableMCM-descent thresholds as % of HWM) by **OID, by `Source=` request type, and by SID (session)** — SID resolves the one-object/many-session fan-out
 - [x] **MCM-05**: User gets a deterministic report and a CSV export of the per-OID/per-Source/per-SID attribution table via a dedicated command (e.g. `sift mcm <case>`)
-- [ ] **MCM-06**: Structured MCM facts (episode summary, memory breakdown, flags, top attributions) feed `sift analyze` as cited evidence, preserving the cited ⊆ prompted ⊆ store citation invariant; MCM figures are computed deterministically and are never authored by the model
+- [x] **MCM-06**: Structured MCM facts (episode summary, memory breakdown, flags, top attributions) feed `sift analyze` as cited evidence, preserving the cited ⊆ prompted ⊆ store citation invariant; MCM figures are computed deterministically and are never authored by the model
 - [ ] **MCM-07**: An MCM golden case (denial episode with known breakdown) is added to the eval suite and regression-gated
 
 ## v2 Requirements
@@ -184,7 +184,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MCM-03 | Phase 10 | Complete |
 | MCM-04 | Phase 10 | Complete |
 | MCM-05 | Phase 10 | Complete |
-| MCM-06 | Phase 11 | Pending |
+| MCM-06 | Phase 11 | Complete |
 | MCM-07 | Phase 11 | Pending |
 
 **Coverage:**

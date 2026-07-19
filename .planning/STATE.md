@@ -5,15 +5,15 @@ milestone_name: MCM Memory-Pressure Analysis
 current_phase: 11
 current_phase_name: mcm-facts-into-sift-analyze-golden-eval-case
 status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-07-19T22:31:43.416Z"
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-07-19T22:45:08.053Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 11 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 11 (mcm-facts-into-sift-analyze-golden-eval-case) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-19 — Phase 11 execution started
 
@@ -108,6 +108,7 @@ Last activity: 2026-07-19 — Phase 11 execution started
 | Phase 10 P03 | ~20min | 2 tasks | 2 files |
 | Phase 10 P04 | ~25min | 3 tasks | 4 files |
 | Phase 11 P01 | 6m | 2 tasks | 3 files |
+| Phase 11 P02 | ~25 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -180,6 +181,7 @@ Recent decisions affecting current work:
 - [Phase ?]: MCM-03 flags: value_pct rounded to 1 dp at source; x2 (power-of-two) scaling is bit-exact under IEEE division so machine-independence holds without extra rounding tolerance
 - [Phase ?]: 10-03: attribute_window ports parse_log as three top-level dims (by_oid/by_source/by_sid, D-14); every AttributionRow carries event_ids (D-16 cited ⊆ ep ⊆ store); analyse_mcm is the single orchestration entry
 - [Phase ?]: 11-01: render_mcm_facts exposes only printed [evt:] ids (id set == printed tokens); mcm_facts.md holds zero digits (strict C3 guard).
+- [Phase ?]: MCM facts spliced into hypothesise as citable evidence: printed [evt:] ids unioned into prompted_ids (inverse of KB); figures built pre-generation so the model cannot alter them; no-MCM prompt byte-identical (_NO_KB_PROMPT_HASH intact).
 
 ### Pending Todos
 
@@ -203,6 +205,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-19T22:31:43.408Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-07-19T22:45:08.046Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
