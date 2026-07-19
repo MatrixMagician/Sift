@@ -496,7 +496,7 @@ def write_attribution_csv(analysis: "McmAnalysis", path: Path) -> None:
 
 **These are LOW-risk and mostly self-correcting (config-overridable or RED-test-caught). No blocking assumptions.**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Which fixture carries the pre-denial multi-SID fan-out for the by-SID golden?**
    - What we know: the slice's fan-out is post-denial; the two-episode fixture has episode-2 pre-denial grants.
