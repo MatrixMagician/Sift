@@ -1,0 +1,15 @@
+2026-07-19T06:59:40-05:00 INFO order-service started on node ord-a, depends on payment-gateway
+2026-07-19T06:59:48-05:00 INFO checkout request id ord-9001 status 200 in 88ms on node ord-a
+2026-07-19T06:59:56-05:00 INFO checkout request id ord-9002 status 200 in 92ms on node ord-a
+2026-07-19T07:00:20-05:00 WARN upstream payment-gateway slow, call id ord-9003 took 2100ms on node ord-a
+2026-07-19T07:00:28-05:00 ERROR upstream dependency timeout calling payment-gateway for id ord-9004 on node ord-a
+2026-07-19T07:00:33-05:00 ERROR upstream dependency timeout calling payment-gateway for id ord-9005 on node ord-a
+2026-07-19T07:00:39-05:00 ERROR upstream dependency timeout calling payment-gateway for id ord-9006 on node ord-a
+2026-07-19T07:00:45-05:00 WARN payment-gateway marked unavailable by order-service on node ord-a
+2026-07-19T07:00:51-05:00 ERROR upstream dependency timeout calling payment-gateway for id ord-9007 on node ord-a
+2026-07-19T07:00:57-05:00 ERROR circuit breaker opened for payment-gateway on node ord-a after 5 timeouts
+2026-07-19T07:01:03-05:00 ERROR checkout request id ord-9008 status 503 dependency unavailable on node ord-a
+2026-07-19T07:01:10-05:00 ERROR checkout request id ord-9009 status 503 dependency unavailable on node ord-a
+2026-07-19T07:01:18-05:00 ERROR upstream dependency timeout calling payment-gateway for id ord-9010 on node ord-a
+2026-07-19T07:01:26-05:00 WARN circuit breaker still open for payment-gateway on node ord-a
+2026-07-19T07:01:39-05:00 ERROR checkout request id ord-9011 status 503 dependency unavailable on node ord-a

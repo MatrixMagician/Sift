@@ -1,0 +1,31 @@
+2026-07-19T09:00:01Z INFO mail relay worker started on node mx-01
+2026-07-19T09:00:04Z INFO queue depth 3 messages on node mx-01
+2026-07-19T09:00:12Z INFO delivered message id 71001 to relay smtp-out recipient user-a
+2026-07-19T09:00:18Z INFO delivered message id 71002 to relay smtp-out recipient user-b
+2026-07-19T09:00:25Z INFO delivered message id 71003 to relay smtp-out recipient user-c
+2026-07-19T09:01:03Z WARN relay smtp-out returned 421 4.7.0 try again later for message id 71010
+2026-07-19T09:01:05Z INFO requeued message id 71010, attempt 1 of 5 on node mx-01
+2026-07-19T09:01:22Z ERROR relay smtp-out rejected message id 71011: 554 5.7.1 relay access denied
+2026-07-19T09:01:23Z ERROR relay smtp-out rejected message id 71012: 554 5.7.1 relay access denied
+2026-07-19T09:01:25Z ERROR relay smtp-out rejected message id 71013: 554 5.7.1 relay access denied
+2026-07-19T09:01:27Z ERROR relay smtp-out rejected message id 71014: 550 5.7.1 relaying denied
+2026-07-19T09:01:29Z ERROR relay smtp-out rejected message id 71015: 554 5.7.1 relay access denied
+2026-07-19T09:01:31Z WARN queue depth 47 messages on node mx-01
+2026-07-19T09:01:33Z ERROR relay smtp-out rejected message id 71016: 554 5.7.1 relay access denied
+2026-07-19T09:01:35Z ERROR relay smtp-out rejected message id 71017: 550 5.7.1 relaying denied
+2026-07-19T09:01:37Z ERROR relay smtp-out rejected message id 71018: 554 5.7.1 relay access denied
+2026-07-19T09:01:39Z ERROR relay smtp-out rejected message id 71019: 554 5.7.1 relay access denied
+2026-07-19T09:01:41Z WARN queue depth 118 messages on node mx-01
+2026-07-19T09:01:44Z ERROR relay smtp-out rejected message id 71020: 554 5.7.1 relay access denied
+2026-07-19T09:01:46Z ERROR relay smtp-out rejected message id 71021: 550 5.7.1 relaying denied
+2026-07-19T09:01:48Z ERROR relay smtp-out rejected message id 71022: 554 5.7.1 relay access denied
+2026-07-19T09:01:51Z ERROR relay smtp-out rejected message id 71023: 554 5.7.1 relay access denied
+2026-07-19T09:01:53Z WARN queue depth 216 messages on node mx-01
+2026-07-19T09:01:56Z ERROR relay smtp-out rejected message id 71024: 554 5.7.1 relay access denied
+2026-07-19T09:01:58Z ERROR relay smtp-out rejected message id 71025: 550 5.7.1 relaying denied
+2026-07-19T09:02:00Z ERROR relay smtp-out rejected message id 71026: 554 5.7.1 relay access denied
+2026-07-19T09:02:03Z WARN queue depth 331 messages on node mx-01, delivery stalled
+2026-07-19T09:02:06Z ERROR relay smtp-out rejected message id 71027: 554 5.7.1 relay access denied
+2026-07-19T09:02:09Z ERROR relay smtp-out rejected message id 71028: 550 5.7.1 relaying denied
+2026-07-19T09:02:12Z WARN queue depth 402 messages on node mx-01, delivery stalled
+2026-07-19T09:02:20Z WARN outbound throughput dropped to 0 messages per minute on node mx-01

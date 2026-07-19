@@ -1,0 +1,20 @@
+# Frozen ground truth (D-02): authored before any prompt tuning. Do not edit to
+# make a run pass — a regression must fail, not be silently accommodated.
+root_cause: >
+  The upstream payment-gateway on node pay-b lost its backend ledger connection
+  pool and stopped responding, after which the dependent order-service on node
+  ord-a saw its calls time out, opened a circuit breaker, and returned 503
+  dependency-unavailable to checkout. The gateway outage is the root cause and
+  it precedes the order-service timeouts only once the two nodes' timestamps are
+  normalised to UTC (pay-b logs at +05:30, ord-a at -05:00); by wall-clock alone
+  the causal order inverts.
+required_evidence:            # regexes, matched case-insensitively against the clusters fed to the model
+  - "upstream dependency timeout|payment-gateway not responding"
+  - "payment-gateway"
+  - "unavailable|circuit breaker"
+acceptable_keywords:          # any-of, case-insensitive, vs hypothesis title + narrative
+  - timeout
+  - dependency
+  - upstream
+  - unavailable
+expect_no_incident: false

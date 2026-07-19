@@ -1,0 +1,17 @@
+# Frozen ground truth (D-02): authored before any prompt tuning. Do not edit to
+# make a run pass — a regression must fail, not be silently accommodated.
+root_cause: >
+  The upstream relay smtp-out began refusing outbound mail with permanent
+  relay-access-denied replies (554/550 5.7.1), so every delivery attempt was
+  rejected and the outbound queue backed up until throughput fell to zero. The
+  relay rejection is the root cause; the growing queue depth is the symptom.
+required_evidence:            # regexes, matched case-insensitively against the clusters fed to the model
+  - "5\\.7\\.1"
+  - "relay(ing)? (access )?denied"
+  - "queue depth"
+acceptable_keywords:          # any-of, case-insensitive, vs hypothesis title + narrative
+  - smtp
+  - relay
+  - reject
+  - queue
+expect_no_incident: false

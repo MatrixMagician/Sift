@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 
 import pytest
-from _eval_fixtures import eval_handler, patch_http
+from _eval_fixtures import eval_handler, patch_http, single_case_suite
 from typer.testing import CliRunner
 
 from sift.cli import app
@@ -71,10 +71,13 @@ _REGRESSED_HYPSET = json.dumps(
 # --------------------------------------------------------------------------- #
 
 
-def test_clean_suite_exits_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_clean_suite_exits_zero(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     patch_http(monkeypatch, eval_handler())
+    suite = single_case_suite(tmp_path)
     result = runner.invoke(
-        app, ["eval", "--suite", str(_SUITE), "--thresholds", str(_THRESHOLDS)]
+        app, ["eval", "--suite", str(suite), "--thresholds", str(_THRESHOLDS)]
     )
     assert result.exit_code == 0, result.output
 
@@ -101,11 +104,14 @@ def test_regression_json_marks_metric_and_overall_failed(
     assert gate_doc["metrics"]["hypothesis_hit_at_k"]["passed"] is False
 
 
-def test_clean_json_gate_passes_per_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_clean_json_gate_passes_per_metric(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     patch_http(monkeypatch, eval_handler())
+    suite = single_case_suite(tmp_path)
     result = runner.invoke(
         app,
-        ["eval", "--suite", str(_SUITE), "--thresholds", str(_THRESHOLDS), "--json"],
+        ["eval", "--suite", str(suite), "--thresholds", str(_THRESHOLDS), "--json"],
     )
     assert result.exit_code == 0, result.output
     gate_doc = json.loads(result.output)["gate"]

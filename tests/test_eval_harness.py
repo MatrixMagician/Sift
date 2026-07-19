@@ -14,15 +14,13 @@ import json
 from pathlib import Path
 
 import pytest
-from _eval_fixtures import eval_handler, patch_http
+from _eval_fixtures import eval_handler, patch_http, single_case_suite
 from typer.testing import CliRunner
 
 from sift.cli import app
 
 runner = CliRunner()
 
-_REPO_ROOT = Path(__file__).resolve().parents[1]
-_SUITE = _REPO_ROOT / "eval" / "cases"
 _CASE = "memory-watermark-cascade"
 
 _METRICS = (
@@ -33,18 +31,24 @@ _METRICS = (
 )
 
 
-def test_eval_offline_prints_metric_row(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_eval_offline_prints_metric_row(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     patch_http(monkeypatch, eval_handler())
-    result = runner.invoke(app, ["eval", "--suite", str(_SUITE)])
+    suite = single_case_suite(tmp_path)
+    result = runner.invoke(app, ["eval", "--suite", str(suite)])
     assert result.exit_code == 0, result.output
     # The stub is gone and the case is named with numeric metric values.
     assert "arrives in Phase 7" not in result.output
     assert _CASE in result.output
 
 
-def test_eval_offline_json_is_parseable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_eval_offline_json_is_parseable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     patch_http(monkeypatch, eval_handler())
-    result = runner.invoke(app, ["eval", "--suite", str(_SUITE), "--json"])
+    suite = single_case_suite(tmp_path)
+    result = runner.invoke(app, ["eval", "--suite", str(suite), "--json"])
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     cases = {c["name"]: c for c in data["cases"]}

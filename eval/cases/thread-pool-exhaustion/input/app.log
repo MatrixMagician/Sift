@@ -1,0 +1,29 @@
+2026-07-19T10:00:02Z INFO request executor started with 32 worker threads on node svc-01
+2026-07-19T10:00:05Z INFO active threads 6 of 32, queue depth 0 on node svc-01
+2026-07-19T10:00:15Z INFO request served id 88010 status 200 in 41ms
+2026-07-19T10:00:24Z INFO request served id 88011 status 200 in 38ms
+2026-07-19T10:00:41Z INFO active threads 11 of 32, queue depth 0 on node svc-01
+2026-07-19T10:01:03Z WARN active threads 24 of 32, queue depth 5 on node svc-01
+2026-07-19T10:01:14Z WARN request served id 88040 status 200 in 812ms
+2026-07-19T10:01:22Z WARN active threads 30 of 32, queue depth 44 on node svc-01
+2026-07-19T10:01:29Z WARN active threads 32 of 32, queue depth 96 on node svc-01
+2026-07-19T10:01:33Z WARN thread pool saturated on node svc-01: all 32 workers busy
+2026-07-19T10:01:36Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:38Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:40Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:42Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:44Z WARN active threads 32 of 32, queue depth 512 on node svc-01
+2026-07-19T10:01:46Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:48Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:50Z ERROR request served id 88101 status 503 in 30012ms
+2026-07-19T10:01:52Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:54Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:01:56Z WARN thread pool exhausted on node svc-01: no idle worker available
+2026-07-19T10:01:58Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:02:00Z ERROR request served id 88102 status 503 in 30015ms
+2026-07-19T10:02:02Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:02:05Z WARN active threads 32 of 32, queue depth 1180 on node svc-01
+2026-07-19T10:02:08Z ERROR task rejected: RejectedExecutionException queue full on node svc-01
+2026-07-19T10:02:11Z ERROR request served id 88103 status 503 in 30021ms
+2026-07-19T10:02:14Z WARN thread pool exhausted on node svc-01: no idle worker available
+2026-07-19T10:02:18Z ERROR request executor unresponsive on node svc-01: 0 tasks completed in last 20s

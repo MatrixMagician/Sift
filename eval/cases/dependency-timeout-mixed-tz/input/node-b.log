@@ -1,0 +1,15 @@
+2026-07-19T17:29:30+05:30 INFO payment-gateway started on node pay-b, upstream of order-service
+2026-07-19T17:29:36+05:30 INFO connection pool ready 40 of 40 to backend ledger on node pay-b
+2026-07-19T17:29:45+05:30 INFO request handled id pg-6001 status 200 in 54ms on node pay-b
+2026-07-19T17:29:52+05:30 INFO request handled id pg-6002 status 200 in 61ms on node pay-b
+2026-07-19T17:29:58+05:30 WARN backend ledger latency rising 480ms on node pay-b
+2026-07-19T17:30:00+05:30 ERROR backend ledger connection pool stalled 0 of 40 free on node pay-b
+2026-07-19T17:30:02+05:30 ERROR payment-gateway not responding on node pay-b: all backend calls blocked
+2026-07-19T17:30:05+05:30 ERROR request handled id pg-6003 status 504 in 30001ms on node pay-b
+2026-07-19T17:30:09+05:30 ERROR request handled id pg-6004 status 504 in 30002ms on node pay-b
+2026-07-19T17:30:14+05:30 WARN payment-gateway marked unavailable by health probe on node pay-b
+2026-07-19T17:30:20+05:30 ERROR request handled id pg-6005 status 504 in 30003ms on node pay-b
+2026-07-19T17:30:27+05:30 ERROR payment-gateway not responding on node pay-b: backend ledger unreachable
+2026-07-19T17:30:35+05:30 ERROR request handled id pg-6006 status 504 in 30004ms on node pay-b
+2026-07-19T17:30:44+05:30 WARN payment-gateway still unavailable on node pay-b, pool exhausted
+2026-07-19T17:30:58+05:30 ERROR payment-gateway not responding on node pay-b: 0 requests completed in last 30s

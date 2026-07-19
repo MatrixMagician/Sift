@@ -14,12 +14,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import pytest
 
 Handler = Callable[[httpx.Request], httpx.Response]
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def single_case_suite(
+    tmp_path: Path, case: str = "memory-watermark-cascade"
+) -> Path:
+    """Copy one committed golden case into an isolated temp suite directory.
+
+    The offline machinery/gate tests assert exit-code behaviour with the good
+    handler, which only hits the memory-watermark-cascade keywords. They must
+    stay decoupled from the real suite's breadth (Plan 04 grows it to six cases
+    the single handler cannot hit), so they run against a one-case copy rather
+    than ``eval/cases`` itself.
+    """
+    src = _REPO_ROOT / "eval" / "cases" / case
+    suite = tmp_path / "suite"
+    shutil.copytree(src, suite / case)
+    return suite
 
 # A HypothesisSet that hits the memory-watermark-cascade acceptable_keywords
 # (memory, watermark, OOM, cascade). Empty supporting_event_ids are trivially

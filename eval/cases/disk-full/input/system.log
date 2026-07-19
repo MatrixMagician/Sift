@@ -1,0 +1,26 @@
+2026-07-19T11:00:03Z INFO ingest writer started on node store-01, volume /data
+2026-07-19T11:00:07Z INFO volume /data usage 71% (712GB of 1000GB) on node store-01
+2026-07-19T11:00:31Z INFO segment flushed id 5001 size 128MB to /data on node store-01
+2026-07-19T11:01:02Z INFO volume /data usage 83% (834GB of 1000GB) on node store-01
+2026-07-19T11:01:20Z WARN volume /data usage 91% (912GB of 1000GB) on node store-01
+2026-07-19T11:01:35Z WARN volume /data usage 96% (964GB of 1000GB) on node store-01
+2026-07-19T11:01:44Z WARN low disk space on /data: 36GB remaining on node store-01
+2026-07-19T11:01:52Z WARN volume /data usage 99% (991GB of 1000GB) on node store-01
+2026-07-19T11:01:58Z ERROR write failed to /data/segment-5044.dat: ENOSPC no space left on device
+2026-07-19T11:02:00Z ERROR write failed to /data/segment-5045.dat: ENOSPC no space left on device
+2026-07-19T11:02:02Z ERROR write failed to /data/segment-5046.dat: ENOSPC no space left on device
+2026-07-19T11:02:04Z ERROR flush aborted for segment id 5047: disk full on /data
+2026-07-19T11:02:06Z ERROR write failed to /data/segment-5048.dat: ENOSPC no space left on device
+2026-07-19T11:02:08Z ERROR write failed to /data/segment-5049.dat: ENOSPC no space left on device
+2026-07-19T11:02:10Z ERROR flush aborted for segment id 5050: disk full on /data
+2026-07-19T11:02:12Z ERROR write failed to /data/segment-5051.dat: ENOSPC no space left on device
+2026-07-19T11:02:14Z ERROR write failed to /data/segment-5052.dat: ENOSPC no space left on device
+2026-07-19T11:02:16Z ERROR write failed to /data/segment-5053.dat: ENOSPC no space left on device
+2026-07-19T11:02:18Z WARN write-ahead log rotation blocked on /data: no space left on device
+2026-07-19T11:02:20Z ERROR write failed to /data/segment-5054.dat: ENOSPC no space left on device
+2026-07-19T11:02:22Z ERROR flush aborted for segment id 5055: disk full on /data
+2026-07-19T11:02:24Z ERROR write failed to /data/segment-5056.dat: ENOSPC no space left on device
+2026-07-19T11:02:27Z ERROR ingest writer halted on node store-01: /data full, 0GB free
+2026-07-19T11:02:30Z ERROR request rejected id 93001 status 507 insufficient storage on node store-01
+2026-07-19T11:02:33Z ERROR request rejected id 93002 status 507 insufficient storage on node store-01
+2026-07-19T11:02:36Z WARN ingest paused on node store-01 pending free space on /data
