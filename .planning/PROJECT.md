@@ -8,6 +8,18 @@ Sift is a fully local, privacy-preserving incident triage engine. It ingests dia
 
 Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs (the anti-hallucination mechanism is load-bearing, not polish).
 
+## Current Milestone: v1.1 MCM Memory-Pressure Analysis
+
+**Goal:** Turn a DSSErrors.log into a deterministic, evidence-cited MCM memory-pressure forensics report — every distinct denial episode analysed for headroom descent, memory breakdown, diagnostic flags, and per-object/session memory attribution — with those facts also feeding the LLM hypothesis pipeline.
+
+**Target features:**
+- Detect every distinct MCM denial episode with full lifecycle (denial banner, memory-status-low, emergency working-set offload, `State=normal` *and* `AvailableMCM`-recovery), non-interactively — all episodes, auto-selected lead-up windows
+- Parse the denial-time memory breakdown (physical/virtual, cube/MMF/SmartHeap/working-set) + MCM settings; emit deterministic, machine-independent diagnostic flags
+- Attribute memory granted in each lead-up window by **OID, Source= request type, and SID (session)** — SID is the discriminating dimension when one object spans many sessions
+- Ship a deterministic report **+ CSV export**, and feed structured MCM facts into `sift analyze` as cited evidence (citation invariant preserved; LLM narration additive)
+
+**Key context:** Integrates & extends the reference script `analyze_dss8.py`. Validated against the real Hartford deny log (working-set blowout at 65% of IServer virtual, `AvailableMCM=0`, one-OID/many-SID fan-out). DSSPerformanceMonitor PDH-CSV time-series correlation is deferred to a later milestone (SEED-001).
+
 ## Requirements
 
 ### Validated
@@ -15,6 +27,18 @@ Turn a directory of raw diagnostics into a structured, evidence-cited triage rep
 - ✓ Deterministic ingestion pipeline via genericlog: canonical frozen Event schema, sniff-based auto-detection with `--adapter` override, idempotent re-ingest, per-file parse coverage, gzip/zstd streaming, UTC normalisation with `ts_confidence`, CLI config precedence — Phase 1 (M1, 2026-07-16; 108 tests, human-verified prohibitions incl. loud symlink skip)
 
 ### Active
+
+**v1.1 — MCM Memory-Pressure Analysis (this milestone)**
+
+- [ ] Deterministic detection of every distinct MCM denial episode with full lifecycle signals (MCM-01)
+- [ ] Parse denial-time memory breakdown + MCM settings from the log's memory-dump block (MCM-02)
+- [ ] Deterministic, machine-independent memory-pressure diagnostic flags (MCM-03)
+- [ ] Auto-selected lead-up window with per-OID / per-Source / per-SID memory attribution (MCM-04)
+- [ ] Deterministic MCM report + CSV export (MCM-05)
+- [ ] Structured MCM facts fed into `sift analyze` as cited evidence (MCM-06)
+- [ ] Golden MCM eval case, regression-gated (MCM-07)
+
+**Carried from v1.0 (validated, listed for continuity)**
 
 - [ ] Ingest heterogeneous diagnostic inputs through the remaining domain adapters (journald, dsserrors, eustack) — Phase 5
 - [ ] Deduplicate and cluster events (template masking + local embeddings + HDBSCAN) so a 2 GB log becomes a few dozen signal groups
@@ -82,4 +106,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-16 after Phase 1 completion (M1: skeleton, Event contract, genericlog)*
+*Last updated: 2026-07-19 — v1.1 milestone started (MCM Memory-Pressure Analysis). v1.0 complete (Phases 1–8, M1–M8).*
