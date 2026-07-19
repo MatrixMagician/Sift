@@ -18,8 +18,8 @@ from pathlib import Path
 
 import httpx
 
-from sift.config import ClusteringConfig, McmThresholdsConfig
 from sift.adapters.dsserrors import DsserrorsAdapter
+from sift.config import ClusteringConfig, McmThresholdsConfig
 from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import cluster, dedup, hypothesise
@@ -90,7 +90,9 @@ def _seed_dsserrors(store: CaseStore, rel: str = "hartford_deny_slice.log") -> N
     with store.transaction():
         store.insert_events(events)
     dedup.rebuild_template_groups(store)
-    cluster.cluster_and_label(store, _client(_handler()), ClusteringConfig(), label=False)
+    cluster.cluster_and_label(
+        store, _client(_handler()), ClusteringConfig(), label=False
+    )
 
 
 def _denial_id(store: CaseStore) -> str:

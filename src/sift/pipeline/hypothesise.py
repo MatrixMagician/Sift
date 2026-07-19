@@ -31,8 +31,11 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from sift.config import McmThresholdsConfig
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
+from sift.pipeline.mcm import analyse_mcm
+from sift.pipeline.mcm_facts import render_mcm_facts
 from sift.pipeline.salience import rank_clusters
 from sift.render._util import sanitise
 from sift.store import StoredHypothesis
@@ -223,6 +226,7 @@ def _assemble(
     budget: PromptBudget,
     *,
     kb_context: list[str] | None = None,
+    mcm_block: tuple[str, set[str]] | None = None,
 ) -> tuple[list[dict[str, str]], set[str], str]:
     """Assemble the triage prompt breadth-first over the ranked clusters.
 
@@ -232,12 +236,18 @@ def _assemble(
     cluster). The hint, when given, is appended verbatim — never parsed for a
     timestamp. ``kb_context`` (retrieved KB reference material) enriches the
     prompt via the template's delimited KB block but is NEVER added to
-    ``prompted_ids`` — KB chunks stay structurally non-citable (D-01). Returns
-    the chat ``messages``, the ``prompted_ids`` set (the citable universe), and
-    the exact assembled prompt text (for hashing).
+    ``prompted_ids`` — KB chunks stay structurally non-citable (D-01).
+    ``mcm_block`` (``render_mcm_facts`` output — the fact text plus the exact set
+    of ids it printed as ``[evt:]`` tokens) is the INVERSE: its text is spliced
+    into the template's MCM block AND its printed ids are unioned into
+    ``prompted_ids``, making the deterministic MCM facts citable evidence
+    (MCM-06). Only the ids the renderer actually printed enter the set — never a
+    row id the block did not surface. Returns the chat ``messages``, the
+    ``prompted_ids`` set (the citable universe), and the exact assembled prompt
+    text (for hashing).
     """
     template = _apply_kb_block(template, kb_context)
-    template = _apply_mcm_block(template, None)
+    template = _apply_mcm_block(template, mcm_block[0] if mcm_block else None)
     event_ids: list[str] = []
     excerpts: list[str] = []
     for cluster, _score in ranked:
@@ -258,7 +268,8 @@ def _assemble(
     prompt = template + "\n".join(lines) + "\n"
     if hint:
         prompt += f"\nOperator hint (context only, not evidence): {hint}\n"
-    return [{"role": "user", "content": prompt}], set(event_ids), prompt
+    prompted_ids: set[str] = set(event_ids) | (mcm_block[1] if mcm_block else set())
+    return [{"role": "user", "content": prompt}], prompted_ids, prompt
 
 
 def _validate(raw: str) -> tuple[HypothesisSet | None, str]:
@@ -322,6 +333,7 @@ def hypothesise(
     until: _dt | None = None,
     hint: str | None = None,
     kb_context: list[str] | None = None,
+    mcm_thresholds: McmThresholdsConfig | None = None,
     ctx_fallback: int = 8192,
     reserve_out: int = 1024,
 ) -> Outcome:
@@ -349,6 +361,15 @@ def hypothesise(
     messages_map = _gather_exemplar_messages(store, groups)
     template = _load_triage_template()
 
+    # Deterministic MCM facts, built BEFORE generation from the analyser's model
+    # tree — figures are a pure function of the store, never authored by the LLM
+    # (T-11-02). ``render_mcm_facts`` returns ("", set()) for a non-dsserrors case,
+    # which ``_assemble`` strips residue-free. Built at this chokepoint so the eval
+    # harness (which calls hypothesise directly) exercises injection too (MCM-06).
+    mcm_block = render_mcm_facts(
+        analyse_mcm(store.query_events(), mcm_thresholds or McmThresholdsConfig())
+    )
+
     ctx = _ctx_tokens(client, ctx_fallback)
     # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
     # has_tokenize is a read-only property vs the protocol's plain attribute,
@@ -356,7 +377,7 @@ def hypothesise(
     budget = PromptBudget(client, ctx, reserve_out)  # pyright: ignore[reportArgumentType]
     chat_messages, prompted_ids, prompt_text = _assemble(
         ranked, group_index, messages_map, template, hint, budget,
-        kb_context=kb_context,
+        kb_context=kb_context, mcm_block=mcm_block,
     )
     prompt_hash = _prompt_hash(prompt_text)
     rf = _schema_rf(HypothesisSet.model_json_schema())
