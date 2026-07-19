@@ -23,8 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sift.adapters.dsserrors import DsserrorsAdapter
-from sift.models import Event
 from sift.config import McmThresholdsConfig  # RED: built in 10-02 (GREEN)
+from sift.models import Event
 from sift.pipeline.mcm import (  # RED: this module is built in 09-02 (GREEN)
     DiagnosticFlag,  # RED: flag API built in 10-02 (GREEN)
     EpisodeWindow,  # RED: window API built in 10-01 (GREEN)
@@ -492,7 +492,7 @@ def test_flags_empty_breakdown_no_crash() -> None:
     assert compute_flags(ep, McmThresholdsConfig()) == ()
 
 
-# --------------------------------------------------------------- crit #5 (machine-independence)
+# ----------------------------------------------- crit #5 (machine-independence)
 
 
 def test_machine_independence_scaled(tmp_path: Path) -> None:

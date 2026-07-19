@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
+    from sift.config import McmThresholdsConfig
     from sift.models import Event
 
 # --- Ported regex constants (docs/reference/analyze_dss8.py:38-66) -----------
@@ -215,6 +216,25 @@ class EpisodeWindow(BaseModel):
     hwm_bytes: int | None
     request_count: int
     label: str
+
+
+class DiagnosticFlag(BaseModel):
+    """One graded MCM diagnostic signal (D-12 / MCM-03).
+
+    ``value_pct`` is ALWAYS a ratio ``part / whole * 100`` — never an absolute GB
+    (the milestone-locked machine-independence invariant: scaling every absolute
+    figure by any constant leaves every flag tier and displayed % identical).
+    ``event_ids`` cites the denial event whose Info-Dump block the figure was
+    parsed from (D-16 provenance).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dimension: str  # "working_set_pct_virtual" | ... (the config key it grades)
+    severity: str  # "info" | "warn" | "critical"
+    value_pct: float  # the triggering ratio, *100, rounded deterministically (1 dp)
+    message: str  # British-English one-liner with the % inline
+    event_ids: tuple[str, ...]
 
 
 # --- Ported block parsers (docs/reference/analyze_dss8.py:247-286) -----------
@@ -514,6 +534,158 @@ def select_window(ep: McmEpisode) -> EpisodeWindow:
     )
 
 
+# --- Diagnostic flags (docs/reference/analyze_dss8.py:79-85,507-624; D-12) ---
+
+
+def _grade(value_pct: float, warn: float, crit: float, *, invert: bool = False) -> str:
+    """Grade a ratio into info/warn/critical against two cut-points.
+
+    Upward (default): a HIGHER value is worse — ``critical`` at ``>= crit``,
+    ``warn`` at ``>= warn``. Inverted (``invert=True``, the system-free-headroom
+    special case): a LOWER value is worse, so the comparisons flip — ``critical``
+    at ``<= crit``, ``warn`` at ``<= warn``. A uniform upward comparison would
+    mis-grade high headroom as critical (Pitfall 2).
+    """
+    if invert:
+        if value_pct <= crit:
+            return "critical"
+        return "warn" if value_pct <= warn else "info"
+    if value_pct >= crit:
+        return "critical"
+    return "warn" if value_pct >= warn else "info"
+
+
+def compute_flags(ep: McmEpisode, t: McmThresholdsConfig) -> tuple[DiagnosticFlag, ...]:
+    """Grade the denial-time memory picture into five diagnostic flags (MCM-03).
+
+    Pure and deterministic: each flag is a ratio ``part / whole * 100`` compared
+    to config-injected cut-points (D-12) — never an absolute GB (the milestone
+    machine-independence lock). Every ``None``/zero-denominator input is guarded
+    BEFORE dividing, so a missing signal simply emits no flag rather than a
+    fabricated percentage (D-03). All flags cite the denial event whose Info-Dump
+    block they were parsed from (D-16). British-English messages carry the %
+    inline (D-11).
+    """
+    b = ep.breakdown
+    cite = (ep.denial_event_id,)
+    flags: list[DiagnosticFlag] = []
+
+    # 1. Working set as % of IServer virtual — the denial driver (65.4% at Hartford).
+    ws, virt = b.working_set_mb, b.iserver_virtual_mb
+    if ws is not None and virt:
+        pct = round(ws / virt * 100, 1)
+        flags.append(
+            DiagnosticFlag(
+                dimension="working_set_pct_virtual",
+                severity=_grade(
+                    pct,
+                    t.working_set_pct_virtual.warn,
+                    t.working_set_pct_virtual.critical,
+                ),
+                value_pct=pct,
+                message=f"Working set is {pct:.1f}% of IServer virtual memory",
+                event_ids=cite,
+            )
+        )
+
+    # 2. Other (non-IServer) processes as % of total physical — cohabitation.
+    other, phys = b.other_processes_mb, b.physical_total
+    if other is not None and phys:
+        pct = round(other / phys * 100, 1)
+        flags.append(
+            DiagnosticFlag(
+                dimension="other_processes_pct_physical",
+                severity=_grade(
+                    pct,
+                    t.other_processes_pct_physical.warn,
+                    t.other_processes_pct_physical.critical,
+                ),
+                value_pct=pct,
+                message=f"Other processes hold {pct:.1f}% of physical memory",
+                event_ids=cite,
+            )
+        )
+
+    # 3. Cube-cache share of virtual, gated by MMF coverage of the cube: only
+    #    material when cubes dominate memory yet MMF offloads little of them.
+    cube = b.cube_caches_mb
+    if cube is not None and virt:
+        cube_pct = round(cube / virt * 100, 1)
+        mmf = b.mmf_mb
+        mmf_cov = mmf / cube * 100 if (mmf is not None and cube) else None
+        low_cover = mmf_cov is None or mmf_cov < t.mmf_pct_of_cube_low
+        if cube_pct >= t.cube_pct_virtual.critical and low_cover:
+            severity = "critical"
+        elif cube_pct >= t.cube_pct_virtual.warn and low_cover:
+            severity = "warn"
+        else:
+            severity = "info"
+        cover_note = (
+            f" (MMF covers {mmf_cov:.1f}% of cube)" if mmf_cov is not None else ""
+        )
+        msg = f"Cube caches are {cube_pct:.1f}% of IServer virtual memory{cover_note}"
+        flags.append(
+            DiagnosticFlag(
+                dimension="cube_mmf_coverage",
+                severity=severity,
+                value_pct=cube_pct,
+                message=msg,
+                event_ids=cite,
+            )
+        )
+
+    # 4. SmartHeap unused pool as % of virtual — but a releasable pool is
+    #    reclaimed automatically, so its size is not actionable (info).
+    pool = b.smartheap_unused_pool_mb
+    if pool is not None and virt:
+        pct = round(pool / virt * 100, 1)
+        releasable = b.mcm_settings.get("SmartHeap Cache Releasable") == "true"
+        if releasable:
+            severity = "info"
+            suffix = " (releasable)"
+        else:
+            severity = _grade(
+                pct,
+                t.smartheap_pool_pct_virtual.warn,
+                t.smartheap_pool_pct_virtual.critical,
+            )
+            suffix = " (not releasable)"
+        msg = f"SmartHeap unused pool is {pct:.1f}% of IServer virtual memory{suffix}"
+        flags.append(
+            DiagnosticFlag(
+                dimension="smartheap_releasable",
+                severity=severity,
+                value_pct=pct,
+                message=msg,
+                event_ids=cite,
+            )
+        )
+
+    # 5. System-free headroom — the inverted metric: lower free-% is worse.
+    avail_s = b.current_memory_info.get("System Available")
+    total_s = b.current_memory_info.get("System Total")
+    if avail_s is not None and total_s is not None:
+        total = int(total_s)
+        if total:
+            pct = round(int(avail_s) / total * 100, 1)
+            flags.append(
+                DiagnosticFlag(
+                    dimension="system_free_headroom_pct",
+                    severity=_grade(
+                        pct,
+                        t.system_free_headroom_pct.warn,
+                        t.system_free_headroom_pct.critical,
+                        invert=True,
+                    ),
+                    value_pct=pct,
+                    message=f"System free headroom is {pct:.1f}% of total memory",
+                    event_ids=cite,
+                )
+            )
+
+    return tuple(flags)
+
+
 def _build_breakdown(
     stream_lines: list[str], ep: _RawEpisode, dss: list[Event], pos: dict[str, int]
 ) -> tuple[MemoryBreakdown, bool]:
@@ -582,9 +754,7 @@ def detect_episodes(events: list[Event]) -> list[McmEpisode]:
     episodes: list[McmEpisode] = []
     for ep in _prescan(stream):
         span_eids = tuple(
-            dict.fromkeys(
-                stream[i][1] for i in range(ep.span_start, ep.span_end + 1)
-            )
+            dict.fromkeys(stream[i][1] for i in range(ep.span_start, ep.span_end + 1))
         )
         lifecycle = _scan_lifecycle(stream, ep.span_start, ep.span_end)
         breakdown, fragmented = _build_breakdown(stream_lines, ep, dss, pos)
