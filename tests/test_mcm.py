@@ -24,11 +24,14 @@ from pathlib import Path
 
 from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.models import Event
+from sift.config import McmThresholdsConfig  # RED: built in 10-02 (GREEN)
 from sift.pipeline.mcm import (  # RED: this module is built in 09-02 (GREEN)
+    DiagnosticFlag,  # RED: flag API built in 10-02 (GREEN)
     EpisodeWindow,  # RED: window API built in 10-01 (GREEN)
     LifecycleSignal,
     McmEpisode,
     MemoryBreakdown,
+    compute_flags,  # RED: built in 10-02 (GREEN)
     detect_episodes,
     select_window,
 )
@@ -382,3 +385,138 @@ def test_two_episode_determinism_byte_identical(tmp_path: Path) -> None:
     first = [e.model_dump_json() for e in detect_episodes(queried)]
     second = [e.model_dump_json() for e in detect_episodes(queried)]
     assert first == second
+
+
+# ------------------------------------------------ MCM-03 / D-12 (diagnostic flags)
+
+
+def _detect_only(tmp_path: Path, rel: str) -> list[McmEpisode]:
+    """Detect episodes from a fixture into a per-fixture case.db (distinct db name
+    so two fixtures can be compared inside one test without event collision)."""
+    adapter = DsserrorsAdapter()
+    adapter.input_root = FIXTURES
+    events = list(adapter.parse(FIXTURES / rel, "case1"))
+    store = CaseStore(tmp_path / f"{Path(rel).stem}.db")
+    store.insert_events(events)
+    return detect_episodes(store.query_events())
+
+
+def _episode_with_cmi(available: int, total: int) -> McmEpisode:
+    """A synthetic open episode carrying only a Current Memory Info headroom pair
+    (all Format-A accessors None) — exercises the inverted headroom grader alone."""
+    return McmEpisode(
+        denial_event_id="deadbeefdeadbeef",
+        denial_ts=None,
+        recovery=None,
+        open_truncated=True,
+        fragmented=False,
+        event_ids=("deadbeefdeadbeef",),
+        lifecycle=(),
+        breakdown=MemoryBreakdown(
+            raw_map={},
+            current_memory_info={
+                "System Available": str(available),
+                "System Total": str(total),
+            },
+            mcm_settings={},
+        ),
+        hwm_bytes=None,
+        avail_timeline=(),
+    )
+
+
+def test_flags_five_dimensions(tmp_path: Path) -> None:
+    """compute_flags over the Hartford slice returns five graded flags, each a
+    ratio (part/whole*100) with a severity in {info,warn,critical} and each citing
+    the denial event (D-16 provenance — the breakdown came from that banner)."""
+    ep = _detect_only(tmp_path, "hartford_deny_slice.log")[0]
+    flags = compute_flags(ep, McmThresholdsConfig())
+    assert len(flags) == 5
+    assert len({f.dimension for f in flags}) == 5
+    for f in flags:
+        assert isinstance(f, DiagnosticFlag)
+        assert f.severity in {"info", "warn", "critical"}
+        assert isinstance(f.value_pct, float)
+        assert f.event_ids == (ep.denial_event_id,)
+
+
+def test_hartford_flags_calibration(tmp_path: Path) -> None:
+    """The RESEARCH calibration anchor: the real Hartford episode reads CRITICAL,
+    driven by working-set = 65.4% of IServer virtual; other-processes and
+    system-free headroom WARN; cube/MMF and SmartHeap INFO."""
+    ep = _detect_only(tmp_path, "hartford_deny_slice.log")[0]
+    flags = {f.dimension: f for f in compute_flags(ep, McmThresholdsConfig())}
+    ws = flags["working_set_pct_virtual"]
+    assert ws.severity == "critical"
+    assert abs(ws.value_pct - 65.4) < 0.2
+    assert flags["other_processes_pct_physical"].severity == "warn"
+    assert flags["system_free_headroom_pct"].severity == "warn"
+    assert flags["cube_mmf_coverage"].severity == "info"
+    assert flags["smartheap_releasable"].severity == "info"
+    # Episode overall severity = the max tier across its flags -> CRITICAL.
+    order = {"info": 0, "warn": 1, "critical": 2}
+    assert max(order[f.severity] for f in flags.values()) == order["critical"]
+
+
+def test_headroom_inverted_grading() -> None:
+    """system_free_headroom_pct grades DOWNWARD (lower free-% is worse): free=50%
+    is info, free=3% is critical (the inverted-metric special case — a uniform
+    upward comparison would mis-grade high headroom as critical)."""
+    t = McmThresholdsConfig()
+    hi = {f.dimension: f for f in compute_flags(_episode_with_cmi(50, 100), t)}
+    lo = {f.dimension: f for f in compute_flags(_episode_with_cmi(3, 100), t)}
+    assert hi["system_free_headroom_pct"].value_pct == 50.0
+    assert hi["system_free_headroom_pct"].severity == "info"
+    assert lo["system_free_headroom_pct"].value_pct == 3.0
+    assert lo["system_free_headroom_pct"].severity == "critical"
+
+
+def test_flags_empty_breakdown_no_crash() -> None:
+    """An episode with an empty breakdown (open/truncated, every accessor None)
+    returns flags without crashing — a dimension whose inputs are None emits no
+    flag (nothing fabricated, D-03)."""
+    ep = McmEpisode(
+        denial_event_id="deadbeefdeadbeef",
+        denial_ts=None,
+        recovery=None,
+        open_truncated=True,
+        fragmented=False,
+        event_ids=("deadbeefdeadbeef",),
+        lifecycle=(),
+        breakdown=MemoryBreakdown(
+            raw_map={}, current_memory_info={}, mcm_settings={}
+        ),
+        hwm_bytes=None,
+        avail_timeline=(),
+    )
+    assert compute_flags(ep, McmThresholdsConfig()) == ()
+
+
+# --------------------------------------------------------------- crit #5 (machine-independence)
+
+
+def test_machine_independence_scaled(tmp_path: Path) -> None:
+    """Success criterion #5: because every flag metric is a ratio (part/whole),
+    the ×2-scaled fixture yields byte-identical (dimension, severity,
+    round(value_pct,3)) tuples AND identical window threshold_pct/request_count
+    versus the original — absolute breakdown MB legitimately differ."""
+    t = McmThresholdsConfig()
+    slice_ep = _detect_only(tmp_path, "hartford_deny_slice.log")[0]
+    double_ep = _detect_only(tmp_path, "hartford_deny_double.log")[0]
+
+    def sig(ep: McmEpisode) -> tuple[tuple[str, str, float], ...]:
+        return tuple(
+            (f.dimension, f.severity, round(f.value_pct, 3))
+            for f in compute_flags(ep, t)
+        )
+
+    assert sig(slice_ep) == sig(double_ep)
+
+    w_slice, w_double = select_window(slice_ep), select_window(double_ep)
+    assert w_slice.threshold_pct == w_double.threshold_pct
+    assert w_slice.request_count == w_double.request_count
+
+    # Pitfall 3 guard: the ×2 fixture parses the SAME number of Format-A labels.
+    assert (
+        len(slice_ep.breakdown.raw_map) == len(double_ep.breakdown.raw_map) == 23
+    )

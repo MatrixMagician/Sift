@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from sift.config import load_config
+from sift.config import McmThresholdsConfig, load_config
 
 
 def _write_toml(body: str) -> Path:
@@ -137,4 +137,62 @@ def test_unknown_key_under_clustering_is_a_loud_error() -> None:
     """T-04-02: extra=forbid on every nested model, not just the root."""
     _write_toml('[clustering]\nmin_cluster_sze = 4\n')  # typo'd key
     with pytest.raises(ValidationError, match="min_cluster_sze"):
+        load_config()
+
+
+# ------------------------------------------------ MCM-03 / D-12 ([mcm.thresholds])
+
+
+def test_mcm_thresholds_defaults() -> None:
+    """An absent [mcm.thresholds] block yields the RESEARCH-calibrated documented
+    constants (config-only, D-12), so the real Hartford episode reads CRITICAL."""
+    t = load_config().mcm.thresholds
+    assert isinstance(t, McmThresholdsConfig)
+    assert (t.working_set_pct_virtual.warn, t.working_set_pct_virtual.critical) == (
+        20,
+        40,
+    )
+    assert (
+        t.other_processes_pct_physical.warn,
+        t.other_processes_pct_physical.critical,
+    ) == (10, 20)
+    assert (t.cube_pct_virtual.warn, t.cube_pct_virtual.critical) == (25, 40)
+    assert t.mmf_pct_of_cube_low == 10
+    assert (
+        t.smartheap_pool_pct_virtual.warn,
+        t.smartheap_pool_pct_virtual.critical,
+    ) == (5, 15)
+    # Inverted metric stored as-authored (warn=20, critical=5); the grader flips
+    # the comparison direction, not the config (lower free-% is worse).
+    assert (
+        t.system_free_headroom_pct.warn,
+        t.system_free_headroom_pct.critical,
+    ) == (20, 5)
+
+
+def test_mcm_thresholds_override_and_typo() -> None:
+    """A [mcm.thresholds] override wins per field under standard precedence
+    (CLI>env>toml>defaults); a typo'd key fails loudly (extra='forbid'), never
+    silently dropped (T-04-02)."""
+    _write_toml(
+        "[mcm.thresholds]\n"
+        "working_set_pct_virtual = { warn = 30, critical = 55 }\n"
+    )
+    t = load_config().mcm.thresholds
+    assert (t.working_set_pct_virtual.warn, t.working_set_pct_virtual.critical) == (
+        30,
+        55,
+    )
+    # Untouched rows keep the documented defaults.
+    assert (
+        t.other_processes_pct_physical.warn,
+        t.other_processes_pct_physical.critical,
+    ) == (10, 20)
+
+    # A typo'd key inside [mcm.thresholds] is a loud error, not a silent default.
+    _write_toml(
+        "[mcm.thresholds]\n"
+        "working_set_pct_virtal = { warn = 30, critical = 55 }\n"
+    )
+    with pytest.raises(ValidationError, match="working_set_pct_virtal"):
         load_config()
