@@ -297,7 +297,16 @@ Plans:
   4. A log that ends mid-episode with no recovery line (as the Hartford deny log does — it contains no `State=normal`) is reported as an open/truncated episode rather than dropped or crashed
   5. Re-running on the same case yields byte-identical episodes and numbers — determinism holds because no model is involved
 
-**Plans**: TBD
+**Plans:** 2 plans (TDD: RED fixtures/tests, then GREEN port)
+
+Plans:
+**Wave 1**
+
+- [ ] 09-01-PLAN.md — Vendor `analyze_dss8.py` + verbatim Hartford deny slice fixture + RED golden `tests/test_mcm.py` (8 assertions) (wave 1)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 09-02-PLAN.md — Port `prescan`/block parsers into `pipeline/mcm.py` over the event-id line stream + lifecycle capture + open/truncated + in-span MCM Settings; suite GREEN (wave 2)
 
 ### Phase 10: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV
 
