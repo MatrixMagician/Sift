@@ -38,8 +38,7 @@ The porting basis is the reference script `analyze_dss8.py`; Phase 9 ports and
 ## Implementation Decisions
 
 ### Data source (how the analyser reads the log)
-- **D-01: Read ingested `Event` rows from the store; re-parse MCM tokens from
-  `event.raw` inside the new analyser.** The adapter is left untouched. Every
+- **D-01: Read ingested `Event` rows from the store; re-parse MCM tokens from `event.raw` inside the new analyser.** The adapter is left untouched. Every
   dsserrors line becomes an event whose `raw` preserves verbatim text and whose
   `event_id`/`line_start`/`line_end` are stable — so the analyser re-applies the
   reference regexes (`AvailableMCM=`, `HWM(...)=`, `Size=`, `Source=`, `SID`,
@@ -54,8 +53,7 @@ The porting basis is the reference script `analyze_dss8.py`; Phase 9 ports and
   `event_id` — a citation dead-end for MCM-06).
 
 ### Lifecycle signal capture (criterion #2)
-- **D-02: Pin the exact marker strings by research against the real Hartford
-  deny log.** The three lifecycle signal types — memory-status-low handler,
+- **D-02: Pin the exact marker strings by research against the real Hartford deny log.** The three lifecycle signal types — memory-status-low handler,
   emergency working-set offload, recovery — are captured as **episode
   annotations that reference the `event_id`** of the line that carries them,
   within the episode's line span.
@@ -84,8 +82,7 @@ The porting basis is the reference script `analyze_dss8.py`; Phase 9 ports and
   string-match labels).
 
 ### Output shape & episode scope
-- **D-05: Pure deterministic function over stored events — no new store table
-  in Phase 9.** The analyser computes episodes on demand; Phase 10 (report/CSV)
+- **D-05: Pure deterministic function over stored events — no new store table in Phase 9.** The analyser computes episodes on demand; Phase 10 (report/CSV)
   and Phase 11 (analyze feed) call the same function. Determinism is inherent
   because no model is involved (satisfies criterion #5 byte-identical re-run
   without a persistence layer). Avoids a migration, a write path, and
