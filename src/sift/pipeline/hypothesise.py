@@ -478,6 +478,10 @@ def _persist(
                 "triage_unexplained_signals",
                 json.dumps(list(hset.unexplained_signals)),
             )
+            # Clear any raw output left by a PRIOR degraded run — otherwise the
+            # report shows a stale "Raw model output" block under the new valid
+            # hypotheses. ``if raw:`` in the renderer treats "" as absent.
+            store.set_meta("triage_raw", "")
         elif outcome.raw is not None:
             store.set_meta("triage_raw", outcome.raw)
 
