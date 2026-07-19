@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 7
-current_phase_name: Evaluation Harness & Golden Cases
-status: planning
-stopped_at: Phase 7 context gathered
-last_updated: "2026-07-18T16:30:43.390Z"
-last_activity: 2026-07-18
-last_activity_desc: Phase 6 complete, transitioned to Phase 7
+current_phase: 07
+current_phase_name: evaluation-harness-golden-cases
+status: executing
+stopped_at: Completed 07-01-PLAN.md
+last_updated: "2026-07-19T09:25:38.429Z"
+last_activity: 2026-07-19
+last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 7
   completed_phases: 6
-  total_plans: 32
-  completed_plans: 32
+  total_plans: 37
+  completed_plans: 33
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-16)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 6 — Renderers & KB Retrieval
+**Current focus:** Phase 07 — evaluation-harness-golden-cases
 
 ## Current Position
 
-Phase: 7 — Evaluation Harness & Golden Cases
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-18 — Phase 6 complete, transitioned to Phase 7
+Phase: 07 (evaluation-harness-golden-cases) — EXECUTING
+Plan: 2 of 5
+Status: Ready to execute
+Last activity: 2026-07-19 — Phase 07 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 89%
 
 ## Performance Metrics
 
@@ -149,6 +149,7 @@ Recent decisions affecting current work:
 - [Phase ?]: KB index lives per-case in case.db, separate non-citable namespace (no event_id column); ADR 0009
 - [Phase ?]: PDF report (REPT-04) behind sift[pdf] extra: MD->HTML->WeasyPrint, egress blocked by self-contained HTML + rejecting url_fetcher; missing extra/pango -> helpful PdfExtraMissing exit 1
 - [Phase ?]: KB context threaded into analyze --kb via a sentinel-delimited triage.md block; non-citability enforced mechanically (prompted_ids unchanged), no-KB prompt byte-identical (golden hash guard)
+- [Phase ?]: Pin pyyaml==6.0.3 as a runtime dependency for eval-harness truth.yaml parsing (M7-only)
 
 ### Pending Todos
 
@@ -170,6 +171,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-18T16:30:43.384Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-evaluation-harness-golden-cases/07-CONTEXT.md
+Last session: 2026-07-19T09:25:30.137Z
+Stopped at: Completed 07-01-PLAN.md
+Resume file: None

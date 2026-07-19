@@ -67,7 +67,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Evaluation
 
-- [ ] **EVAL-01**: Golden suite of ≥ 5 synthetic-but-realistic cases, each with `input/`, `truth.yaml`, and README (e.g. memory-watermark cascade, SMTP rejection storm, thread-pool exhaustion, disk-full, dependency timeout)
+- [x] **EVAL-01**: Golden suite of ≥ 5 synthetic-but-realistic cases, each with `input/`, `truth.yaml`, and README (e.g. memory-watermark cascade, SMTP rejection storm, thread-pool exhaustion, disk-full, dependency timeout)
 - [ ] **EVAL-02**: `sift eval` reports retrieval hit rate, hypothesis hit@k, citation validity rate, and determinism drift across repeated runs
 - [ ] **EVAL-03**: `sift eval` exits non-zero when scores regress below `eval/thresholds.toml` thresholds (CI-friendly)
 - [ ] **EVAL-04**: Optional LLM-as-judge grading via the same local model, reported alongside keyword scores
@@ -156,7 +156,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REPT-03 | Phase 6 | Complete |
 | REPT-04 | Phase 6 | Complete |
 | RAG-07 | Phase 6 | Complete |
-| EVAL-01 | Phase 7 | Pending |
+| EVAL-01 | Phase 7 | Complete |
 | EVAL-02 | Phase 7 | Pending |
 | EVAL-03 | Phase 7 | Pending |
 | EVAL-04 | Phase 7 | Pending |
