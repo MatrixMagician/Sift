@@ -7,6 +7,9 @@ license = "Apache-2.0"
 dependencies = [
     "httpx==0.28.1",
     "pydantic>=2.13.4",
+    # M7-only: parses golden-case truth.yaml files in the eval harness. Revisit
+    # when the Python floor gains a stdlib YAML parser and this can be dropped.
+    "pyyaml==6.0.3",
     # Already installed transitively via typer standard; declared explicitly
     # because cli.py imports rich.progress directly (CLI-03).
     "rich>=15.0.0",
