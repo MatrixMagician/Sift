@@ -4,6 +4,8 @@
 
 Sift is built write-path-first: the deterministic ingest → store → dedup funnel (Phases 1–2) is fully testable with zero LLM infrastructure. The first network surface arrives in Phase 3 (inference client, doctor, embeddings, clustering), the core value lands in Phase 4 (salience → RAG → citation-gated hypotheses), and the domain adapters follow in Phase 5 once the end-to-end pipeline is proven on the cheapest adapter. Phases 6–8 add reviewable reports + KB retrieval, the evaluation harness with golden cases, and packaging. Phase numbering follows SPEC.md milestones M1–M8 one-to-one; each phase inherits its milestone's acceptance criteria, and no phase begins while the previous one is red (`ruff`, `pyright`, `pytest` clean).
 
+**Milestone v1.1 (Phases 9–11) — MCM Memory-Pressure Analysis** continues the numbering. It adds a deterministic quantitative layer over the existing `dsserrors` adapter, integrating and extending the reference script `analyze_dss8.py`: detect every MCM denial episode, parse the denial-time memory breakdown, emit machine-independent diagnostic flags, attribute lead-up memory by OID/Source/SID, ship a `sift mcm` report + CSV, and feed those deterministic facts into `sift analyze` as cited evidence. The numeric core is strictly separate from the LLM — figures are computed, never authored by the model (citation integrity is load-bearing). Validated against the real Hartford deny log. DSSPerformanceMonitor CSV time-series correlation (PERF-01) is deferred to v2 (SEED-001).
+
 ## Phases
 
 **Phase Numbering:**
@@ -13,6 +15,8 @@ Sift is built write-path-first: the deterministic ingest → store → dedup fun
 
 Decimal phases appear between their surrounding integers in numeric order.
 
+**Milestone v1.0 — Core Triage Engine (M1–M8, complete)**
+
 - [x] **Phase 1: Skeleton, Event Contract & genericlog Adapter** - CLI skeleton, frozen Event schema, format auto-detection, robust fallback parser with idempotent ingest (M1) (completed 2026-07-16)
 - [x] **Phase 2: Case Store & Template Dedup** - Portable SQLite case store with migrations, zstd compression, and no-ML template deduplication at 100 MB scale (M2) (completed 2026-07-17)
 - [x] **Phase 3: Inference Client, Doctor, Embeddings & Clustering** - Loopback-guarded OpenAI-compatible client, `sift doctor`, batched embeddings, HDBSCAN semantic clustering, LLM cluster labels (M3) (completed 2026-07-17)
@@ -21,6 +25,12 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: Renderers & KB Retrieval** - Markdown/JSON/PDF reports with evidence appendix, reproducibility contract, knowledge-base retrieval (M6) (completed 2026-07-18)
 - [x] **Phase 7: Evaluation Harness & Golden Cases** - ≥5 golden incidents, metric table, CI thresholds, optional LLM-as-judge (M7) (completed 2026-07-19)
 - [x] **Phase 8: Packaging & Deploy** - `uv tool install` distribution and optional Podman Quadlet deployment (M8) (completed 2026-07-19)
+
+**Milestone v1.1 — MCM Memory-Pressure Analysis (this milestone)**
+
+- [ ] **Phase 9: MCM Episode Detection & Denial-Time Memory Breakdown** - Deterministic, non-interactive detection of every MCM denial episode (full lifecycle) plus the denial-time physical/virtual memory breakdown and MCM settings (MCM-01, MCM-02)
+- [ ] **Phase 10: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV** - Machine-independent diagnostic flags, an auto-selected lead-up window, per-OID/Source/SID attribution, shipped as the `sift mcm <case>` report + CSV export (MCM-03, MCM-04, MCM-05)
+- [ ] **Phase 11: MCM Facts into `sift analyze` + Golden Eval Case** - Deterministic MCM facts fed into `sift analyze` as cited evidence (never model-authored) plus a regression-gated MCM golden case (MCM-06, MCM-07)
 
 ## Phase Details
 
@@ -274,10 +284,55 @@ Plans:
 - [x] 08-02-PLAN.md — PKG-02 deploy slice: `deploy/*.container` (guard-clean loopback), ADR 0011, guard-acceptability + graceful-skip Quadlet dry-run tests (wave 2)
 - [x] 08-03-PLAN.md — README quickstart (D-09): install → backend (two-instance, Vulkan/ROCm, Lemonade caveat) → doctor → analyse → report → pdf extra + human-verify (wave 2)
 
+### Phase 9: MCM Episode Detection & Denial-Time Memory Breakdown
+
+**Goal**: A user can run the new deterministic MCM analyser over a `dsserrors` case and see every distinct denial episode — non-interactively, all episodes, full lifecycle — each with its denial-time physical/virtual memory breakdown and MCM settings, computed with zero LLM involvement
+**Depends on**: Phase 5 (dsserrors adapter already ingests the MCM/contract events this stage reads; the adapter may gain a few structured attrs but the quantitative logic is a new pipeline/analyser stage)
+**Requirements**: MCM-01, MCM-02
+**Success Criteria** (what must be TRUE):
+
+  1. Running the analyser on the Hartford deny case detects every distinct denial episode non-interactively (no prompts, all episodes), each bounded by its denial banner (`IServer enters MCM denial state`) and its recovery (`State=normal`, resumed contract activity, or `AvailableMCM` climbing back)
+  2. Each episode captures its full lifecycle signals — `memory-status-low` handler, emergency working-set offload, and recovery — as episode context, not just the denial banner
+  3. For each episode the denial-time memory breakdown parses into a structured model: physical/virtual split, cube caches, cube growth/index, MMF, SmartHeap pool, working set, other memory, plus the MCM Settings block
+  4. A log that ends mid-episode with no recovery line (as the Hartford deny log does — it contains no `State=normal`) is reported as an open/truncated episode rather than dropped or crashed
+  5. Re-running on the same case yields byte-identical episodes and numbers — determinism holds because no model is involved
+
+**Plans**: TBD
+
+### Phase 10: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV
+
+**Goal**: The MCM analyser becomes a complete deterministic forensics command — `sift mcm <case>` emits machine-independent diagnostic flags, an auto-selected lead-up window, per-OID/per-Source/per-SID memory attribution, and both a human-readable report and a CSV export
+**Depends on**: Phase 9
+**Requirements**: MCM-03, MCM-04, MCM-05
+**Success Criteria** (what must be TRUE):
+
+  1. For each episode the analyser emits deterministic diagnostic flags — working-set % of IServer virtual, other-processes % of physical, cube-cache/MMF coverage, SmartHeap releasability, system-free headroom — with every threshold expressed as % of HWM/total, never absolute GB
+  2. Each episode's lead-up window is auto-selected from `AvailableMCM`-descent thresholds (as % of HWM), non-interactively — no manual start-line picking
+  3. Memory granted in the window is attributed by OID, by `Source=` request type, and by SID (session), so the one-OID/many-SID fan-out in the Hartford case is resolved by session
+  4. `sift mcm <case>` writes a deterministic human-readable report and a CSV export of the per-OID/per-Source/per-SID attribution table
+  5. Two differently-sized machines under the same relative pressure produce identical flags — verified against a scaled fixture (thresholds are % based, machine-independent)
+
+**Plans**: TBD
+
+### Phase 11: MCM Facts into `sift analyze` + Golden Eval Case
+
+**Goal**: The deterministic MCM facts feed the LLM hypothesis pipeline as cited evidence — never authored by the model — and an MCM golden case regression-gates the whole feature
+**Depends on**: Phase 10, Phase 7 (evaluation harness)
+**Requirements**: MCM-06, MCM-07
+**Success Criteria** (what must be TRUE):
+
+  1. Structured MCM facts (episode summary, memory breakdown, flags, top attributions) are injected into `sift analyze` as cited evidence, preserving the cited ⊆ prompted ⊆ store invariant
+  2. Every MCM figure surfaced in a hypothesis comes verbatim from the deterministic analyser — a test proves the model cannot alter or invent the numbers (figures are computed, not generated)
+  3. The MCM fact block is supplied via a versioned prompt template file (`sift/prompts/*.md`) — changing its wording touches no Python
+  4. An MCM golden case (denial episode with a known breakdown) is added to the eval suite with `truth.yaml`, and `sift eval` exits non-zero when its scores regress
+  5. With no dsserrors/MCM data present, `sift analyze` output is byte-identical to before — the MCM block is purely additive
+
+**Plans**: TBD
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Phase 5 may run in parallel with Phase 4; acceptance gated sequentially)
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Phase 5 may run in parallel with Phase 4; acceptance gated sequentially). v1.1 continues: 9 → 10 → 11.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -285,10 +340,14 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 2. Case Store & Template Dedup | 4/4 | Complete    | 2026-07-17 |
 | 3. Inference Client, Doctor, Embeddings & Clustering | 6/6 | Complete    | 2026-07-17 |
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
-| 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
+| 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | Complete    | 2026-07-18 |
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
 | 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
+| 9. MCM Episode Detection & Denial-Time Memory Breakdown | 0/— | Not started |  |
+| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 0/— | Not started |  |
+| 11. MCM Facts into `sift analyze` + Golden Eval Case | 0/— | Not started |  |
 
 ---
-*Roadmap created: 2026-07-16 — phases map 1:1 to SPEC.md milestones M1–M8*
+*Roadmap created: 2026-07-16 — Phases 1–8 map 1:1 to SPEC.md milestones M1–M8*
+*Updated: 2026-07-19 — v1.1 milestone appended (Phases 9–11, MCM Memory-Pressure Analysis); numbering continues from Phase 8*

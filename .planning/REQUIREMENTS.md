@@ -179,13 +179,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-04 | Phase 7 | Complete |
 | PKG-01 | Phase 8 | Complete |
 | PKG-02 | Phase 8 | Complete |
+| MCM-01 | Phase 9 | Pending |
+| MCM-02 | Phase 9 | Pending |
+| MCM-03 | Phase 10 | Pending |
+| MCM-04 | Phase 10 | Pending |
+| MCM-05 | Phase 10 | Pending |
+| MCM-06 | Phase 11 | Pending |
+| MCM-07 | Phase 11 | Pending |
 
 **Coverage:**
 
-- v1 requirements: 44 total (previous "40" was a miscount; corrected during roadmap creation)
-- Mapped to phases: 44
+- v1 requirements: 44 total — all mapped, all complete (Phases 1–8)
+- v1.1 (MCM) requirements: 7 total (MCM-01..07) — all mapped to Phases 9–11
+- Mapped: 51/51
 - Unmapped: 0 ✓
+- Orphaned: 0 ✓ · Duplicated: 0 ✓ (each requirement maps to exactly one phase)
 
 ---
 *Requirements defined: 2026-07-16*
-*Last updated: 2026-07-16 after roadmap creation (traceability populated)*
+*Last updated: 2026-07-19 — v1.1 MCM requirements (MCM-01..07) mapped to Phases 9–11 during roadmap creation*

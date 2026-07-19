@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: MCM Memory-Pressure Analysis
-status: planning
-last_updated: "2026-07-19T17:09:43.053Z"
+status: roadmap_complete
+last_updated: "2026-07-19T17:40:00.000Z"
 last_activity: 2026-07-19
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-16)
+See: .planning/PROJECT.md (updated 2026-07-19)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 08 — packaging-deploy
+**Current focus:** Phase 9 — MCM Episode Detection & Denial-Time Memory Breakdown (v1.1)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 9 — Not started (roadmap complete, ready to plan)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-19 — Milestone v1.1 started
+Status: Roadmap defined for v1.1 (Phases 9–11); awaiting `/gsd-plan-phase 9`
+Last activity: 2026-07-19 — v1.1 roadmap created (3 phases, MCM-01..07 mapped)
 
 ## Performance Metrics
 
@@ -104,6 +104,11 @@ Last activity: 2026-07-19 — Milestone v1.1 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Roadmap v1.1]: v1.1 (MCM Memory-Pressure Analysis) is 3 phases (9→10→11), numbering continued from Phase 8; MCM-01..07 mapped one requirement to exactly one phase (9: MCM-01/02, 10: MCM-03/04/05, 11: MCM-06/07)
+- [Roadmap v1.1]: Phase split follows the deterministic-core-vs-LLM boundary — Phases 9–10 are the pure numeric analyser (`sift mcm`), Phase 11 is the additive LLM-facts integration; the numeric figures are computed, never authored by the model (citation-integrity invariant, load-bearing)
+- [Roadmap v1.1]: v1.1 integrates/extends the reference script `analyze_dss8.py`; the quantitative logic is a NEW pipeline/analyser stage over the existing dsserrors adapter (Phase 5), which may gain a few structured attrs but is not otherwise rewritten
+- [Roadmap v1.1]: Validated against the real Hartford deny log — one-OID/many-SID fan-out (SID is the discriminating attribution dimension), working-set blowout, `AvailableMCM=0`, and NO `State=normal` (log ends mid-episode → recovery must be inferred from resumed activity / AvailableMCM recovery, and open/truncated episodes must be handled)
+- [Roadmap v1.1]: DSSPerformanceMonitor PDH-CSV correlation (PERF-01) is explicitly OUT of v1.1 — deferred to v2 (SEED-001)
 - [Roadmap]: Phases follow SPEC.md M1–M8 one-to-one; write path (Phases 1–2) built and tested before any LLM code exists
 - [Roadmap]: Phase 5 (domain adapters) may execute in parallel with Phase 4 — adapter Protocol frozen at Phase 1; acceptance gated sequentially
 - [Roadmap]: Research resolved SPEC open questions: Typer over argparse, WeasyPrint behind `sift[pdf]` extra, hand-rolled masking over drain3, `sklearn.cluster.HDBSCAN` over standalone package — record in `docs/decisions/` during Phase 1
@@ -165,20 +170,22 @@ _None._
 
 ### Blockers/Concerns
 
+- [Phase 9]: The real Hartford log carries the denial-time breakdown in TWO shapes — the text `Label(UNIT): value` block the reference script parses AND a newer single-line JSON blob (`currentMemoryInfo`/`memoryBreakdown`). MCM-02 parsing must handle whichever the case log emits; decide during plan-phase 9 (parser research flag)
+- [Phase 9]: The existing dsserrors adapter extracts `SID=`/bare-GUID, but the real log uses bracket `[SID:...]`/`[OID:...]`/`[Source=...]`/`Size=` tokens — the MCM analyser reads these from event raw text (or the adapter is enriched to expose them); confirm the token contract before regexes freeze
 - [Phase 4]: Verify Pydantic `model_json_schema()` `$defs`/`$ref` output against the target llama.cpp build's schema-constrained decoding; flatten schemas if needed (research flag)
 - [Phase 7]: Eval drift-metric design against nondeterministic backends is thinly documented; expect iteration (research flag)
 - [Cross-cutting]: sqlite-vec is pre-v1 with a single maintainer — keep vector access confined to store.py; BLOB+numpy escape hatch documented
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged and carried forward:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Analysis | PERF-01: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation (SEED-001) | Deferred to v2 | v1.1 roadmap (2026-07-19) |
 
 ## Session Continuity
 
-Last session: 2026-07-19T14:47:35.421Z
-Stopped at: Completed 08-02-PLAN.md
+Last session: 2026-07-19T17:40:00.000Z
+Stopped at: v1.1 roadmap created (Phases 9–11); ready for `/gsd-plan-phase 9`
 Resume file: None
