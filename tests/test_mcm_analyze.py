@@ -41,6 +41,38 @@ _VALID_HYPSET = json.dumps(
     {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
 )
 
+# A figure the analyser would never compute for the Hartford slice — used to prove
+# the model cannot inject it into the surfaced facts (T-11-02).
+_MODEL_WRONG_FIGURE = "working set was 999.9% of virtual memory"
+
+# A distinctive KB runbook chunk for the coexistence test (KB text threads into
+# the prompt but never becomes citable, D-01).
+_KB_RUNBOOK = (
+    "RUNBOOK mcm-tier: when AvailableMCM falls to zero, raise the working-set "
+    "ceiling and restart the affected report jobs before the server stalls."
+)
+
+
+def _hset_body(cited_ids: list[str], narrative: str) -> str:
+    """A schema-valid HypothesisSet JSON string with a caller-chosen narrative."""
+    return json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": "MCM memory exhaustion",
+                    "narrative": narrative,
+                    "confidence": "high",
+                    "confidence_reasoning": "Denial episode corroborated.",
+                    "supporting_event_ids": cited_ids,
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": ["Raise the working-set ceiling"],
+                }
+            ],
+            "timeline_summary": "Memory pressure built, then MCM denied a request.",
+            "unexplained_signals": [],
+        }
+    )
+
 
 def _handler(
     *, hyp_content: str | None = None, prompts: list[str] | None = None
@@ -173,5 +205,72 @@ def test_eval_path_parity_default_thresholds(tmp_path: Path) -> None:
         )
         assert prompts
         assert any(f"[evt:{denial_id}] MCM denial" in p for p in prompts)
+    finally:
+        store.close()
+
+
+# --- anti-hallucination + determinism + coexistence (criterion 2) ------------
+
+
+def test_model_cannot_alter_mcm_figures(tmp_path: Path) -> None:
+    """The surfaced MCM figures are a pure function of analyse_mcm, built BEFORE
+    generation: a model echoing a WRONG figure in its narrative cannot change the
+    fact block spliced into the prompt (T-11-02)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_dsserrors(store)
+        denial_id = _denial_id(store)
+        # The verbatim analyser block, computed independently of any model reply.
+        block, _ids = render_mcm_facts(
+            analyse_mcm(store.query_events(), McmThresholdsConfig())
+        )
+        assert block  # the Hartford slice yields a non-empty fact block
+        prompts: list[str] = []
+        client = _client(
+            _handler(
+                hyp_content=_hset_body([denial_id], _MODEL_WRONG_FIGURE),
+                prompts=prompts,
+            )
+        )
+        hypothesise.hypothesise(store, client, top_clusters=20, incident_time=None)
+        assert prompts
+        prompt = prompts[0]
+        # The analyser's verbatim fact block reached the prompt…
+        assert block in prompt
+        # …and the model's wrong figure never entered it (prompt built pre-reply).
+        assert _MODEL_WRONG_FIGURE not in prompt
+    finally:
+        store.close()
+
+
+def test_mcm_block_deterministic(tmp_path: Path) -> None:
+    """Assembling the same case twice yields byte-identical prompts — the MCM
+    facts are model-free and re-run stable (criterion 2)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_dsserrors(store)
+        _ids1, prompt1 = _assemble_mcm(store, _client(_handler()))
+        _ids2, prompt2 = _assemble_mcm(store, _client(_handler()))
+        assert prompt1 == prompt2
+    finally:
+        store.close()
+
+
+def test_mcm_and_kb_coexist(tmp_path: Path) -> None:
+    """In one run MCM (citable) and KB (non-citable) behave independently: MCM ids
+    enter prompted_ids, the KB text threads into the prompt but adds no id."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_dsserrors(store)
+        denial_id = _denial_id(store)
+        ids, prompt = _assemble_mcm(
+            store, _client(_handler()), kb_context=[_KB_RUNBOOK]
+        )
+        # MCM facts ARE citable…
+        assert denial_id in ids
+        # …the KB runbook threaded into the prompt…
+        assert _KB_RUNBOOK in prompt
+        # …yet a KB-shaped fabricated id is NOT citable (KB stays non-citable).
+        assert _FABRICATED_ID not in ids
     finally:
         store.close()
