@@ -117,6 +117,43 @@ def test_malformed_judge_reply_degrades_not_crashes(
     assert "n/a" in result.output.lower()
 
 
+def test_reasoning_only_judge_reply_degrades(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The real reasoning-model shape — HTTP 200 with empty ``content``, populated
+    ``reasoning_content`` and ``finish_reason: "length"`` (the model spent its
+    whole budget thinking) — degrades to no-score and still exits 0. This shape
+    never appears in the ordinary mocks; it only surfaces against a live model,
+    so lock the never-crash/return-None contract (D-08) against it explicitly."""
+    base = eval_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("utf-8")
+        if request.url.path.endswith("/chat/completions") and (
+            '"justification"' in body
+        ):
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "",
+                                "reasoning_content": "<truncated thoughts>",
+                            },
+                            "finish_reason": "length",
+                        }
+                    ]
+                },
+            )
+        return base(request)
+
+    result = _run(monkeypatch, tmp_path, handler, "--judge")
+    assert result.exit_code == 0, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "n/a" in result.output.lower()
+
+
 def test_judge_json_field_carries_the_score(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
