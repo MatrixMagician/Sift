@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: MCM Memory-Pressure Analysis
 current_phase: 11
-current_phase_name: MCM Facts into `sift analyze` + Golden Eval Case
-status: planning
-stopped_at: Completed 10-04-PLAN.md
-last_updated: "2026-07-19T21:42:24.642Z"
+current_phase_name: mcm-facts-into-sift-analyze-golden-eval-case
+status: executing
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-07-19T22:31:43.416Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 10 complete, transitioned to Phase 11
+last_activity_desc: Phase 11 execution started
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 9
+  completed_plans: 7
 ---
 
 # Project State
@@ -23,14 +23,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-19)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 10 — diagnostic-flags-lead-up-attribution-sift-mcm-report-csv
+**Current focus:** Phase 11 — mcm-facts-into-sift-analyze-golden-eval-case
 
 ## Current Position
 
-Phase: 11 — MCM Facts into `sift analyze` + Golden Eval Case
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-19 — Phase 10 complete, transitioned to Phase 11
+Phase: 11 (mcm-facts-into-sift-analyze-golden-eval-case) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-07-19 — Phase 11 execution started
 
 ## Performance Metrics
 
@@ -107,6 +107,7 @@ Last activity: 2026-07-19 — Phase 10 complete, transitioned to Phase 11
 | Phase 10 P02 | ~18min | 3 tasks | 5 files |
 | Phase 10 P03 | ~20min | 2 tasks | 2 files |
 | Phase 10 P04 | ~25min | 3 tasks | 4 files |
+| Phase 11 P01 | 6m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -178,6 +179,7 @@ Recent decisions affecting current work:
 - [Phase ?]: MCM breakdown non-Optional: absent block is EMPTY MemoryBreakdown (accessors None) per D-03, honouring the fixed test contract
 - [Phase ?]: MCM-03 flags: value_pct rounded to 1 dp at source; x2 (power-of-two) scaling is bit-exact under IEEE division so machine-independence holds without extra rounding tolerance
 - [Phase ?]: 10-03: attribute_window ports parse_log as three top-level dims (by_oid/by_source/by_sid, D-14); every AttributionRow carries event_ids (D-16 cited ⊆ ep ⊆ store); analyse_mcm is the single orchestration entry
+- [Phase ?]: 11-01: render_mcm_facts exposes only printed [evt:] ids (id set == printed tokens); mcm_facts.md holds zero digits (strict C3 guard).
 
 ### Pending Todos
 
@@ -201,6 +203,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-19T21:15:35.215Z
-Stopped at: Completed 10-04-PLAN.md
+Last session: 2026-07-19T22:31:43.408Z
+Stopped at: Completed 11-01-PLAN.md
 Resume file: None
