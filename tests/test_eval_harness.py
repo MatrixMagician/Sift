@@ -14,9 +14,9 @@ import json
 from pathlib import Path
 
 import pytest
+from _eval_fixtures import eval_handler, patch_http
 from typer.testing import CliRunner
 
-from _eval_fixtures import eval_handler, patch_http
 from sift.cli import app
 
 runner = CliRunner()

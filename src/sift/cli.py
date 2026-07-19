@@ -954,10 +954,91 @@ def report(
 
 
 @app.command("eval")
-def eval_() -> None:
-    """Run the golden-case evaluation suite."""
-    print("eval arrives in Phase 7 (M7)")
-    raise typer.Exit(1)
+def eval_(
+    suite: Annotated[
+        Path,
+        typer.Option("--suite", help="Directory of golden cases (default eval/cases)"),
+    ] = Path("eval/cases"),
+    as_json: Annotated[
+        bool,
+        typer.Option("--json", help="Emit the machine-readable metric table as JSON"),
+    ] = False,
+    i_know_what_im_doing: Annotated[
+        bool,
+        typer.Option(
+            "--i-know-what-im-doing",
+            help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
+        ),
+    ] = False,
+    model: Annotated[
+        str | None,
+        typer.Option("--model", help="Override the generation+embeddings model id"),
+    ] = None,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Run the golden-case evaluation suite and print the metric table (EVAL-02).
+
+    Each case under ``--suite`` runs through the real ingest → cluster →
+    hypothesise pipeline against a temp case.db, then the four quality metrics
+    (retrieval hit rate, hypothesis hit@k, citation validity, determinism drift)
+    are scored against its frozen ``truth.yaml``. Offline runs inject a fake
+    client via the ``_make_http_client`` seam (EVAL-05). ``--json`` emits the
+    machine-readable table. Exit 0 for now; the threshold gate + non-zero exit on
+    regression arrive in a later plan. A missing/invalid ``--suite`` is a usage
+    error (exit 2).
+    """
+    from sift.eval.metrics import SuiteResult
+    from sift.eval.report import render_json_table, render_text_table
+    from sift.eval.runner import run_case
+
+    if not suite.is_dir():
+        print(f"Error: suite directory does not exist: {suite}")
+        raise typer.Exit(2)
+    case_dirs = sorted(
+        d for d in suite.iterdir() if d.is_dir() and (d / "truth.yaml").exists()
+    )
+    if not case_dirs:
+        print(f"Error: no golden cases (with truth.yaml) under {suite}")
+        raise typer.Exit(2)
+
+    overrides: dict[str, object] = {"data_dir": data_dir}
+    if model is not None:
+        overrides["generation"] = {"model": model}
+        overrides["embeddings"] = {"model": model}
+    config = load_config(overrides)
+
+    gen_ep = Endpoint(
+        base_url=config.generation.base_url, model=config.generation.model
+    )
+    emb_ep = Endpoint(
+        base_url=config.embeddings.base_url, model=config.embeddings.model
+    )
+    http = _make_http_client(
+        max(config.generation.timeout, config.embeddings.timeout)
+    )
+    try:
+        try:
+            client = InferenceClient(
+                generation=gen_ep,
+                embeddings=emb_ep,
+                http=http,
+                allow_public=i_know_what_im_doing,
+                retries=config.generation.retries,
+                backoff_base=config.generation.backoff_base,
+                batch_size=config.embeddings.batch_size,
+            )
+        except ValueError as exc:
+            print(f"Error: {_sanitise(str(exc))}")
+            raise typer.Exit(1) from None
+        results = [run_case(case_dir, client, config) for case_dir in case_dirs]
+    finally:
+        http.close()
+
+    suite_result = SuiteResult(results)
+    if as_json:
+        print(render_json_table(suite_result), end="")
+    else:
+        print(render_text_table(suite_result), end="")
 
 
 # The exact, actionable failure message for the Lemonade OGA/ONNX-recipe case
