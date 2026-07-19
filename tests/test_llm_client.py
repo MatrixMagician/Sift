@@ -104,6 +104,43 @@ def test_embed_batches_whole_list() -> None:
     assert seen == [2, 1]  # two batches: sizes 2 then 1
 
 
+def test_embed_truncates_inputs_to_max_input_chars() -> None:
+    # An exemplar longer than the embedding model's context window makes the
+    # backend reject the whole request (llama.cpp exceed_context_size_error).
+    # embed() must cap each input to max_input_chars before sending, so a large
+    # multi-line record (MCM dump, stack trace) never aborts the run.
+    seen: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        inputs = json.loads(request.content)["input"]
+        seen.extend(len(t) for t in inputs)
+        data = [{"index": i, "embedding": [1.0]} for i in range(len(inputs))]
+        return httpx.Response(200, json={"data": data})
+
+    _client(handler, max_input_chars=10).embed(["x" * 50, "short"])
+    assert seen == [10, 5]  # long input truncated to 10 chars; short untouched
+
+
+def test_embed_server_error_object_raises_actionable_message() -> None:
+    # A 200 body carrying {"error": ...} (no "data" list) is how llama.cpp /
+    # Lemonade reject an over-context request. embed() must surface an
+    # actionable message (name the cause + the knob), not the cryptic
+    # "data is not a list".
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "error": {
+                    "message": "request (10237 tokens) exceeds the available "
+                    "context size (8192 tokens)"
+                }
+            },
+        )
+
+    with pytest.raises(ValueError, match="max_input_chars|context"):
+        _client(handler).embed(["anything"])
+
+
 # --- manual backoff (A1) ------------------------------------------------------
 
 
