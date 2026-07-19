@@ -1,0 +1,16 @@
+# Frozen ground truth (D-02/D-04): authored before any prompt tuning. Do not edit
+# to make a run pass — a regression must fail, not be silently accommodated.
+#
+# This is the NEGATIVE case: the logs are healthy steady-state, so there is no
+# root cause to find. It is scored by the no-confident-hypothesis predicate
+# (negative_case_pass) rather than by keyword matching — a confident root cause
+# here is a false positive. required_evidence and acceptable_keywords are empty
+# because there is nothing to retrieve or name.
+root_cause: >
+  No incident is present. The logs show routine steady-state operation —
+  successful requests, passing health checks and scheduled cache refreshes —
+  with no error burst, degradation or anomaly. A confident root-cause hypothesis
+  on this case would be a false positive.
+required_evidence: []
+acceptable_keywords: []
+expect_no_incident: true

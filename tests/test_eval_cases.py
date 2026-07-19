@@ -54,7 +54,8 @@ def _case_dirs() -> list[Path]:
 
 def _offline_client(config: SiftConfig) -> tuple[InferenceClient, httpx.Client]:
     """Build an InferenceClient wired to the empty-reply MockTransport (no socket)."""
-    http = httpx.Client(transport=httpx.MockTransport(eval_handler(hyp_content=_EMPTY_HYPSET)))
+    handler = eval_handler(hyp_content=_EMPTY_HYPSET)
+    http = httpx.Client(transport=httpx.MockTransport(handler))
     client = InferenceClient(
         generation=Endpoint(
             base_url=config.generation.base_url, model=config.generation.model
