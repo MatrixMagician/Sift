@@ -26,7 +26,7 @@ byte-identical on re-run.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
@@ -235,6 +235,75 @@ class DiagnosticFlag(BaseModel):
     value_pct: float  # the triggering ratio, *100, rounded deterministically (1 dp)
     message: str  # British-English one-liner with the % inline
     event_ids: tuple[str, ...]
+
+
+class AttributionRow(BaseModel):
+    """One aggregated lead-up attribution figure (MCM-04 / D-14 / D-16).
+
+    A single row of one dimension: the memory granted to one ``key`` (an OID, a
+    ``Source=`` request type, or a SID/session) over the lead-up window.
+    ``event_ids`` carries the deduped, insertion-ordered ``event_id``s of the
+    grant lines it aggregates — the D-16 ``cited ⊆ store`` provenance that makes
+    every figure verifiable. ``sids`` is populated ONLY for ``dimension="oid"``:
+    the distinct sessions that consumed that object, the fan-out note resolving
+    the one-OID/many-SID case (D-14).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dimension: str  # "oid" | "source" | "sid"
+    key: str
+    granted_bytes: int
+    request_count: int
+    event_ids: tuple[str, ...]
+    sids: tuple[str, ...] = ()  # distinct sessions, only for dimension="oid"
+
+
+class Attribution(BaseModel):
+    """The lead-up window attributed across three independent dimensions (D-14).
+
+    ``by_oid`` / ``by_source`` / ``by_sid`` each aggregate the SAME succeeded
+    grants keyed differently — flattened to three top-level tables (the reference
+    nested source under oid). Rows are sorted ``granted_bytes`` desc then ``key``
+    asc for determinism. A succeeded line missing SID/OID/Size is recorded in
+    ``unmatched_event_ids`` rather than dropped (nothing disappears silently).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    by_oid: tuple[AttributionRow, ...]
+    by_source: tuple[AttributionRow, ...]
+    by_sid: tuple[AttributionRow, ...]
+    unmatched_event_ids: tuple[str, ...]
+
+
+class EpisodeAnalysis(BaseModel):
+    """One episode's full analysis: episode + window + flags + attribution.
+
+    The unit the report/CLI (Plan 04) render per denial episode — bundling the
+    detected episode (MCM-01/02), its auto-selected lead-up window (MCM-04/D-13),
+    its graded diagnostic flags (MCM-03/D-12) and its three-dimension attribution
+    (MCM-04/D-14).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    episode: McmEpisode
+    window: EpisodeWindow
+    flags: tuple[DiagnosticFlag, ...]
+    attribution: Attribution
+
+
+class McmAnalysis(BaseModel):
+    """The full MCM analysis over a case: one EpisodeAnalysis per episode.
+
+    The single object ``analyse_mcm`` returns and the renderer/CLI consume. An
+    empty case (no MCM denial episodes) yields ``episodes=()`` — never a crash.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    episodes: tuple[EpisodeAnalysis, ...]
 
 
 # --- Ported block parsers (docs/reference/analyze_dss8.py:247-286) -----------
@@ -775,3 +844,133 @@ def detect_episodes(events: list[Event]) -> list[McmEpisode]:
             )
         )
     return episodes
+
+
+# --- Lead-up attribution (docs/reference/analyze_dss8.py:293-394; D-14/D-16) --
+
+
+@dataclass
+class _Attr:
+    """Mutable per-key accumulator for one attribution dimension.
+
+    ``event_ids`` / ``sids`` are appended in walk order and deduped via
+    ``dict.fromkeys`` at row build — never ``set`` iteration (determinism).
+    """
+
+    granted_bytes: int = 0
+    request_count: int = 0
+    event_ids: list[str] = field(default_factory=list[str])
+    sids: list[str] = field(default_factory=list[str])
+
+
+def attribute_window(
+    ep: McmEpisode, window: EpisodeWindow, events: list[Event]
+) -> Attribution:
+    """Attribute the lead-up window across three independent dimensions (MCM-04).
+
+    A faithful port of the reference ``parse_log`` (analyze_dss8.py:293-394)
+    forward accumulation, flattened from the reference's ``oid_sources[oid][src]``
+    nesting to THREE top-level tables — by OID, by ``Source=`` request type and by
+    SID/session — so the one-OID/many-SID fan-out is resolved by session (D-14).
+
+    Walks ``[window.start_event_id … denial)`` EXCLUSIVE of the denial banner
+    (Pitfall 1: post-denial/recovery grants are never attributed; Pitfall 5: the
+    denial line's own failed-request ``Source=`` is gated out by ``SUCCESS_MARKER``
+    and by stopping before the denial line). For the full-lead-up fallback
+    (``window.start_event_id is None``) the walk starts at the episode's span head.
+    On each ``SUCCESS_MARKER`` line SID AND OID AND Size are required, else the
+    line's ``event_id`` is recorded in ``unmatched_event_ids`` — nothing disappears
+    silently (D-03). ``Source`` defaults to ``"Unknown"`` when absent.
+
+    Every ``AttributionRow.event_ids`` carries the owning grant-line ``event_id``s
+    (D-16 — the ``cited ⊆ ep.event_ids ⊆ store`` bridge Phase 11 reuses); rows are
+    sorted ``granted_bytes`` desc then ``key`` asc; ids are deduped insertion-
+    ordered. Pure and I/O-free: rebuilds the same D-06-ordered stream as
+    ``detect_episodes`` and never re-sorts.
+    """
+    stream = _line_stream([e for e in events if e.source == "dsserrors"])
+    # Denial banner index for THIS episode — the walk stops just before it.
+    denial_idx = next(
+        (
+            i
+            for i, (line, eid, _ts) in enumerate(stream)
+            if eid == ep.denial_event_id and DENIAL_MARKER in line
+        ),
+        len(stream),
+    )
+    # Window start: the narrowed descent start (a real event_id), or the lead-up
+    # span head for the full-lead-up fallback (window.start_event_id is None).
+    head = window.start_event_id or (ep.event_ids[0] if ep.event_ids else None)
+    start_idx = next(
+        (i for i, (_line, eid, _ts) in enumerate(stream) if eid == head), 0
+    )
+
+    by_oid: dict[str, _Attr] = {}
+    by_source: dict[str, _Attr] = {}
+    by_sid: dict[str, _Attr] = {}
+    unmatched: list[str] = []
+
+    for i in range(start_idx, denial_idx):
+        line, eid, _ts = stream[i]
+        if SUCCESS_MARKER not in line:
+            continue
+        sid_m = SID_RE.search(line)
+        oid_m = OID_RE.search(line)
+        size_m = SIZE_RE.search(line)
+        if not (sid_m and oid_m and size_m):
+            unmatched.append(eid)
+            continue
+        sid, oid, size = sid_m.group(1), oid_m.group(1), int(size_m.group(1))
+        source_m = SOURCE_RE.search(line)
+        source = source_m.group(1) if source_m else "Unknown"
+        for bucket, key in ((by_oid, oid), (by_source, source), (by_sid, sid)):
+            acc = bucket.setdefault(key, _Attr())
+            acc.granted_bytes += size
+            acc.request_count += 1
+            acc.event_ids.append(eid)
+        by_oid[oid].sids.append(sid)  # fan-out note lives on the OID row only
+
+    def rows(dimension: str, buckets: dict[str, _Attr]) -> tuple[AttributionRow, ...]:
+        out = [
+            AttributionRow(
+                dimension=dimension,
+                key=key,
+                granted_bytes=acc.granted_bytes,
+                request_count=acc.request_count,
+                event_ids=tuple(dict.fromkeys(acc.event_ids)),
+                sids=tuple(dict.fromkeys(acc.sids)) if dimension == "oid" else (),
+            )
+            for key, acc in buckets.items()
+        ]
+        out.sort(key=lambda r: (-r.granted_bytes, r.key))
+        return tuple(out)
+
+    return Attribution(
+        by_oid=rows("oid", by_oid),
+        by_source=rows("source", by_source),
+        by_sid=rows("sid", by_sid),
+        unmatched_event_ids=tuple(dict.fromkeys(unmatched)),
+    )
+
+
+def analyse_mcm(events: list[Event], thresholds: McmThresholdsConfig) -> McmAnalysis:
+    """Compose the full MCM analysis — the single entry the CLI (Plan 04) calls.
+
+    ``detect_episodes`` then, per episode, ``select_window`` (Plan 01) +
+    ``compute_flags`` (Plan 02) + ``attribute_window`` bundled into one
+    ``EpisodeAnalysis``. No episodes → ``McmAnalysis(episodes=())`` (never a
+    crash). Pure and deterministic: ``model_dump_json`` is byte-identical on
+    re-run (no ``set`` iteration anywhere on the path).
+    """
+    analyses: list[EpisodeAnalysis] = []
+    for ep in detect_episodes(events):
+        window = select_window(ep)
+        analyses.append(
+            EpisodeAnalysis(
+                episode=ep,
+                window=window,
+                flags=compute_flags(ep, thresholds),
+                attribution=attribute_window(ep, window, events),
+            )
+        )
+    return McmAnalysis(episodes=tuple(analyses))
