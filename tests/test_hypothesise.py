@@ -24,7 +24,7 @@ import pytest
 
 from sift.config import ClusteringConfig
 from sift.llm.client import Endpoint, InferenceClient
-from sift.models import Event, event_id
+from sift.models import Event, Hypothesis, HypothesisSet, event_id
 from sift.pipeline import cluster, dedup, hypothesise
 from sift.store import CaseStore
 
@@ -425,5 +425,55 @@ def test_atomic_persist_rolls_back(
                 store, client, top_clusters=10, incident_time=None
             )
         assert store.query_hypotheses() == []  # rolled back to zero rows
+    finally:
+        store.close()
+
+
+def test_successful_reanalyze_clears_stale_raw(tmp_path: Path) -> None:
+    """A later successful run clears triage_raw left by a prior degraded run.
+
+    Regression: the non-degraded persist branch never overwrote ``triage_raw``,
+    so ``sift report`` rendered a stale "Raw model output" block from the earlier
+    degraded run underneath the new valid hypotheses.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        degraded = hypothesise.Outcome(
+            hypotheses=None,
+            raw='{"stale": "unvalidated output from a weak model"}',
+            degraded=True,
+            failed=False,
+            citations_valid=False,
+            prompt_hash="0" * 16,
+        )
+        hypothesise._persist(store, degraded, set(), "0" * 16, "weak")  # pyright: ignore[reportPrivateUsage]
+        assert store.get_meta("triage_raw")  # raw persisted on the degrade
+
+        good_id = event_id("case.log", 0)
+        good = hypothesise.Outcome(
+            hypotheses=HypothesisSet(
+                hypotheses=[
+                    Hypothesis(
+                        title="Real cause",
+                        narrative="A valid, cited hypothesis.",
+                        confidence="high",
+                        confidence_reasoning="grounded in the cited event",
+                        supporting_event_ids=[good_id],
+                        contradicting_evidence=None,
+                        suggested_next_steps=["restart the service"],
+                    )
+                ],
+                timeline_summary="ok",
+                unexplained_signals=[],
+            ),
+            raw=None,
+            degraded=False,
+            failed=False,
+            citations_valid=True,
+            prompt_hash="1" * 16,
+        )
+        hypothesise._persist(store, good, {good_id}, "1" * 16, "good")  # pyright: ignore[reportPrivateUsage]
+
+        assert not store.get_meta("triage_raw")  # stale raw cleared
     finally:
         store.close()
