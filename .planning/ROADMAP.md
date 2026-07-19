@@ -321,7 +321,7 @@ Plans:
   4. `sift mcm <case>` writes a deterministic human-readable report and a CSV export of the per-OID/per-Source/per-SID attribution table
   5. Two differently-sized machines under the same relative pressure produce identical flags — verified against a scaled fixture (thresholds are % based, machine-independent)
 
-**Plans:** 1/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -330,11 +330,11 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 10-02-PLAN.md — Graded info/warn/critical `compute_flags` (5 % -based dimensions, inverted headroom) + `[mcm.thresholds]` config + ×2-scaled machine-independence proof (MCM-03) (wave 2)
+- [x] 10-02-PLAN.md — Graded info/warn/critical `compute_flags` (5 % -based dimensions, inverted headroom) + `[mcm.thresholds]` config + ×2-scaled machine-independence proof (MCM-03) (wave 2)
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 10-03-PLAN.md — Three-dimension attribution (OID/Source/SID, SID fan-out, `event_id` provenance) + `analyse_mcm` orchestration into `McmAnalysis` (MCM-04 attribution) (wave 3)
+- [x] 10-03-PLAN.md — Three-dimension attribution (OID/Source/SID, SID fan-out, `event_id` provenance) + `analyse_mcm` orchestration into `McmAnalysis` (MCM-04 attribution) (wave 3)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -371,7 +371,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
 | 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
 | 9. MCM Episode Detection & Denial-Time Memory Breakdown | 3/2 | Complete    | 2026-07-19 |
-| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 1/4 | In Progress|  |
+| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 3/4 | In Progress|  |
 | 11. MCM Facts into `sift analyze` + Golden Eval Case | 0/— | Not started |  |
 
 ---

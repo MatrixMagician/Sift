@@ -5,15 +5,15 @@ milestone_name: MCM Memory-Pressure Analysis
 current_phase: 10
 current_phase_name: diagnostic-flags-lead-up-attribution-sift-mcm-report-csv
 status: executing
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-07-19T20:53:07.493Z"
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-07-19T21:06:05.404Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 6
-  completed_plans: 3
+  completed_plans: 5
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 10 (diagnostic-flags-lead-up-attribution-sift-mcm-report-csv) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-19 — Phase 10 execution started
 
@@ -104,6 +104,7 @@ Last activity: 2026-07-19 — Phase 10 execution started
 | Phase 09 P02 | ~35m | 2 tasks | 3 files |
 | Phase 10 P01 | ~14min | 2 tasks | 3 files |
 | Phase 10 P02 | ~18min | 3 tasks | 5 files |
+| Phase 10 P03 | ~20min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -174,6 +175,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 9 RED (09-01): pinned sift.pipeline.mcm public API (detect_episodes/McmEpisode/MemoryBreakdown/LifecycleSignal) via 8 failing golden tests + verbatim Hartford deny slice; MCM-01/02 completed at GREEN 09-02
 - [Phase ?]: MCM breakdown non-Optional: absent block is EMPTY MemoryBreakdown (accessors None) per D-03, honouring the fixed test contract
 - [Phase ?]: MCM-03 flags: value_pct rounded to 1 dp at source; x2 (power-of-two) scaling is bit-exact under IEEE division so machine-independence holds without extra rounding tolerance
+- [Phase ?]: 10-03: attribute_window ports parse_log as three top-level dims (by_oid/by_source/by_sid, D-14); every AttributionRow carries event_ids (D-16 cited ⊆ ep ⊆ store); analyse_mcm is the single orchestration entry
 
 ### Pending Todos
 
@@ -197,6 +199,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-19T20:53:07.487Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-07-19T21:06:05.397Z
+Stopped at: Completed 10-03-PLAN.md
 Resume file: None
