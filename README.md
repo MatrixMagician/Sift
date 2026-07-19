@@ -143,6 +143,14 @@ Write the report to a file instead of stdout with `sift report my-incident --out
 Inspect intermediate state at any point with `sift show`
 (e.g. `sift show my-incident clusters`, `sift show my-incident hypotheses`).
 
+> **Hypothesis quality depends on the generation model.** A very small or
+> unstable model may return hypotheses that fail Sift's citation validation:
+> the report is still produced but marked **DEGRADED**, with the raw model
+> output preserved for inspection rather than presented as verified findings.
+> For ranked, evidence-cited hypotheses, use a competent, stable generation
+> model that returns non-empty completions. Ingestion, clustering, and the
+> timeline are unaffected by the generation model.
+
 ## 5. Optional: PDF reports
 
 PDF output is an opt-in extra so the core install stays free of system
