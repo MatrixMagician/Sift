@@ -361,7 +361,7 @@ Also assert the two runs' *own* re-run is byte-identical (determinism), so the s
 
 ---
 
-## CRITICAL DELIVERABLE 5 — Validation Architecture
+## Validation Architecture (Critical Deliverable 5)
 
 > nyquist_validation is enabled (config key absent = enabled). This anchor seeds VALIDATION.md.
 
