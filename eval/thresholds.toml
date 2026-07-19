@@ -1,0 +1,17 @@
+# eval/thresholds.toml — the `sift eval` regression gate (EVAL-03, D-07).
+#
+# Each value is a LOWER-BOUND floor: the suite aggregate for that metric must
+# satisfy `value >= floor` or `sift eval` exits non-zero (ADR 0010). All four
+# metrics share the "higher is better" direction so one comparison covers them.
+#
+# determinism_stability is the GATED form of "determinism drift" — the report
+# DISPLAYS drift = 1 - stability (SPEC §6 wording) but the gate compares the
+# stability floor, keeping every floor a uniform lower bound (ADR 0010).
+#
+# Judge scores never appear here: the LLM-as-judge is advisory only and never
+# enters the gate (D-08).
+
+retrieval_hit_rate     = 0.80   # fraction of required evidence surfaced to the model
+hypothesis_hit_at_k    = 1.00   # a top-k hypothesis must hit an acceptable keyword
+citation_validity_rate = 1.00   # the anti-hallucination invariant — 100% expected
+determinism_stability  = 1.00   # offline runs are byte-identical by construction
