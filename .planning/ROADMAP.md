@@ -20,7 +20,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: Domain Adapters (journald, dsserrors, eustack)** - Parallel-safe leaf adapters encoding MicroStrategy and systemd domain knowledge (M5) (completed 2026-07-18)
 - [x] **Phase 6: Renderers & KB Retrieval** - Markdown/JSON/PDF reports with evidence appendix, reproducibility contract, knowledge-base retrieval (M6) (completed 2026-07-18)
 - [x] **Phase 7: Evaluation Harness & Golden Cases** - ≥5 golden incidents, metric table, CI thresholds, optional LLM-as-judge (M7) (completed 2026-07-19)
-- [ ] **Phase 8: Packaging & Deploy** - `uv tool install` distribution and optional Podman Quadlet deployment (M8)
+- [x] **Phase 8: Packaging & Deploy** - `uv tool install` distribution and optional Podman Quadlet deployment (M8) (completed 2026-07-19)
 
 ## Phase Details
 
@@ -261,7 +261,7 @@ Plans:
   2. Podman Quadlet files ship with a llama-server example, validate per `podman quadlet` dry-run docs, and document the `host.containers.internal` interaction with the loopback guard
   3. README quickstart covers llama.cpp setup (Vulkan and ROCm notes for gfx1151) and Lemonade Server
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 
@@ -288,7 +288,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
-| 8. Packaging & Deploy | 3/3 | In Progress|  |
+| 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
 
 ---
 *Roadmap created: 2026-07-16 — phases map 1:1 to SPEC.md milestones M1–M8*
