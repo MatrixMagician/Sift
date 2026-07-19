@@ -17,6 +17,7 @@ findings:
   warning: 1
   info: 3
   total: 4
+  warning_resolved: 1
 status: issues_found
 ---
 
@@ -69,6 +70,15 @@ Findings below are all robustness/consistency notes, none blocking.
 ## Warnings
 
 ### WR-01: MCM fact block is not counted against `PromptBudget`; unbounded in episode count
+
+**RESOLVED** (9efab09, TDD RED efab50c): `render_mcm_facts` now caps the rendered
+denial episodes at `_MAX_EPISODES` (8), most-severe-first via a stable severity
+sort (equal severity keeps D-06 chronological order → deterministic). Bounds the
+previously-unbounded episode count so a denial storm cannot overflow the
+un-budgeted MCM prompt prefix (honours D-19); only rendered episodes' ids enter
+`prompted_ids`, so `cited ⊆ prompted` and the no-MCM byte-identity + single-episode
+golden case are unaffected.
+
 
 **File:** `src/sift/pipeline/hypothesise.py:369-380`, `src/sift/llm/budget.py:49-57`
 **Issue:** `PromptBudget.fit(excerpts)` budgets only the cluster-excerpt list
