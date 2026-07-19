@@ -22,15 +22,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sift.adapters.dsserrors import DsserrorsAdapter
+from sift.models import Event
 from sift.pipeline.mcm import (  # RED: this module is built in 09-02 (GREEN)
     LifecycleSignal,
     McmEpisode,
     MemoryBreakdown,
     detect_episodes,
 )
-
-from sift.adapters.dsserrors import DsserrorsAdapter
-from sift.models import Event
 from sift.store import CaseStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mcm"

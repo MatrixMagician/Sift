@@ -26,8 +26,13 @@ byte-identical on re-run.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from sift.models import Event
 
 # --- Ported regex constants (docs/reference/analyze_dss8.py:38-66) -----------
 # Anchored, linear-scan patterns with required terminators — no ReDoS
@@ -178,7 +183,9 @@ class McmEpisode(BaseModel):
     fragmented: bool
     event_ids: tuple[str, ...]  # all rows in the episode span, ordered, deduped
     lifecycle: tuple[LifecycleSignal, ...]
-    breakdown: MemoryBreakdown | None
+    # Always present; an absent/garbled block is the EMPTY breakdown (all maps
+    # empty, every accessor -> None) rather than a fabricated one (D-03).
+    breakdown: MemoryBreakdown
 
 
 # --- Ported block parsers (docs/reference/analyze_dss8.py:247-286) -----------
@@ -241,3 +248,221 @@ def parse_abbrev_block(lines: list[str], start_idx: int) -> tuple[dict[str, str]
         else:
             break
     return data, idx
+
+
+# --- Episode detection (ported prescan + D-02/D-06/D-07 extensions) ----------
+
+# One line of the reconstructed stream: (line_text, owning_event_id, iso_ts).
+_StreamLine = tuple[str, str, str | None]
+
+
+@dataclass
+class _RawEpisode:
+    """Prescan output: episode boundaries as stream indices carrying event_ids."""
+
+    denial_idx: int
+    denial_event_id: str
+    denial_ts: str | None
+    recovery_event_id: str | None
+    open_truncated: bool
+    span_start: int
+    span_end: int
+
+
+def _line_stream(dss: list[Event]) -> list[_StreamLine]:
+    """Rebuild the event-id-carrying line stream from ``event.raw`` (D-01).
+
+    Splits each row's verbatim text on newlines in the already-queried order —
+    the store's ``ORDER BY ts IS NULL, ts, source_file, line_start`` is the D-06
+    canonical order, so this NEVER re-sorts (store.py:567).
+    """
+    stream: list[_StreamLine] = []
+    for e in dss:
+        ts = e.ts.isoformat() if e.ts is not None else None
+        for line in e.raw.split("\n"):
+            stream.append((line, e.event_id, ts))
+    return stream
+
+
+def _prescan(stream: list[_StreamLine]) -> list[_RawEpisode]:
+    """Port of analyze_dss8.py:112-238 over stream indices (not file linenos).
+
+    Same-burst denial banners within one episode collapse; a denial banner that
+    follows intervening successes closes the prior episode (implicit recovery);
+    an open episode at EOF is flagged ``open_truncated`` (D-07). An
+    ``AvailableMCM`` climb or resumed successes never close an episode (Q2).
+    """
+    episodes: list[_RawEpisode] = []
+    in_denial = False
+    start_idx: int | None = None
+    start_eid: str | None = None
+    start_ts: str | None = None
+    prev_recovery_idx = -1
+    succeeded_idxs: list[int] = []
+
+    for i, (line, eid, ts) in enumerate(stream):
+        if SUCCESS_MARKER in line:
+            succeeded_idxs.append(i)
+
+        if DENIAL_MARKER in line:
+            if not in_denial:
+                start_idx, start_eid, start_ts = i, eid, ts
+                in_denial = True
+            elif (
+                start_idx is not None
+                and start_eid is not None
+                and any(idx > start_idx for idx in succeeded_idxs)
+            ):
+                # New activity since the open denial -> partial recovery: close
+                # the current episode (no State=normal, but clearly ended).
+                episodes.append(
+                    _RawEpisode(
+                        denial_idx=start_idx,
+                        denial_event_id=start_eid,
+                        denial_ts=start_ts,
+                        recovery_event_id=None,
+                        open_truncated=False,
+                        span_start=prev_recovery_idx + 1,
+                        span_end=i - 1,
+                    )
+                )
+                prev_recovery_idx = start_idx
+                start_idx, start_eid, start_ts = i, eid, ts
+            # else: same-burst repeated banner -> ignore.
+
+        if NORMAL_MARKER in line and in_denial:
+            assert start_idx is not None and start_eid is not None
+            episodes.append(
+                _RawEpisode(
+                    denial_idx=start_idx,
+                    denial_event_id=start_eid,
+                    denial_ts=start_ts,
+                    recovery_event_id=eid,
+                    open_truncated=False,
+                    span_start=prev_recovery_idx + 1,
+                    span_end=i,
+                )
+            )
+            prev_recovery_idx = i
+            in_denial = False
+            start_idx = start_eid = start_ts = None
+
+    if in_denial:
+        assert start_idx is not None and start_eid is not None
+        episodes.append(
+            _RawEpisode(
+                denial_idx=start_idx,
+                denial_event_id=start_eid,
+                denial_ts=start_ts,
+                recovery_event_id=None,
+                open_truncated=True,
+                span_start=prev_recovery_idx + 1,
+                span_end=len(stream) - 1,
+            )
+        )
+    return episodes
+
+
+def _scan_lifecycle(
+    stream: list[_StreamLine], span_start: int, span_end: int
+) -> tuple[LifecycleSignal, ...]:
+    """Emit the pinned denial-lifecycle signals within the episode span (D-02).
+
+    Kind is classified by tail text; an absent marker simply yields no signal
+    (D-03 — never fabricated). Each signal keeps its owning ``event_id``.
+    """
+    signals: list[LifecycleSignal] = []
+    for i in range(span_start, span_end + 1):
+        line, eid, ts = stream[i]
+        if OFFLOAD_COMPLETE_MARKER in line:
+            kind = "emergency-offload-complete"
+        elif OFFLOAD_START_MARKER in line:
+            kind = "emergency-offload-start"
+        elif MEMORY_STATUS_LOW_MARKER in line:
+            kind = "memory-status-low"
+        else:
+            continue
+        signals.append(
+            LifecycleSignal(kind=kind, event_id=eid, ts=ts, text=line.strip())
+        )
+    return tuple(signals)
+
+
+def _build_breakdown(
+    stream_lines: list[str], ep: _RawEpisode, dss: list[Event], pos: dict[str, int]
+) -> tuple[MemoryBreakdown, bool]:
+    """Parse the Format-A detail block from the denial line and associate the
+    nearest in-span Info Dump (Q1), returning ``(breakdown, fragmented)``.
+
+    The detail block is read forward from the denial banner; MCM Settings /
+    Current Memory Info are found by scanning BACKWARD within the span for the
+    nearest markers. An empty detail block whose neighbouring event is a
+    different ``source_file`` sets ``fragmented`` (D-06). An absent/garbled block
+    yields the EMPTY breakdown (all maps empty, accessors -> None) rather than
+    raising or fabricating (D-03).
+    """
+    detail, _ = parse_detail_block(stream_lines, ep.denial_idx + 1)
+
+    current_info: dict[str, str] = {}
+    mcm_settings: dict[str, str] = {}
+    for i in range(ep.denial_idx - 1, ep.span_start - 1, -1):
+        line = stream_lines[i]
+        if not mcm_settings and MCM_SETTINGS_MARKER in line:
+            mcm_settings, _ = parse_abbrev_block(stream_lines, i + 1)
+        elif not current_info and CURRENT_INFO_MARKER in line:
+            current_info, _ = parse_abbrev_block(stream_lines, i + 1)
+        if mcm_settings and current_info:
+            break
+
+    fragmented = False
+    if not detail:
+        p = pos[ep.denial_event_id]
+        if p + 1 < len(dss) and dss[p + 1].source_file != dss[p].source_file:
+            fragmented = True
+
+    breakdown = MemoryBreakdown(
+        raw_map=detail, current_memory_info=current_info, mcm_settings=mcm_settings
+    )
+    return breakdown, fragmented
+
+
+def detect_episodes(events: list[Event]) -> list[McmEpisode]:
+    """Detect MCM denial episodes over stored ``dsserrors`` events (MCM-01).
+
+    Pure and non-interactive: filters to ``source == "dsserrors"``, rebuilds the
+    event-id line stream in the incoming (D-06) order without re-sorting, runs
+    the ported prescan, and for each episode captures the lifecycle signals
+    (D-02), the denial-time Format-A breakdown + nearest in-span Info Dump (Q1),
+    open/truncated (D-07) and fragmentation (D-06) state. Deterministic: no
+    ``set`` iteration, so ``model_dump_json`` is byte-identical on re-run (D-05).
+    """
+    dss = [e for e in events if e.source == "dsserrors"]
+    if not dss:
+        return []
+
+    stream = _line_stream(dss)
+    stream_lines = [line for line, _eid, _ts in stream]
+    pos = {e.event_id: i for i, e in enumerate(dss)}
+
+    episodes: list[McmEpisode] = []
+    for ep in _prescan(stream):
+        span_eids = tuple(
+            dict.fromkeys(
+                stream[i][1] for i in range(ep.span_start, ep.span_end + 1)
+            )
+        )
+        lifecycle = _scan_lifecycle(stream, ep.span_start, ep.span_end)
+        breakdown, fragmented = _build_breakdown(stream_lines, ep, dss, pos)
+        episodes.append(
+            McmEpisode(
+                denial_event_id=ep.denial_event_id,
+                denial_ts=ep.denial_ts,
+                recovery=ep.recovery_event_id,
+                open_truncated=ep.open_truncated,
+                fragmented=fragmented,
+                event_ids=span_eids,
+                lifecycle=lifecycle,
+                breakdown=breakdown,
+            )
+        )
+    return episodes
