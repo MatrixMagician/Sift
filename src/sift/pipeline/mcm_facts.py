@@ -83,7 +83,8 @@ def render_mcm_facts(analysis: McmAnalysis) -> tuple[str, set[str]]:
 
         # Graded diagnostic flags — surface value_pct verbatim (never re-derived).
         for flag in sorted(
-            ea.flags, key=lambda f: _SEVERITY_ORDER.get(f.severity, len(_SEVERITY_ORDER))
+            ea.flags,
+            key=lambda f: _SEVERITY_ORDER.get(f.severity, len(_SEVERITY_ORDER)),
         ):
             eid = flag.event_ids[0]
             ids.add(eid)
