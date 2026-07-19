@@ -321,7 +321,24 @@ Plans:
   4. `sift mcm <case>` writes a deterministic human-readable report and a CSV export of the per-OID/per-Source/per-SID attribution table
   5. Two differently-sized machines under the same relative pressure produce identical flags — verified against a scaled fixture (thresholds are % based, machine-independent)
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 10-01-PLAN.md — Window inputs (`hwm_bytes`/`avail_timeline` on `McmEpisode`) + non-interactive 25%-of-HWM `select_window` + pre-denial multi-SID descending fixture (MCM-04 window) (wave 1)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 10-02-PLAN.md — Graded info/warn/critical `compute_flags` (5 % -based dimensions, inverted headroom) + `[mcm.thresholds]` config + ×2-scaled machine-independence proof (MCM-03) (wave 2)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 10-03-PLAN.md — Three-dimension attribution (OID/Source/SID, SID fan-out, `event_id` provenance) + `analyse_mcm` orchestration into `McmAnalysis` (MCM-04 attribution) (wave 3)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 10-04-PLAN.md — `sift mcm <case>` bundle: injection-safe timeline-first Markdown/JSON report + dimension-tagged CSV into `<case>/mcm/` + stdout summary (MCM-05) (wave 4)
 
 ### Phase 11: MCM Facts into `sift analyze` + Golden Eval Case
 
