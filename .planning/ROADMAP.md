@@ -261,7 +261,18 @@ Plans:
   2. Podman Quadlet files ship with a llama-server example, validate per `podman quadlet` dry-run docs, and document the `host.containers.internal` interaction with the loopback guard
   3. README quickstart covers llama.cpp setup (Vulkan and ROCm notes for gfx1151) and Lemonade Server
 
-**Plans**: TBD
+**Plans:** 3 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 08-01-PLAN.md — PKG-01 install slice: `packaging` marker + addopts, offline install smoke test, `sift --version` (wave 1)
+
+**Wave 2** *(blocked on 08-01)*
+
+- [ ] 08-02-PLAN.md — PKG-02 deploy slice: `deploy/*.container` (guard-clean loopback), ADR 0011, guard-acceptability + graceful-skip Quadlet dry-run tests (wave 2)
+- [ ] 08-03-PLAN.md — README quickstart (D-09): install → backend (two-instance, Vulkan/ROCm, Lemonade caveat) → doctor → analyse → report → pdf extra + human-verify (wave 2)
 
 ## Progress
 
