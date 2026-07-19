@@ -29,7 +29,7 @@ Phase 8 delivers the **packaging and deployment surface** so a stranger on Fedor
 
 ### Podman Quadlet deployment (PKG-02)
 - **D-05:** Ship `deploy/sift.container` (Podman Quadlet unit) and `deploy/llama-server.container.example`, matching the SPEC §7 directory tree. **Rootless Podman is the documented default.**
-- **D-06:** **Loopback-guard interaction (load-bearing).** Inside the container, the inference endpoint is reached via `http://host.containers.internal:<port>/v1`. `host.containers.internal` resolves to an **RFC1918 host/gateway address**, which `_assert_local` (`src/sift/llm/client.py:54`) **already permits** — confirmed by `test_assert_local_accepts_loopback_and_rfc1918` (`tests/test_llm_client.py:49`). Therefore **no `--i-know-what-im-doing` is needed from inside the Quadlet**; document this explicitly. Only genuinely public (non-loopback, non-RFC1918) endpoints require the override.
+- **D-06:** **Loopback-guard interaction (load-bearing — CORRECTED after research, 2026-07-19).** The original mechanism was wrong. `_assert_local` (`src/sift/llm/client.py:54-84`) inspects the **literal hostname string and never performs DNS**: it accepts `localhost` / `*.localhost` and literal loopback / RFC1918 / link-local **IPs**, and refuses everything else unless `allow_public`. Because `host.containers.internal` is a bare hostname (not `*.localhost`, not a literal IP), the guard would **REJECT** it — the RFC1918-resolution reasoning does not apply (the guard never resolves). To preserve the goal (**no `--i-know-what-im-doing` from inside the container**), the Quadlet uses **`Network=host` and points Sift at `http://127.0.0.1:<port>/v1`** — a loopback literal the guard accepts, and backend-agnostic. **Alternative** (only if network isolation is required): a `*.localhost` `AddHost` alias (e.g. `llama.localhost` → host address) pointed at via `http://llama.localhost:<port>/v1`, since the guard accepts `*.localhost`. Document the guard's literal-string behaviour and the chosen mechanism. Recorded in ADR 0011 (D-08) and `08-RESEARCH.md`.
 - **D-07:** Validate the Quadlet files against the `podman quadlet` dry-run docs. Because Podman may be absent on a CI runner, **any automated validation must skip gracefully** when `podman` / the quadlet generator is unavailable — this is documentation + best-effort dry-run, **not a hard CI gate** that fails on a Podman-less machine.
 - **D-08:** Record the Quadlet ↔ loopback-guard deployment decision as a **new ADR (`docs/decisions/0011-*.md`)**, following the project's numbered-ADR convention (each ADR cites the SPEC section / requirement it resolves).
 
@@ -56,8 +56,8 @@ Phase 8 delivers the **packaging and deployment surface** so a stranger on Fedor
 - `SPEC.md` §1 / hardware table — Strix Halo gfx1151, Vulkan is the "more robust default", ROCm 7.2+; Sift never touches the GPU (only the inference server does).
 
 ### Load-bearing code (Quadlet decision)
-- `src/sift/llm/client.py:54` `_assert_local(base_url, allow_public)` — the loopback/RFC1918 guard; permits loopback + RFC1918, rejects public unless `allow_public`.
-- `tests/test_llm_client.py:49` `test_assert_local_accepts_loopback_and_rfc1918` — proves RFC1918 (hence `host.containers.internal`) is permitted.
+- `src/sift/llm/client.py:54-84` `_assert_local(base_url, allow_public)` — the SSRF guard; inspects the **literal hostname**, never resolves DNS. Accepts `localhost` / `*.localhost` and literal loopback / RFC1918 / link-local IPs; refuses everything else (including bare hostnames like `host.containers.internal`) unless `allow_public`.
+- `tests/test_llm_client.py` `test_assert_local_accepts_loopback_and_rfc1918` — proves literal RFC1918 **IPs** pass; it does NOT cover bare hostnames, so it does not license `host.containers.internal` (see corrected D-06).
 - `src/sift/cli.py` — `--i-know-what-im-doing` flag on `doctor`/`analyze`/`eval` ("Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)").
 
 ### Packaging assets & prior decisions
@@ -89,7 +89,7 @@ Phase 8 delivers the **packaging and deployment surface** so a stranger on Fedor
 <specifics>
 ## Specific Ideas
 
-- The Quadlet story must make the loopback-guard interaction explicit and correct: `host.containers.internal` → RFC1918 → permitted, no override flag. This is the single most error-prone point of the deploy docs and is a named SPEC acceptance criterion.
+- The Quadlet story must make the loopback-guard interaction explicit and correct (D-06, corrected): `Network=host` + `http://127.0.0.1:<port>/v1` (loopback literal → guard-permitted, no override flag) — NOT `host.containers.internal`, which the literal-hostname guard rejects. This is the single most error-prone point of the deploy docs and is a named SPEC acceptance criterion.
 - Vulkan is the recommended default backend for gfx1151 (SPEC calls it "the more robust default on this APU"); ROCm 7.2+ is the documented alternative.
 </specifics>
 
