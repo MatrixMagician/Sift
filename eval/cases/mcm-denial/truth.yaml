@@ -1,0 +1,30 @@
+# Frozen ground truth (D-02 / MCM-07): authored BEFORE any prompt tuning. Do not
+# edit this file to make a run pass — a regression must fail, not be silently
+# accommodated.
+#
+# MCM-sensitivity note (T-11-06, resolved per the plan-checker guard): run_case
+# matches `required_evidence` against the CLUSTER EXEMPLARS (the raw log text fed
+# to the model), NOT against the injected MCM fact block — so those regexes are
+# insensitive to whether MCM injection runs. The MCM-sensitive metric for this
+# case is therefore `citation_validity_rate`: a hypothesis may cite the MCM
+# denial event_id ONLY because injection unions it into `prompted_ids`; remove
+# the injection and that same citation is FLAGGED, dropping citation_validity_rate
+# below its 1.0 floor and turning the case red. See README.md and the sensitivity
+# test `test_mcm_denial_citation_validity_is_mcm_sensitive` in
+# tests/test_eval_cases.py, which proves it.
+root_cause: >
+  The Intelligence Server entered an MCM (Memory Contract Manager) denial state:
+  AvailableMCM fell to zero while the working set dominated IServer virtual
+  memory, so a memory contract request was rejected. The working-set-driven
+  memory exhaustion is the true cause; the repeated "Contract Request Failed"
+  errors are the loud symptom.
+required_evidence:            # regexes, matched case-insensitively vs the clusters fed to the model
+  - "Contract Request Failed"
+  - "MCM denial state"
+  - "memory is running low"
+acceptable_keywords:          # any-of, case-insensitive, vs hypothesis title + narrative
+  - memory
+  - MCM
+  - working set
+  - denial
+expect_no_incident: false

@@ -1,0 +1,66 @@
+2026-04-07 12:39:47.142 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628162102848][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:228F633570FB19126BEDB1BE1E017A8A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=CDSSXTabIndices::GenDistinctC, Handle=1, Size=19283968, Contracted=22875734016, AvailableMCM=0, AvailableSYS=52691341312, IServerPB=417200287744, IServerOSC=407406687184, IServerPHY=383156236288, HWM(PB)=469891629056
+2026-04-07 12:39:47.146 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:1258] Contract Request Failed. ***** Start of Info Dump *****.
+2026-04-07 12:39:47.146 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:1388] Source= TableJoin, Handle=1, Size=45056.
+ContractedTotal=22875746304, AvailableTotal=0.
+2026-04-07 12:39:47.147 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImplSH.cpp:336] Current Memory Info:
+System Total = 535325863936 (498.6GB)
+System Available = 52691341312 (49.1GB)
+I-Server Private Memory Size = 417200287744 (388.5GB)
+I-Server Memory Oscillator = 407406687184 (379.4GB)
+All Other Process Data = 65050796032 (60.6GB)
+System Total Physical Memory = 535325863936 (498.6GB)
+System Available Physical Memory = 52691341312 (49.1GB)
+I-Server In-Use Physical Memory = 383156236288 (356.8GB)
+All Other Process In-Use Physical Memory = 99478286336 (92.6GB)
+System Cache/Buffer Size = 15534309376 (14.5GB)
+SmartHeap Cache Size = 1081822112 (1.0GB)
+High Watermark = 469891629056 (437.6GB)
+Low Watermark = 446397047550 (415.7GB)
+2026-04-07 12:39:47.147 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:1443] MCM Settings: 
+Single Alloc Limit = unlimited
+Memory Reserve = 0 (0Bytes)
+Doubling Limit = 1048576 (1.0MB)
+SmartHeap Cache Releasable = true
+2026-04-07 12:39:47.147 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:1267] Contract Request Failed. ***** End of Info Dump *****.
+2026-04-07 12:39:47.150 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Dimensional Storage][Error][0x80043F60][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][CDSSXTabTableJoin.cpp:7028] Intelligence Server cannot handle your request either because the memory is running low or because a memory request has exceeded a limit. Please contact the server administrator or re-submit your request later.
+2026-04-07 12:39:47.176 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628071749184][Kernel][Error][0x80043F60][UID:F225CB6B7940CD545B1094B4CC10DD0C][SID:265ED9D922E2E3435ED4FD62042B84A2][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][CDSSEvaluationPU.cpp:1483] Intelligence Server cannot handle your request either because the memory is running low or because a memory request has exceeded a limit. Please contact the server administrator or re-submit your request later.[MSIEvaluationTask::Run(): Caught an MBase::ContractManagerAllocException with text: ][No memory to be contracted. Contract request rejected.
+System Error (-2147072563): --- Unknown error.]
+2026-04-07 12:39:47.230 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628254557760][Kernel][Info][UID:3946BFB92540710A30401AA238E09723][SID:2AB16B9C8C7F809EC1028D3907DA0B0D][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][MSIServerStateLogger.cpp:964] IServer enters MCM denial state. The breakdown of memory usage is: 
+Total System Physical Memory(GB): 499
+	Total In Use Physical Memory For Intelligence Server(MB): 373392
+		Total Size Of Physical Memory Used For Memory Mapped Files(MB): 308
+	Total In Use Physical Memory For Other Processes(MB): 94516
+	Total Physical Memory For File Cache(MB): 14807
+Total System Virtual Memory(GB): 499
+	Max memory Available to the Intelligence Server Based On Memory Contract Manager(MB): 0
+	Total In Use Virtual Memory(Including MMF) For Intelligence Server(MB): 410325
+		Total Stack Size Used by Intelligence Server(MB): 5642
+		Total Buffer Size Used by Intelligence Server(MB): 370220
+		Report Caches In Memory(MB): 14
+		Document Caches In Memory(MB): 0
+		Cube Caches In Memory(MB): 27923
+			Cube Size Growth In Memory Including Indexes(MB): 31057
+			MMF Virtual Memory Size(MB): 365
+		Object Server Caches In Memory(MB): 1341
+		Element Server Caches In Memory(MB): 0
+		Working Set Cache RAM Usage Of Report/Document/Dashboard Instances(MB): 268502
+		Transient Memory Used By Report Instance that is not included in the WorkingSet or Cube cache counters(KB): 0
+		Transient Memory Used By Document Instance that is not included in the WorkingSet or Cube cache counters(KB): 0
+		Unused Memory Pool In SmartHeap(MB): 5221
+			Total SmartHeap Cached Memory Utilization(MB): 215
+		Other Memory In Intelligence Server(MB): 101682
+Note: Other memory In Intelligence Server may include part of the memory for runtime jobs that is not included in the above counters
+Working set includes runtime memory necessary for Report/Document/Dashboard execution while the Report/Document/Dashboard instances are in use
+SmartHeap cache memory is used for performance improvements
+2026-04-07 12:39:47.236 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628134786624][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:228F633570FB19126BEDB1BE1E017A8A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=GovernedObject, Handle=1, Size=17285120, Contracted=22890987520, AvailableMCM=0, AvailableSYS=52691341312, IServerPB=417200287744, IServerOSC=407406687184, IServerPHY=383156236288, HWM(PB)=469891629056
+2026-04-07 12:39:47.252 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628183115328][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:228F633570FB19126BEDB1BE1E017A8A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=CDSSXTabIndices::GenDistinctC, Handle=1, Size=17121280, Contracted=22908743680, AvailableMCM=0, AvailableSYS=52691341312, IServerPB=417200287744, IServerOSC=407406687184, IServerPHY=383156236288, HWM(PB)=469891629056
+2026-04-07 12:39:47.269 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628044432960][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:228F633570FB19126BEDB1BE1E017A8A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=CComXTabBuffer3, Handle=1, Size=14729216, Contracted=22904004608, AvailableMCM=0, AvailableSYS=52691341312, IServerPB=417200287744, IServerOSC=407406687184, IServerPHY=383156236288, HWM(PB)=469891629056
+2026-04-07 12:39:47.306 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628271367744][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:E6843C86926A80439B2784D133DF70F2][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=CDSSXTabColumn::SetWorkingBuffer, Handle=1, Size=22093824, Contracted=22909317120, AvailableMCM=10221216831, AvailableSYS=53912965120, IServerPB=416003010560, IServerOSC=405386026208, IServerPHY=381977337856, HWM(PB)=469915975680
+2026-04-07 12:39:47.308 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628214634048][Kernel][Info][UID:01A9FC7A654939AE0DE12BBAE754E237][SID:FEDE6980D5AF20F3DF8793692266DA01][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=GovernedObject, Handle=1, Size=13127680, Contracted=22922706944, AvailableMCM=10203235391, AvailableSYS=53912965120, IServerPB=416003010560, IServerOSC=405386026208, IServerPHY=381977337856, HWM(PB)=469915975680
+2026-04-07 12:39:47.336 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628124280384][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:228F633570FB19126BEDB1BE1E017A8A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=GovernedObject, Handle=1, Size=11333632, Contracted=22940577792, AvailableMCM=10218075199, AvailableSYS=53912965120, IServerPB=416003010560, IServerOSC=405386026208, IServerPHY=381977337856, HWM(PB)=469915975680
+2026-04-07 12:39:47.346 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628210431552][Kernel][Info][UID:0A0A1B8C3344A1C68C7BD38C345EA502][SID:9243DD3FD79A12B6BEA24C06CF62F35A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=GovernedObject, Handle=1, Size=12734464, Contracted=22993485824, AvailableMCM=10132063295, AvailableSYS=53912965120, IServerPB=416003010560, IServerOSC=405386026208, IServerPHY=381977337856, HWM(PB)=469915975680
+2026-04-07 12:39:47.349 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139632522024512][Kernel][Info][UID:0][SID:0][OID:0][WSResultPool.cpp:117] WSResultPool::SetMemoryStatus() : memory status = 1, factor = 1, max limit = 512000000
+2026-04-07 12:39:47.349 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139632522024512][Kernel][Info][UID:0][SID:0][OID:0][ContractManagerImplSH.cpp:81] Memory status changes to low (available memory is less than 20% of total memory but memory contract manager is still accepting requests)
+2026-04-07 12:39:47.349 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139631454328384][Kernel][Info][UID:0][SID:0][OID:0][MsiSessionManager.cpp:2608] MsiSessionManager::MemoryStatusHandler() : Memory status is low (available memory is less than 20% of total memory but memory contract manager is still accepting requests).
+2026-04-07 12:39:47.355 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139631454328384][Kernel][Info][UID:0][SID:0][OID:0][MsiSessionManager.cpp:2638] MsiSessionManager::MemoryStatusHandler() : Initiating emergency memory offload for Working Set due to low memory. Memory consumption before release is 274925879 KB.
+2026-04-07 12:39:47.356 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139631454328384][Kernel][Info][UID:0][SID:0][OID:0][MsiSessionManager.cpp:2645] MsiSessionManager::MemoryStatusHandler() : Working set emergency offload completed. Memory consumption after release is 274925879 KB.
