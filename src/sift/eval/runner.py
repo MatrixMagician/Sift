@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from sift.eval.judge import judge_case
 from sift.eval.metrics import (
     CaseResult,
     citation_validity_rate,
@@ -102,13 +103,20 @@ def run_case(
     *,
     repeats: int = 2,
     k: int = 3,
+    judge: bool = False,
 ) -> CaseResult:
     """Score one golden case end-to-end and return its ``CaseResult``.
 
     ``repeats`` (D-06, N) independent pipeline runs on fresh copies of the
     post-ingest db drive the determinism metric; the first run's persisted rows
     drive the keyword metrics. A transport/parse failure surfaces as a
-    ``run_failed`` result rather than crashing the whole suite."""
+    ``run_failed`` result rather than crashing the whole suite.
+
+    When ``judge`` is set, the first run's hypotheses are additionally graded
+    against ``truth.root_cause`` by the advisory LLM-as-judge (EVAL-04); the
+    score is attached to ``CaseResult.judge_score`` but NEVER enters any metric
+    or gate (D-08). ``judge_case`` degrades to ``None`` on any error, so it
+    cannot turn a scored case into a ``run_failed`` one."""
     # Reuse the analyze CLI seams verbatim (the sanctioned reuse points): the
     # top-clusters default and the ingest leg. Lazy import breaks a cli↔eval cycle.
     from sift.cli import (  # noqa: PLC0415
@@ -176,6 +184,9 @@ def run_case(
         from sift.eval.metrics import negative_case_pass
 
         negative_pass = negative_case_pass(hyps)
+    # Advisory only (D-08): judge_case degrades to None on any error, so this can
+    # never turn a scored case into a failure and is never read by the gate.
+    judged = judge_case(client, truth, hyps) if judge else None
     return CaseResult(
         name=name,
         retrieval_hit_rate=retrieval_hit_rate(metric_texts, truth.required_evidence),
@@ -184,4 +195,5 @@ def run_case(
         determinism_stability=determinism_stability(docs),
         expect_no_incident=truth.expect_no_incident,
         negative_case_pass=negative_pass,
+        judge_score=judged.score if judged is not None else None,
     )

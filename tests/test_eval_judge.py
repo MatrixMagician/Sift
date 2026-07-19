@@ -19,9 +19,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import httpx
 import pytest
 from _eval_fixtures import Handler, eval_handler, patch_http, single_case_suite
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
 from sift.cli import app
 
@@ -43,32 +44,29 @@ _BAD_JUDGE = "sorry, I cannot produce JSON right now"
 
 
 def _judge_handler(judge_reply: str) -> Handler:
-    """The good keyword handler, but the judge chat call (recognised by its
-    ``score`` response_format schema) returns ``judge_reply``.
+    """The good keyword handler, but the judge chat call returns ``judge_reply``.
 
-    Distinguishing on the schema's properties — not prompt wording — keeps the
-    fake robust to prompt edits (judge.md is a versioned template)."""
+    The judge call is recognised by ``"justification"`` in its ``response_format``
+    schema — a property unique to the judge schema (the generation call's
+    HypothesisSet schema has none). Distinguishing on the schema, not the prompt
+    wording, keeps the fake robust to judge.md edits (it is a versioned template)."""
     base = eval_handler()
 
-    def handler(request):  # noqa: ANN001 — httpx.Request, matches Handler alias
-        if request.url.path.endswith("/chat/completions"):
-            payload = json.loads(request.content)
-            rf = payload.get("response_format")
-            schema = rf.get("schema", {}) if isinstance(rf, dict) else {}
-            props = schema.get("properties", {}) if isinstance(schema, dict) else {}
-            if "score" in props:
-                import httpx
-
-                return httpx.Response(
-                    200, json={"choices": [{"message": {"content": judge_reply}}]}
-                )
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("utf-8")
+        if request.url.path.endswith("/chat/completions") and (
+            '"justification"' in body
+        ):
+            return httpx.Response(
+                200, json={"choices": [{"message": {"content": judge_reply}}]}
+            )
         return base(request)
 
     return handler
 
 
 def _run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, handler: Handler,
-         *args: str) -> object:
+         *args: str) -> Result:
     patch_http(monkeypatch, handler)
     suite = single_case_suite(tmp_path)
     return runner.invoke(

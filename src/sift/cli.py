@@ -970,6 +970,13 @@ def eval_(
         bool,
         typer.Option("--json", help="Emit the machine-readable metric table as JSON"),
     ] = False,
+    judge: Annotated[
+        bool,
+        typer.Option(
+            "--judge",
+            help="Add an advisory local-model judge score (never affects the gate)",
+        ),
+    ] = False,
     i_know_what_im_doing: Annotated[
         bool,
         typer.Option(
@@ -1048,7 +1055,9 @@ def eval_(
         except ValueError as exc:
             print(f"Error: {_sanitise(str(exc))}")
             raise typer.Exit(1) from None
-        results = [run_case(case_dir, client, config) for case_dir in case_dirs]
+        results = [
+            run_case(case_dir, client, config, judge=judge) for case_dir in case_dirs
+        ]
     finally:
         http.close()
 
@@ -1057,7 +1066,7 @@ def eval_(
     if as_json:
         print(render_json_table(suite_result, gate_result), end="")
     else:
-        print(render_text_table(suite_result, gate_result), end="")
+        print(render_text_table(suite_result, gate_result, show_judge=judge), end="")
     # The command OWNS the non-zero exit so CI sees a regression (T-07-07);
     # it is never suppressed by an advisory judge score (D-08).
     if not gate_result.passed:

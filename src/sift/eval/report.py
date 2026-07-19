@@ -28,24 +28,43 @@ def _status(case: CaseResult) -> str:
     return "ok"
 
 
-def render_text_table(suite: SuiteResult, gate: GateResult | None = None) -> str:
+def _judge_cell(case: CaseResult) -> str:
+    """The advisory judge column value: the score, or ``n/a`` when ungraded (the
+    judge degraded to no-score, D-08 — this can never affect the gate)."""
+    if case.judge_score is None:
+        return f"{'n/a':>6}"
+    return f"{case.judge_score:>6.2f}"
+
+
+def render_text_table(
+    suite: SuiteResult,
+    gate: GateResult | None = None,
+    *,
+    show_judge: bool = False,
+) -> str:
     """A British-English plain-text metric table: one row per case plus a
     suite-aggregate row. Columns: retrieval hit rate, hypothesis hit@k, citation
     validity, determinism drift (= 1 − stability), and a status flag.
 
     When ``gate`` is supplied, a per-metric floor verdict and the overall
-    pass/fail line are appended (the CI gate, Plan 03)."""
+    pass/fail line are appended (the CI gate, Plan 03).
+
+    When ``show_judge`` is set (``sift eval --judge``) an advisory ``judge``
+    column is inserted; it is reported ALONGSIDE the keyword metrics and NEVER
+    enters the gate (D-08). Off, the output is byte-identical to Plan 03."""
+    judge_head = f"  {'judge':>6}" if show_judge else ""
     header = (
         f"{'case':<32}  {'retrieval':>9}  {'hit@k':>6}  "
-        f"{'citation':>8}  {'drift':>6}  status"
+        f"{'citation':>8}  {'drift':>6}{judge_head}  status"
     )
     lines = [header, "-" * len(header)]
     for case in suite.cases:
         drift = 1.0 - case.determinism_stability
+        judge_cell = f"  {_judge_cell(case)}" if show_judge else ""
         lines.append(
             f"{sanitise(case.name):<32}  {case.retrieval_hit_rate:>9.2f}  "
             f"{case.hypothesis_hit_at_k:>6.2f}  {case.citation_validity_rate:>8.2f}  "
-            f"{drift:>6.2f}  {_status(case)}"
+            f"{drift:>6.2f}{judge_cell}  {_status(case)}"
         )
     agg_drift = 1.0 - suite.mean_determinism_stability()
     lines.append("-" * len(header))
@@ -54,6 +73,8 @@ def render_text_table(suite: SuiteResult, gate: GateResult | None = None) -> str
         f"{suite.mean_hypothesis_hit_at_k():>6.2f}  "
         f"{suite.mean_citation_validity_rate():>8.2f}  {agg_drift:>6.2f}"
     )
+    if show_judge:
+        lines.append("(judge column is advisory — it never affects the gate)")
     if gate is not None:
         lines.append("")
         lines.append("gate (floors):")
