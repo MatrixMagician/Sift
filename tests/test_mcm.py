@@ -26,11 +26,17 @@ from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.config import McmThresholdsConfig  # RED: built in 10-02 (GREEN)
 from sift.models import Event
 from sift.pipeline.mcm import (  # RED: this module is built in 09-02 (GREEN)
+    Attribution,  # RED: attribution API built in 10-03 (GREEN)
+    AttributionRow,  # RED: attribution API built in 10-03 (GREEN)
     DiagnosticFlag,  # RED: flag API built in 10-02 (GREEN)
+    EpisodeAnalysis,  # RED: orchestration API built in 10-03 (GREEN)
     EpisodeWindow,  # RED: window API built in 10-01 (GREEN)
     LifecycleSignal,
+    McmAnalysis,  # RED: orchestration API built in 10-03 (GREEN)
     McmEpisode,
     MemoryBreakdown,
+    analyse_mcm,  # RED: built in 10-03 (GREEN)
+    attribute_window,  # RED: built in 10-03 (GREEN)
     compute_flags,  # RED: built in 10-02 (GREEN)
     detect_episodes,
     select_window,
@@ -520,3 +526,258 @@ def test_machine_independence_scaled(tmp_path: Path) -> None:
     assert (
         len(slice_ep.breakdown.raw_map) == len(double_ep.breakdown.raw_map) == 23
     )
+
+
+# ---------------------------------------- MCM-04 / D-14 / D-16 (attribution)
+#
+# Attribution walks the lead-up window ``[window.start_event_id … denial)`` and
+# aggregates the succeeded grants into THREE independent dimensions — by OID, by
+# ``Source=`` request type and by SID/session (D-14) — every figure carrying the
+# owning grant-line ``event_id``s (D-16, the ``cited ⊆ store`` bridge for Phase 11).
+#
+# Note on the fan-out fixture and window width: ``select_window`` narrows
+# ``hartford_deny_predenial_multisid.log`` to a 2-grant 25%-of-HWM DESCENT window
+# (see ``test_select_window_descent``). The one-OID/many-SID fan-out (4 distinct
+# SIDs across all 5 lead-up grants) is only visible over the FULL lead-up, so the
+# fan-out / three-dimension / provenance assertions drive a full-lead-up window
+# (``start_event_id=None``); the ``test_attribution_window_narrows_descent`` case
+# separately proves the ``[window.start … denial)`` narrowing on the descent
+# window. Both are legitimate ``EpisodeWindow``s ``select_window`` itself emits.
+
+
+def _analysis_inputs(
+    tmp_path: Path, rel: str
+) -> tuple[list[McmEpisode], list[Event], set[str]]:
+    """Ingest a fixture through the real adapter + store and return
+    (episodes, queried events, store id set) — attribution and analyse_mcm both
+    consume the queried events, so this hands all three back in one shot."""
+    adapter = DsserrorsAdapter()
+    adapter.input_root = FIXTURES
+    events = list(adapter.parse(FIXTURES / rel, "case1"))
+    store = CaseStore(tmp_path / "case.db")
+    store.insert_events(events)
+    queried = store.query_events()
+    return detect_episodes(queried), queried, {e.event_id for e in queried}
+
+
+def _full_leadup_window(ep: McmEpisode) -> EpisodeWindow:
+    """The full-lead-up ``EpisodeWindow`` (``start_event_id=None``) — the span in
+    which the multi-SID fan-out is visible; identical in shape to the fallback
+    ``select_window`` emits for an empty/None-HWM lead-up."""
+    return EpisodeWindow(
+        threshold_pct=0,
+        start_event_id=None,
+        hwm_bytes=ep.hwm_bytes,
+        request_count=len(ep.avail_timeline),
+        label="full available lead-up",
+    )
+
+
+# The five lead-up grants of hartford_deny_predenial_multisid.log, verbatim.
+_FANOUT_OID = "A3EDD9C7A24367D7CBEA259E1A9A91C0"
+_LEADUP_SIZES = [19283968, 17285120, 14729216, 22093824, 11333632]
+
+
+def test_attribution_three_dimensions(tmp_path: Path) -> None:
+    """attribute_window over the multi-SID lead-up returns an Attribution whose
+    by_oid / by_source / by_sid are each non-empty; the single fan-out OID's row
+    aggregates the summed lead-up Size= bytes and lists its >=3 distinct sessions
+    (D-14 three independent dimensions)."""
+    episodes, events, _ids = _analysis_inputs(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    ep = episodes[0]
+    attr = attribute_window(ep, _full_leadup_window(ep), events)
+    assert isinstance(attr, Attribution)
+    assert attr.by_oid and attr.by_source and attr.by_sid
+
+    oid_rows = [r for r in attr.by_oid if r.key == _FANOUT_OID]
+    assert len(oid_rows) == 1
+    row = oid_rows[0]
+    assert isinstance(row, AttributionRow)
+    assert row.dimension == "oid"
+    assert row.granted_bytes == sum(_LEADUP_SIZES)
+    assert row.request_count == len(_LEADUP_SIZES)
+    assert len(row.sids) >= 3
+
+
+def test_sid_fanout_resolved(tmp_path: Path) -> None:
+    """The one-OID/many-SID fan-out is resolved by the by_sid table: >=3 rows,
+    one per distinct pre-denial SID, all for the single fan-out OID (D-14). The
+    per-SID granted bytes sum back to the OID's total (no double counting)."""
+    episodes, events, _ids = _analysis_inputs(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    ep = episodes[0]
+    attr = attribute_window(ep, _full_leadup_window(ep), events)
+    assert len(attr.by_sid) >= 3
+    assert all(r.dimension == "sid" for r in attr.by_sid)
+    assert sum(r.granted_bytes for r in attr.by_sid) == sum(_LEADUP_SIZES)
+    # by_oid also records the same distinct SIDs on the fan-out row.
+    oid_row = next(r for r in attr.by_oid if r.key == _FANOUT_OID)
+    assert set(oid_row.sids) == {r.key for r in attr.by_sid}
+
+
+def test_attribution_event_id_provenance(tmp_path: Path) -> None:
+    """Every AttributionRow.event_ids is a non-empty, deduped, insertion-ordered
+    tuple whose ids are all in the store AND in ep.event_ids (D-16 provenance —
+    the cited ⊆ ep.event_ids ⊆ store bridge Phase 11 reuses)."""
+    episodes, events, ids = _analysis_inputs(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    ep = episodes[0]
+    attr = attribute_window(ep, _full_leadup_window(ep), events)
+    span = set(ep.event_ids)
+    all_rows = (*attr.by_oid, *attr.by_source, *attr.by_sid)
+    assert all_rows
+    for r in all_rows:
+        assert r.event_ids  # non-empty
+        assert list(r.event_ids) == list(dict.fromkeys(r.event_ids))  # deduped/ordered
+        for eid in r.event_ids:
+            assert eid in ids  # cited ⊆ store
+            assert eid in span  # cited ⊆ ep.event_ids
+    # unmatched (none here) stays a tuple, also ⊆ store.
+    for eid in attr.unmatched_event_ids:
+        assert eid in ids
+
+
+def _synthetic_leadup() -> tuple[McmEpisode, list[Event]]:
+    """A synthetic open episode: two matched pre-denial grants, one succeeded
+    line missing its SID (unmatched), a denial banner carrying a *failed*-request
+    ``Source=`` (Pitfall 5), then a post-denial recovery grant (Pitfall 1)."""
+    base = datetime(2026, 4, 7, 12, 0, 0, tzinfo=UTC)
+
+    def line(i: int, body: str) -> Event:
+        ts = base.replace(second=i)
+        raw = f"{ts.isoformat()} [HOST:h][SERVER:CastorServer] {body}"
+        return _ev(f"{i:016x}", "node1/DSSErrors.log", raw, ts)
+
+    events = [
+        line(0, "Contract Request Succeeded: Source=Alpha, Size=1000 "
+                "[SID:0][OID:0]"),
+        line(1, "Contract Request Succeeded: Source=Beta, Size=2000 "
+                "[SID:0][OID:0]"),
+        line(2, "Contract Request Succeeded: Source=NoSid, Size=50 [OID:0]"),
+        line(3, "IServer enters MCM denial state. Contract Request Failed: "
+                "Source=DeniedReq, Size=9999 [SID:0][OID:0]"),
+        line(4, "Contract Request Succeeded: Source=PostDenial, Size=999 "
+                "[SID:0][OID:0]"),
+    ]
+    episodes = detect_episodes(events)
+    assert len(episodes) == 1
+    return episodes[0], events
+
+
+def test_attribution_excludes_post_denial() -> None:
+    """Only lead-up grants are attributed: the denial line's own failed-request
+    Source= (Pitfall 5) and the post-denial recovery grant (Pitfall 1) appear in
+    NO dimension, and the totals equal only the pre-denial grants."""
+    ep, events = _synthetic_leadup()
+    attr = attribute_window(ep, _full_leadup_window(ep), events)
+    sources = {r.key for r in attr.by_source}
+    assert sources == {"Alpha", "Beta"}
+    assert "DeniedReq" not in sources
+    assert "PostDenial" not in sources
+    assert sum(r.granted_bytes for r in attr.by_source) == 3000
+    # Post-denial / denial-line bytes never leak into by_oid either.
+    assert sum(r.granted_bytes for r in attr.by_oid) == 3000
+
+
+def test_attribution_unmatched_recorded() -> None:
+    """A succeeded line missing SID/OID/Size lands in unmatched_event_ids, never
+    dropped silently and never counted in a dimension (nothing disappears)."""
+    ep, events = _synthetic_leadup()
+    attr = attribute_window(ep, _full_leadup_window(ep), events)
+    nosid_id = f"{2:016x}"
+    assert nosid_id in attr.unmatched_event_ids
+    counted = {
+        eid
+        for r in (*attr.by_oid, *attr.by_source, *attr.by_sid)
+        for eid in r.event_ids
+    }
+    assert nosid_id not in counted
+
+
+def test_attribution_window_narrows_descent(tmp_path: Path) -> None:
+    """attribute_window over the select_window DESCENT window attributes only the
+    grants inside [window.start … denial): a strict subset of the full lead-up,
+    proving the [window.start … denial) narrowing (must_have truth #4)."""
+    episodes, events, _ids = _analysis_inputs(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    ep = episodes[0]
+    narrow = attribute_window(ep, select_window(ep), events)
+    full = attribute_window(ep, _full_leadup_window(ep), events)
+    narrow_oid = next(r for r in narrow.by_oid if r.key == _FANOUT_OID)
+    full_oid = next(r for r in full.by_oid if r.key == _FANOUT_OID)
+    # The descent window is the final 2 grants only -> strictly fewer bytes/SIDs.
+    assert narrow_oid.granted_bytes < full_oid.granted_bytes
+    assert set(narrow_oid.event_ids) < set(full_oid.event_ids)
+    assert len(narrow.by_sid) < len(full.by_sid)
+
+
+def test_attribution_empty_window() -> None:
+    """An episode with an empty lead-up (denial is the first line) yields empty
+    by_oid/by_source/by_sid and unmatched, and does not raise."""
+    banner = (
+        "2026-04-07 12:39:47.230 [HOST:h][SERVER:CastorServer] "
+        "IServer enters MCM denial state. The breakdown of memory usage is:"
+    )
+    denial = _ev(
+        "deadbeefdeadbeef",
+        "node1/DSSErrors.log",
+        banner,
+        datetime(2026, 4, 7, 12, 39, 47, tzinfo=UTC),
+    )
+    ep = detect_episodes([denial])[0]
+    attr = attribute_window(ep, select_window(ep), [denial])
+    assert attr.by_oid == ()
+    assert attr.by_source == ()
+    assert attr.by_sid == ()
+    assert attr.unmatched_event_ids == ()
+
+
+def test_analyse_mcm_orchestration(tmp_path: Path) -> None:
+    """analyse_mcm composes detect_episodes + select_window + compute_flags +
+    attribute_window into a McmAnalysis with one EpisodeAnalysis per episode,
+    each bundling the episode, its window, its flags and its attribution; an
+    events list with no dsserrors episodes returns an empty McmAnalysis."""
+    _episodes, events, _ids = _analysis_inputs(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    analysis = analyse_mcm(events, McmThresholdsConfig())
+    assert isinstance(analysis, McmAnalysis)
+    assert len(analysis.episodes) == 1
+    ea = analysis.episodes[0]
+    assert isinstance(ea, EpisodeAnalysis)
+    assert isinstance(ea.episode, McmEpisode)
+    assert isinstance(ea.window, EpisodeWindow)
+    assert isinstance(ea.attribution, Attribution)
+    assert all(isinstance(f, DiagnosticFlag) for f in ea.flags)
+    # The window used is select_window(ep); attribution is bounded by it.
+    assert ea.window.start_event_id == select_window(ea.episode).start_event_id
+
+    # No dsserrors -> empty analysis, not a crash.
+    assert analyse_mcm([], McmThresholdsConfig()).episodes == ()
+
+
+def test_analyse_mcm_determinism(tmp_path: Path) -> None:
+    """Two analyse_mcm runs over the same events are byte-identical
+    (model_dump_json equal); attribution rows are sorted granted_bytes desc,
+    key asc (no set iteration in ordered output)."""
+    _episodes, events, _ids = _analysis_inputs(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    t = McmThresholdsConfig()
+    first = [ea.model_dump_json() for ea in analyse_mcm(events, t).episodes]
+    second = [ea.model_dump_json() for ea in analyse_mcm(events, t).episodes]
+    assert first == second
+
+    attr = attribute_window(
+        analyse_mcm(events, t).episodes[0].episode,
+        _full_leadup_window(analyse_mcm(events, t).episodes[0].episode),
+        events,
+    )
+    for dim in (attr.by_oid, attr.by_source, attr.by_sid):
+        keys = [(r.granted_bytes, r.key) for r in dim]
+        assert keys == sorted(keys, key=lambda p: (-p[0], p[1]))
