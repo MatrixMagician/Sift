@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 from _eval_fixtures import eval_handler
 
 from sift.config import SiftConfig, load_config
@@ -254,9 +255,10 @@ def test_mcm_denial_citation_validity_is_mcm_sensitive(
     # denial id is no longer in prompted_ids -> the citation gate FLAGS it.
     from sift.pipeline import hypothesise
 
-    monkeypatch.setattr(
-        hypothesise, "render_mcm_facts", lambda _analysis: ("", set())
-    )
+    def _no_mcm_block(_analysis: object) -> tuple[str, set[str]]:
+        return "", set()
+
+    monkeypatch.setattr(hypothesise, "render_mcm_facts", _no_mcm_block)
     client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
     try:
         off = run_case(_MCM_CASE, client2, config)
