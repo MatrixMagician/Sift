@@ -73,6 +73,35 @@ def _apply_kb_block(template: str, kb_context: list[str] | None) -> str:
     joined = "\n\n".join(sanitise(chunk) for chunk in kb_context)
     return _KB_MARKER_RE.sub("", template).replace(_KB_SLOT, joined)
 
+
+# The MCM fact block in triage.md is delimited by these HTML-comment sentinels,
+# mirroring the KB block's shape exactly (same DOTALL regexes, same trailing-`\n`
+# capture). ``_apply_mcm_block`` either fills the ``<<MCM_FACTS>>`` slot and drops
+# the marker lines (MCM present) or removes the whole block start-through-end (no
+# MCM) so the no-MCM prompt is byte-identical to its pre-phase form. Unlike KB,
+# MCM facts ARE citable — that inversion lives in ``_assemble``'s ``prompted_ids``.
+_MCM_SLOT = "<<MCM_FACTS>>"
+_MCM_BLOCK_RE = re.compile(
+    r"<!-- MCM_BLOCK_START.*?-->\n.*?<!-- MCM_BLOCK_END.*?-->\n", re.DOTALL
+)
+_MCM_MARKER_RE = re.compile(r"<!-- MCM_BLOCK_(?:START|END).*?-->\n", re.DOTALL)
+
+
+def _apply_mcm_block(template: str, fact_block: str | None) -> str:
+    """Resolve the triage template's MCM block against ``fact_block`` (MCM-06).
+
+    No MCM data → the entire sentinel block (start marker through end marker,
+    including the trailing newline) is removed, leaving the pre-phase prompt bytes
+    unchanged. MCM present → the two marker lines are dropped and the
+    ``<<MCM_FACTS>>`` slot is replaced with ``fact_block`` (already
+    ``sanitise``d value-by-value by ``render_mcm_facts`` — this fn only splices,
+    it does NOT re-sanitise). MCM facts become citable via ``_assemble``'s
+    ``prompted_ids`` union, the inverse of the KB path.
+    """
+    if not fact_block:
+        return _MCM_BLOCK_RE.sub("", template)
+    return _MCM_MARKER_RE.sub("", template).replace(_MCM_SLOT, fact_block)
+
 # Explicit severity rank, mirroring cluster._SEVERITY_RANK — never lexicographic
 # ('unknown' > 'error' as a string would be wrong). Frozen by the clusters
 # severity CHECK constraint, so a local copy cannot drift.
@@ -208,6 +237,7 @@ def _assemble(
     the exact assembled prompt text (for hashing).
     """
     template = _apply_kb_block(template, kb_context)
+    template = _apply_mcm_block(template, None)
     event_ids: list[str] = []
     excerpts: list[str] = []
     for cluster, _score in ranked:
