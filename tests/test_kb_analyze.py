@@ -356,6 +356,35 @@ def test_analyze_kb_empty_dir_exits_cleanly(
     assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
+# --- _apply_mcm_block + no-MCM byte-identity (Plan 11-02, criterion 5) --------
+
+
+def test_apply_mcm_block_strips_and_substitutes() -> None:
+    """`_apply_mcm_block(t, None)` removes the whole MCM sentinel block; a body
+    drops the two marker lines and fills the slot — mirroring `_apply_kb_block`."""
+    template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
+    stripped = hypothesise._apply_mcm_block(template, None)  # pyright: ignore[reportPrivateUsage]
+    assert "MCM_BLOCK" not in stripped
+    assert "<<MCM_FACTS>>" not in stripped
+    filled = hypothesise._apply_mcm_block(template, "BODYLINE")  # pyright: ignore[reportPrivateUsage]
+    assert "MCM_BLOCK" not in filled
+    assert "<<MCM_FACTS>>" not in filled
+    assert "BODYLINE" in filled
+
+
+def test_assemble_no_mcm_is_byte_identical_baseline(tmp_path: Path) -> None:
+    """With the MCM path active but no MCM data (genericlog-only corpus), the
+    assembled prompt hash equals the pre-phase baseline — a residue-free MCM
+    strip that keeps `_NO_KB_PROMPT_HASH` intact (criterion 5)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        _ids, prompt_no = _assemble(store, _client(_handler()), None)
+        assert hypothesise._prompt_hash(prompt_no) == _NO_KB_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    finally:
+        store.close()
+
+
 def test_analyze_kb_valid_citation_is_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
