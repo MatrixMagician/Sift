@@ -78,6 +78,22 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **PKG-01**: `uv tool install` from a clean checkout yields a working `sift` (pipx-compatible)
 - [x] **PKG-02**: Optional Podman Quadlet deployment files ship with a llama-server example, documented for Fedora/gfx1151 (Vulkan and ROCm notes)
 
+## v1.1 Requirements — MCM Memory-Pressure Analysis
+
+Integrating and extending the reference script `analyze_dss8.py`. Deterministic
+at the core (no LLM needed for the numbers); LLM narration is additive and never
+alters the figures. Validated against the real Hartford deny log.
+
+### MCM Analysis
+
+- [ ] **MCM-01**: User can run a deterministic MCM memory-pressure analysis over a `dsserrors` case that detects every distinct denial episode non-interactively, bounded by the denial banner and recovery (`State=normal`, resumed contract activity, or `AvailableMCM` climbing back), and captures full lifecycle signals (`memory-status-low`, emergency working-set offload, recovery) as episode context
+- [ ] **MCM-02**: For each episode, the analysis parses the denial-time memory breakdown (physical/virtual split, cube caches, cube growth/index, MMF, SmartHeap pool, working set, other memory) and MCM settings from the log's memory-dump block
+- [ ] **MCM-03**: The analysis emits deterministic diagnostic flags with machine-independent thresholds (working-set % of IServer virtual, other-processes % of physical, cube-cache/MMF coverage, SmartHeap releasability, system-free headroom) — expressed as % of HWM/total, never absolute GB
+- [ ] **MCM-04**: The analysis attributes memory granted in each episode's auto-selected lead-up window (AvailableMCM-descent thresholds as % of HWM) by **OID, by `Source=` request type, and by SID (session)** — SID resolves the one-object/many-session fan-out
+- [ ] **MCM-05**: User gets a deterministic report and a CSV export of the per-OID/per-Source/per-SID attribution table via a dedicated command (e.g. `sift mcm <case>`)
+- [ ] **MCM-06**: Structured MCM facts (episode summary, memory breakdown, flags, top attributions) feed `sift analyze` as cited evidence, preserving the cited ⊆ prompted ⊆ store citation invariant; MCM figures are computed deterministically and are never authored by the model
+- [ ] **MCM-07**: An MCM golden case (denial episode with known breakdown) is added to the eval suite and regression-gated
+
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
@@ -90,6 +106,7 @@ Deferred to future release. Tracked but not in current roadmap.
 ### Analysis
 
 - **RAG-08**: Case baseline diff — "what's new vs a known-good case"
+- **PERF-01**: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation (working-set/RAM/`Total MCM Denial` trend overlaid on denial episodes) — deferred from v1.1, see `seeds/SEED-001` *(deferred)*
 
 ### Interface
 
