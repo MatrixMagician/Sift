@@ -856,6 +856,7 @@ def analyze(
                 until=until_dt,
                 hint=hint,
                 kb_context=kb_context,
+                mcm_thresholds=config.mcm.thresholds,
                 ctx_fallback=_TRIAGE_CTX_FALLBACK,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
