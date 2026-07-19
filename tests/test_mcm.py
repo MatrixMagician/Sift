@@ -25,10 +25,12 @@ from pathlib import Path
 from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.models import Event
 from sift.pipeline.mcm import (  # RED: this module is built in 09-02 (GREEN)
+    EpisodeWindow,  # RED: window API built in 10-01 (GREEN)
     LifecycleSignal,
     McmEpisode,
     MemoryBreakdown,
     detect_episodes,
+    select_window,
 )
 from sift.store import CaseStore
 
@@ -185,6 +187,102 @@ def test_determinism_byte_identical(tmp_path: Path) -> None:
     first = [e.model_dump_json() for e in detect_episodes(queried)]
     second = [e.model_dump_json() for e in detect_episodes(queried)]
     assert first == second
+
+
+# ------------------------------------------------ MCM-04 / D-13 / D-16 (window)
+
+
+def test_avail_timeline_populated(tmp_path: Path) -> None:
+    """detect_episodes populates avail_timeline (event_id, avail_bytes, hwm_bytes)
+    over the lead-up succeeded lines, every entry keyed to a real store event_id
+    (D-16 provenance — a line number is never fabricated in its place), and
+    hwm_bytes = the last lead-up sample's HWM."""
+    episodes, ids = _episodes_from_fixture(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    ep = episodes[0]
+    assert ep.avail_timeline  # non-empty tuple
+    span_ids = set(ep.event_ids)
+    for eid, avail, hwm in ep.avail_timeline:
+        assert eid in ids
+        assert eid in span_ids
+        assert isinstance(avail, int)
+        assert isinstance(hwm, int)
+    # Lead-up order: the descending AvailableMCM fixture, verbatim.
+    assert [av for _e, av, _h in ep.avail_timeline] == [
+        300000000000,
+        200000000000,
+        150000000000,
+        80000000000,
+        40000000000,
+    ]
+    assert ep.hwm_bytes == ep.avail_timeline[-1][2] == 400000000000
+
+
+def test_select_window_descent(tmp_path: Path) -> None:
+    """select_window auto-selects the 25%-of-HWM descent window non-interactively
+    (D-13 — no input(), no CLI knob): start is the first lead-up sample that fell
+    below 25% of HWM in the FINAL descent (last-crossing-downward), keyed to a
+    real event_id (D-16); request_count = samples at/after that start."""
+    episodes, ids = _episodes_from_fixture(
+        tmp_path, "hartford_deny_predenial_multisid.log"
+    )
+    ep = episodes[0]
+    win = select_window(ep)
+    assert isinstance(win, EpisodeWindow)
+    assert win.threshold_pct == 25
+
+    # Independently re-derive last-crossing-downward from the timeline.
+    timeline = ep.avail_timeline
+    assert ep.hwm_bytes is not None
+    threshold = ep.hwm_bytes * 25 / 100
+    last_above = max(
+        i for i, (_e, av, _h) in enumerate(timeline) if av >= threshold
+    )
+    expected_start = next(
+        i for i in range(last_above + 1, len(timeline)) if timeline[i][1] < threshold
+    )
+    assert win.start_event_id == timeline[expected_start][0]
+    assert win.start_event_id in ids
+    assert win.request_count == len(timeline) - expected_start
+
+
+def test_select_window_always_below_hartford(tmp_path: Path) -> None:
+    """Over the real Hartford slice (AvailableMCM=0 throughout — always below 25%
+    of HWM), select_window anchors start to the FIRST timeline entry, not line 1
+    of the log (D-16), still at threshold_pct 25, and runs to completion with no
+    input() (D-13 — fully automatic)."""
+    episodes, ids = _episodes_from_fixture(tmp_path)  # hartford_deny_slice.log
+    ep = episodes[0]
+    assert ep.avail_timeline  # the single pre-denial AvailableMCM=0 grant
+    win = select_window(ep)
+    assert win.threshold_pct == 25
+    assert win.start_event_id == ep.avail_timeline[0][0]
+    assert win.start_event_id in ids
+
+
+def test_select_window_empty_leadup() -> None:
+    """An episode whose lead-up is empty (partial-recovery span_start == denial_idx)
+    yields the full-lead-up fallback — threshold_pct 0, start_event_id None — never
+    a crash and never a fabricated start (D-13/D-16)."""
+    ep = McmEpisode(
+        denial_event_id="deadbeefdeadbeef",
+        denial_ts=None,
+        recovery=None,
+        open_truncated=True,
+        fragmented=False,
+        event_ids=("deadbeefdeadbeef",),
+        lifecycle=(),
+        breakdown=MemoryBreakdown(
+            raw_map={}, current_memory_info={}, mcm_settings={}
+        ),
+        hwm_bytes=None,
+        avail_timeline=(),
+    )
+    win = select_window(ep)
+    assert win.threshold_pct == 0
+    assert win.start_event_id is None
+    assert win.request_count == 0
 
 
 # --------------------------------------------------------------- D-06 (guard)
