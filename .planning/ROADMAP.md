@@ -261,7 +261,7 @@ Plans:
   2. Podman Quadlet files ship with a llama-server example, validate per `podman quadlet` dry-run docs, and document the `host.containers.internal` interaction with the loopback guard
   3. README quickstart covers llama.cpp setup (Vulkan and ROCm notes for gfx1151) and Lemonade Server
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 
@@ -271,7 +271,7 @@ Plans:
 
 **Wave 2** *(blocked on 08-01)*
 
-- [ ] 08-02-PLAN.md — PKG-02 deploy slice: `deploy/*.container` (guard-clean loopback), ADR 0011, guard-acceptability + graceful-skip Quadlet dry-run tests (wave 2)
+- [x] 08-02-PLAN.md — PKG-02 deploy slice: `deploy/*.container` (guard-clean loopback), ADR 0011, guard-acceptability + graceful-skip Quadlet dry-run tests (wave 2)
 - [ ] 08-03-PLAN.md — README quickstart (D-09): install → backend (two-instance, Vulkan/ROCm, Lemonade caveat) → doctor → analyse → report → pdf extra + human-verify (wave 2)
 
 ## Progress
@@ -288,7 +288,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
-| 8. Packaging & Deploy | 1/3 | In Progress|  |
+| 8. Packaging & Deploy | 2/3 | In Progress|  |
 
 ---
 *Roadmap created: 2026-07-16 — phases map 1:1 to SPEC.md milestones M1–M8*

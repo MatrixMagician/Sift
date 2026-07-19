@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 08
 current_phase_name: packaging-deploy
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-07-19T14:40:58.344Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-07-19T14:47:35.428Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 8
   completed_phases: 7
   total_plans: 41
-  completed_plans: 39
+  completed_plans: 40
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 08 (packaging-deploy) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-19 — Phase 08 execution started
 
-Progress: [██████████] 95%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -99,6 +99,7 @@ Progress: [██████████] 95%
 | Phase 07 P05 | ~15 min | 2 tasks | 6 files |
 | Phase 07 P06 | ~3 min | 3 tasks | 3 files |
 | Phase 08 P01 | 13m | 2 tasks | 3 files |
+| Phase 08 P02 | ~12m | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 07-02: truth.yaml parsed via yaml.safe_load + Pydantic Truth (extra=forbid); the 4th metric gates on determinism_stability (higher-better), report displays drift=1-stability.
 - [Phase ?]: sift eval gate fails on any run_failed case, negative false-positive, or empty positive set (vacuous 1.0 is never a pass) — CI-friendly non-zero exit (EVAL-03, ADR 0010)
 - [Phase ?]: PKG-01 offline install proof uses --offline/UV_OFFLINE=1 (cache-backed), not --no-index; an offline wheelhouse cannot be built here
+- [Phase ?]: PKG-02 deploy default ships Network=host + literal 127.0.0.1 (guard-clean); host.containers.internal rejected by DNS-free guard — ADR 0011 (D-06 corrected)
 
 ### Pending Todos
 
@@ -181,6 +183,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-19T14:40:58.337Z
-Stopped at: Completed 08-01-PLAN.md
+Last session: 2026-07-19T14:47:35.421Z
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None

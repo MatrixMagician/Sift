@@ -76,7 +76,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Packaging
 
 - [x] **PKG-01**: `uv tool install` from a clean checkout yields a working `sift` (pipx-compatible)
-- [ ] **PKG-02**: Optional Podman Quadlet deployment files ship with a llama-server example, documented for Fedora/gfx1151 (Vulkan and ROCm notes)
+- [x] **PKG-02**: Optional Podman Quadlet deployment files ship with a llama-server example, documented for Fedora/gfx1151 (Vulkan and ROCm notes)
 
 ## v2 Requirements
 
@@ -161,7 +161,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EVAL-03 | Phase 7 | Complete |
 | EVAL-04 | Phase 7 | Complete |
 | PKG-01 | Phase 8 | Complete |
-| PKG-02 | Phase 8 | Pending |
+| PKG-02 | Phase 8 | Complete |
 
 **Coverage:**
 
