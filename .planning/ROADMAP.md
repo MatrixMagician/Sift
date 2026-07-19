@@ -19,7 +19,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Salience, RAG & Citation-Gated Hypotheses** - Salience ranking, budgeted triage prompt, enforced JSON contract, "cited ⊆ prompted" citation validation (M4) (completed 2026-07-17)
 - [x] **Phase 5: Domain Adapters (journald, dsserrors, eustack)** - Parallel-safe leaf adapters encoding MicroStrategy and systemd domain knowledge (M5) (completed 2026-07-18)
 - [x] **Phase 6: Renderers & KB Retrieval** - Markdown/JSON/PDF reports with evidence appendix, reproducibility contract, knowledge-base retrieval (M6) (completed 2026-07-18)
-- [ ] **Phase 7: Evaluation Harness & Golden Cases** - ≥5 golden incidents, metric table, CI thresholds, optional LLM-as-judge (M7)
+- [x] **Phase 7: Evaluation Harness & Golden Cases** - ≥5 golden incidents, metric table, CI thresholds, optional LLM-as-judge (M7) (completed 2026-07-19)
 - [ ] **Phase 8: Packaging & Deploy** - `uv tool install` distribution and optional Podman Quadlet deployment (M8)
 
 ## Phase Details
@@ -276,7 +276,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
-| 7. Evaluation Harness & Golden Cases | 6/6 | In Progress|  |
+| 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |
 
 ---
