@@ -68,6 +68,12 @@ ABBREV_LINE_RE = re.compile(
 
 UNIT_TO_MB = {"KB": 1 / 1024, "MB": 1.0, "GB": 1024.0, "TB": 1024.0 * 1024.0}
 
+# The single auto-selected lead-up window threshold (MCM-04, D-13). This is the
+# reference's Enter-default ``WINDOW_THRESHOLDS_PCT[0]`` (docs/reference/
+# analyze_dss8.py:76 — [25, 15, 10, 5, 2]); the interactive menu of narrower
+# thresholds is dropped — the window is fully automatic, no CLI override (D-13).
+WINDOW_WIDEST_PCT = 25
+
 
 def to_mb(value: int, unit: str) -> float:
     """Normalise a (value, unit) pair to megabytes."""
@@ -186,6 +192,29 @@ class McmEpisode(BaseModel):
     # Always present; an absent/garbled block is the EMPTY breakdown (all maps
     # empty, every accessor -> None) rather than a fabricated one (D-03).
     breakdown: MemoryBreakdown
+    # Window inputs (MCM-04): the lead-up AvailableMCM descent captured over the
+    # succeeded grants BEFORE the denial banner. Each entry keeps its owning
+    # event_id (D-16) — never a line number. hwm_bytes is the last lead-up
+    # sample's HWM, or None when the lead-up carries no AvailableMCM data.
+    hwm_bytes: int | None
+    avail_timeline: tuple[tuple[str, int, int], ...]
+
+
+class EpisodeWindow(BaseModel):
+    """The auto-selected lead-up analysis window for one episode (MCM-04, D-13).
+
+    ``start_event_id`` keys the window start to a real store ``event_id`` (D-16),
+    or is ``None`` for the full-lead-up fallback. Fully automatic and
+    non-interactive — no CLI override, no ``input()`` (D-13).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    threshold_pct: int
+    start_event_id: str | None
+    hwm_bytes: int | None
+    request_count: int
+    label: str
 
 
 # --- Ported block parsers (docs/reference/analyze_dss8.py:247-286) -----------
@@ -396,6 +425,95 @@ def _scan_lifecycle(
     return tuple(signals)
 
 
+def _avail_timeline(
+    stream: list[_StreamLine], ep: _RawEpisode
+) -> tuple[tuple[str, int, int], ...]:
+    """Capture the lead-up AvailableMCM descent as (event_id, avail, hwm) samples.
+
+    Walks ``range(span_start, denial_idx)`` — the lead-up, EXCLUSIVE of the
+    denial banner (Pitfall 1: post-denial fan-out is recovery-phase, never
+    attributed). For each ``SUCCESS_MARKER`` line where BOTH ``AvailableMCM=``
+    and ``HWM(...)=`` match, records the owning ``event_id`` (D-16 — never a line
+    index) with the two integer byte values. Ported from analyze_dss8.py:148-154
+    over stream indices rather than file linenos; absence yields no sample (D-03).
+    """
+    samples: list[tuple[str, int, int]] = []
+    for i in range(ep.span_start, ep.denial_idx):
+        line, eid, _ts = stream[i]
+        if SUCCESS_MARKER not in line:
+            continue
+        avail_m = AVAIL_MCM_RE.search(line)
+        hwm_m = HWM_RE.search(line)
+        if avail_m and hwm_m:
+            samples.append((eid, int(avail_m.group(1)), int(hwm_m.group(1))))
+    return tuple(samples)
+
+
+def select_window(ep: McmEpisode) -> EpisodeWindow:
+    """Auto-select the lead-up analysis window from AvailableMCM descent (MCM-04).
+
+    Fully automatic and non-interactive (D-13): a faithful port of the reference
+    ``prompt_window`` (analyze_dss8.py:678-773) restricted to the Enter-default
+    widest threshold (``WINDOW_WIDEST_PCT`` = 25% of HWM), with the ``input()``
+    prompt and the narrower-threshold menu dropped.
+
+    "Last crossing downward": the window starts at the first lead-up sample that
+    fell below 25% of HWM AFTER the final time it was still above — anchoring the
+    window to the final pressure descent, not the first time the threshold was
+    ever crossed. An always-below episode (AvailableMCM never reached 25% of HWM)
+    anchors to the first timeline entry (D-16 — a real event_id, not line 1). An
+    empty lead-up / absent HWM returns the full-lead-up fallback
+    (``threshold_pct=0``, ``start_event_id=None``) rather than raising (D-03).
+    """
+    timeline = ep.avail_timeline
+    hwm_bytes = ep.hwm_bytes
+    if not timeline or not hwm_bytes:
+        return EpisodeWindow(
+            threshold_pct=0,
+            start_event_id=None,
+            hwm_bytes=hwm_bytes,
+            request_count=len(timeline),
+            label="full available lead-up",
+        )
+
+    threshold_bytes = hwm_bytes * WINDOW_WIDEST_PCT / 100
+    last_above: int | None = None
+    for idx, (_eid, avail, _hw) in enumerate(timeline):
+        if avail >= threshold_bytes:
+            last_above = idx
+
+    if last_above is not None:
+        # Final descent: first sample after last_above that is below threshold.
+        start_idx = next(
+            (
+                idx
+                for idx in range(last_above + 1, len(timeline))
+                if timeline[idx][1] < threshold_bytes
+            ),
+            None,
+        )
+        if start_idx is None:
+            # last_above was the final sample above, then the lead-up ends. The
+            # reference points one line PAST it (a lineno beyond the timeline);
+            # we clamp to last_above so start_event_id stays a real event_id
+            # (D-16) rather than None.
+            # ponytail: clamp-to-last edge; only fires if AvailableMCM never
+            # descended below 25% before denial (untested rarity).
+            start_idx = last_above
+    else:
+        # Always below the threshold — anchor to the very first timeline entry.
+        start_idx = 0
+
+    hwm_gb = hwm_bytes / 1024**3
+    return EpisodeWindow(
+        threshold_pct=WINDOW_WIDEST_PCT,
+        start_event_id=timeline[start_idx][0],
+        hwm_bytes=hwm_bytes,
+        request_count=len(timeline) - start_idx,
+        label=f"AvailableMCM < {WINDOW_WIDEST_PCT}% of HWM ({hwm_gb:.1f} GB)",
+    )
+
+
 def _build_breakdown(
     stream_lines: list[str], ep: _RawEpisode, dss: list[Event], pos: dict[str, int]
 ) -> tuple[MemoryBreakdown, bool]:
@@ -470,6 +588,8 @@ def detect_episodes(events: list[Event]) -> list[McmEpisode]:
         )
         lifecycle = _scan_lifecycle(stream, ep.span_start, ep.span_end)
         breakdown, fragmented = _build_breakdown(stream_lines, ep, dss, pos)
+        avail_timeline = _avail_timeline(stream, ep)
+        hwm_bytes = avail_timeline[-1][2] if avail_timeline else None
         episodes.append(
             McmEpisode(
                 denial_event_id=ep.denial_event_id,
@@ -480,6 +600,8 @@ def detect_episodes(events: list[Event]) -> list[McmEpisode]:
                 event_ids=span_eids,
                 lifecycle=lifecycle,
                 breakdown=breakdown,
+                hwm_bytes=hwm_bytes,
+                avail_timeline=avail_timeline,
             )
         )
     return episodes
