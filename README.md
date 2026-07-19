@@ -141,7 +141,7 @@ sift report my-incident
 
 Write the report to a file instead of stdout with `sift report my-incident --out report.md`.
 Inspect intermediate state at any point with `sift show`
-(e.g. `sift show clusters my-incident`, `sift show hypotheses my-incident`).
+(e.g. `sift show my-incident clusters`, `sift show my-incident hypotheses`).
 
 ## 5. Optional: PDF reports
 
