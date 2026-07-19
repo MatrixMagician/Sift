@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 8
-current_phase_name: Packaging & Deploy
+current_phase: 08
+current_phase_name: packaging-deploy
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-07-19T14:02:42.302Z"
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-07-19T14:40:58.344Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 07 complete, transitioned to Phase 8
+last_activity_desc: Phase 08 execution started
 progress:
   total_phases: 8
   completed_phases: 7
-  total_plans: 38
-  completed_plans: 38
+  total_plans: 41
+  completed_plans: 39
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-16)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 07 — evaluation-harness-golden-cases
+**Current focus:** Phase 08 — packaging-deploy
 
 ## Current Position
 
-Phase: 8 — Packaging & Deploy
-Plan: Not started
+Phase: 08 (packaging-deploy) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-19 — Phase 07 complete, transitioned to Phase 8
+Last activity: 2026-07-19 — Phase 08 execution started
 
-Progress: [██████████] 100%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -98,6 +98,7 @@ Progress: [██████████] 100%
 | Phase 07 P04 | ~9 min | 2 tasks | 20 files |
 | Phase 07 P05 | ~15 min | 2 tasks | 6 files |
 | Phase 07 P06 | ~3 min | 3 tasks | 3 files |
+| Phase 08 P01 | 13m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Pin pyyaml==6.0.3 as a runtime dependency for eval-harness truth.yaml parsing (M7-only)
 - [Phase ?]: 07-02: truth.yaml parsed via yaml.safe_load + Pydantic Truth (extra=forbid); the 4th metric gates on determinism_stability (higher-better), report displays drift=1-stability.
 - [Phase ?]: sift eval gate fails on any run_failed case, negative false-positive, or empty positive set (vacuous 1.0 is never a pass) — CI-friendly non-zero exit (EVAL-03, ADR 0010)
+- [Phase ?]: PKG-01 offline install proof uses --offline/UV_OFFLINE=1 (cache-backed), not --no-index; an offline wheelhouse cannot be built here
 
 ### Pending Todos
 
@@ -179,6 +181,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-19T13:31:43.090Z
-Stopped at: Phase 8 context gathered
-Resume file: .planning/phases/08-packaging-deploy/08-CONTEXT.md
+Last session: 2026-07-19T14:40:58.337Z
+Stopped at: Completed 08-01-PLAN.md
+Resume file: None

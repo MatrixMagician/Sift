@@ -261,13 +261,13 @@ Plans:
   2. Podman Quadlet files ship with a llama-server example, validate per `podman quadlet` dry-run docs, and document the `host.containers.internal` interaction with the loopback guard
   3. README quickstart covers llama.cpp setup (Vulkan and ROCm notes for gfx1151) and Lemonade Server
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — PKG-01 install slice: `packaging` marker + addopts, offline install smoke test, `sift --version` (wave 1)
+- [x] 08-01-PLAN.md — PKG-01 install slice: `packaging` marker + addopts, offline install smoke test, `sift --version` (wave 1)
 
 **Wave 2** *(blocked on 08-01)*
 
@@ -288,7 +288,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
-| 8. Packaging & Deploy | 0/TBD | Not started | - |
+| 8. Packaging & Deploy | 1/3 | In Progress|  |
 
 ---
 *Roadmap created: 2026-07-16 — phases map 1:1 to SPEC.md milestones M1–M8*
