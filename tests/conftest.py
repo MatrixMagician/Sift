@@ -7,7 +7,7 @@ test files, never here.
 import os
 import socket
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -33,13 +33,23 @@ def _isolate_dirs(  # pyright: ignore[reportUnusedFunction] — autouse fixture
 
 @pytest.fixture(autouse=True)
 def _no_network(  # pyright: ignore[reportUnusedFunction] — autouse fixture
-    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Make any network connection attempt fail loudly.
 
-    Zero network egress in tests is a hard project rule (CLAUDE.md).
-    Phase 3 will relax this for loopback only.
+    Zero network egress in tests is a hard project rule (CLAUDE.md). The block is
+    installed for every test EXCEPT those carrying the ``live`` marker: live
+    integration tests exist precisely to reach the configured loopback inference
+    endpoint (pyproject.toml, run explicitly via ``-m live``), so patching their
+    socket would defeat their purpose. The default suite (``-m 'not perf and not
+    live'``) never carries the marker, so it stays fully socket-blocked.
     """
+    node = cast(
+        pytest.Item,
+        request.node,  # pyright: ignore[reportUnknownMemberType] — .node is Any
+    )
+    if node.get_closest_marker("live") is not None:
+        return
 
     def _blocked(self: socket.socket, address: Any) -> None:
         raise RuntimeError(
