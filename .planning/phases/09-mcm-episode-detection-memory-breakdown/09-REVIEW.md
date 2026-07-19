@@ -11,8 +11,18 @@ findings:
   warning: 1
   info: 2
   total: 3
-status: needs-attention
+status: resolved
+warning_resolved: 1
+resolved_at: 2026-07-19
 ---
+
+> **Resolution (2026-07-19):** WR-01 fixed in commit `06adef5` — `_prescan` partial-recovery
+> boundary corrected to `i - 1` (disjoint episode spans) and `_build_breakdown`'s backward
+> Info-Dump scan bounded to break on prior `DENIAL`/`NORMAL` markers. Regression coverage added
+> in `1a430d6` (`tests/fixtures/mcm/hartford_two_episode_partial.log` + `test_two_episode_*`),
+> which fails on the pre-fix code and passes post-fix. Full gate green (ruff, pyright 0, 481 pass).
+> The two INFO notes (IN-01 assert-invariants, IN-02 abbrev-block cap) remain as documented
+> non-actionable observations.
 
 # Phase 9: Code Review Report
 
