@@ -959,6 +959,13 @@ def eval_(
         Path,
         typer.Option("--suite", help="Directory of golden cases (default eval/cases)"),
     ] = Path("eval/cases"),
+    thresholds: Annotated[
+        Path,
+        typer.Option(
+            "--thresholds",
+            help="TOML of per-metric floors (default eval/thresholds.toml)",
+        ),
+    ] = Path("eval/thresholds.toml"),
     as_json: Annotated[
         bool,
         typer.Option("--json", help="Emit the machine-readable metric table as JSON"),
@@ -983,13 +990,19 @@ def eval_(
     (retrieval hit rate, hypothesis hit@k, citation validity, determinism drift)
     are scored against its frozen ``truth.yaml``. Offline runs inject a fake
     client via the ``_make_http_client`` seam (EVAL-05). ``--json`` emits the
-    machine-readable table. Exit 0 for now; the threshold gate + non-zero exit on
-    regression arrive in a later plan. A missing/invalid ``--suite`` is a usage
-    error (exit 2).
+    machine-readable table.
+
+    The suite is gated against ``--thresholds`` (default ``eval/thresholds.toml``,
+    ADR 0010): exit 0 when every keyword-metric aggregate clears its floor and no
+    case failed; exit 1 when a metric regressed, a case could not run, or a
+    negative case emitted a confident hypothesis (a non-suppressible CI signal).
+    A missing/invalid ``--suite`` or unreadable ``--thresholds`` is a usage error
+    (exit 2).
     """
     from sift.eval.metrics import SuiteResult
     from sift.eval.report import render_json_table, render_text_table
     from sift.eval.runner import run_case
+    from sift.eval.thresholds import gate, load_thresholds
 
     if not suite.is_dir():
         print(f"Error: suite directory does not exist: {suite}")
@@ -1000,6 +1013,11 @@ def eval_(
     if not case_dirs:
         print(f"Error: no golden cases (with truth.yaml) under {suite}")
         raise typer.Exit(2)
+    try:
+        floors = load_thresholds(thresholds)
+    except ValueError as exc:
+        print(f"Error: {_sanitise(str(exc))}")
+        raise typer.Exit(2) from None
 
     overrides: dict[str, object] = {"data_dir": data_dir}
     if model is not None:
@@ -1035,10 +1053,15 @@ def eval_(
         http.close()
 
     suite_result = SuiteResult(results)
+    gate_result = gate(suite_result, floors)
     if as_json:
-        print(render_json_table(suite_result), end="")
+        print(render_json_table(suite_result, gate_result), end="")
     else:
-        print(render_text_table(suite_result), end="")
+        print(render_text_table(suite_result, gate_result), end="")
+    # The command OWNS the non-zero exit so CI sees a regression (T-07-07);
+    # it is never suppressed by an advisory judge score (D-08).
+    if not gate_result.passed:
+        raise typer.Exit(1)
 
 
 # The exact, actionable failure message for the Lemonade OGA/ONNX-recipe case
