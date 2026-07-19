@@ -1,5 +1,5 @@
 ---
-status: testing
+status: passed
 phase: 07-evaluation-harness-golden-cases
 source: [07-VERIFICATION.md]
 started: "2026-07-19T10:25:35Z"
@@ -15,7 +15,7 @@ expected: |
   model loaded), the real model returns a parseable JudgeScore in [0.0, 1.0]
   that appears in the `sift eval --judge` column and does NOT change the
   exit code (advisory-only, D-08).
-awaiting: fix (see Gaps — conftest `_no_network` blocks live-marked tests)
+awaiting: none — passed
 
 ## Tests
 
@@ -25,39 +25,29 @@ expected: |
   passes against Lemonade Server — real model returns a parseable JudgeScore
   in [0.0, 1.0], surfaced in the --judge column, exit code unchanged.
 result: |
-  ISSUE — the test is un-runnable as written. Lemonade was confirmed UP on
-  127.0.0.1:13305, but the CLI run raised:
-  "RuntimeError: Network access is forbidden in tests (zero-network-in-tests
-  rule). Inject a fake instead." The autouse `_no_network` fixture
-  (tests/conftest.py:34) monkeypatches `socket.socket.connect` for EVERY test
-  with no exemption for the `live` marker, so `-m live` never reaches the real
-  server. The judge feature itself is proven correct offline (6 tests:
-  advisory, degrades on bad output, never changes the exit code).
+  PASSED 2026-07-19. Gap plan 07-06 fixed the blocker (the autouse `_no_network`
+  guard now exempts `@pytest.mark.live` tests; the default suite stays fully
+  socket-blocked). `sift doctor` confirmed the generation endpoint live, then
+  `uv run pytest -m live tests/test_eval_judge.py::test_judge_live_round_trip`
+  ran GREEN against Lemonade :13305 (real Qwen3 chat model): a parseable
+  JudgeScore surfaced in the --judge column and the exit code was unaffected.
+  D-08 (advisory / never-gates) confirmed against a real model, not just mocks.
 
 ## Summary
 
 total: 1
-passed: 0
-issues: 1
+passed: 1
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
 
-### Gap 1: `_no_network` autouse guard blocks `@pytest.mark.live` tests
-- **Symptom:** `uv run pytest -m live tests/test_eval_judge.py::test_judge_live_round_trip`
-  raises `RuntimeError: Network access is forbidden in tests` and fails on an
-  empty CLI output, even with Lemonade up on :13305.
-- **Root cause:** `tests/conftest.py:34` `_no_network` is `autouse=True` and
-  patches `socket.socket.connect` unconditionally. The `live` marker
-  (pyproject.toml:52) is meant for real-inference-server integration tests, but
-  the guard has no carve-out for it, so live-marked tests can never open a
-  socket. The live round-trip has therefore never actually been observed.
-- **Scope:** test harness only — NOT a judge-feature defect. The zero-network
-  invariant for the default suite must stay intact.
-- **Fix:** make `_no_network` exempt tests carrying the `live` marker
-  (`request.node.get_closest_marker("live")` -> yield without patching). Then the
-  default/non-live suite stays socket-blocked exactly as before, and
-  `uv run pytest -m live` can do the real round-trip. Re-run the live test to
-  confirm the JudgeScore surfaces and the exit code is unaffected.
+### Gap 1: `_no_network` autouse guard blocks `@pytest.mark.live` tests — RESOLVED
+- **Resolution:** Closed by gap plan 07-06 (commits d4075d7 RED, 1861e8c GREEN,
+  3c6f77c lock-in). `_no_network` now early-returns without patching
+  `socket.connect` when a test carries the `live` marker; every unmarked test
+  still raises the network-forbidden RuntimeError, so the default suite is
+  byte-for-byte as socket-blocked as before (466 passed, ruff clean, pyright
+  0/0/0). The live round-trip is now runnable and passes.
