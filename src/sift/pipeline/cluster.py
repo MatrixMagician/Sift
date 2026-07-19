@@ -46,8 +46,24 @@ _PROMPT_FILE = "cluster_label.md"
 
 # Label-slice budget (RAG-05). Constants, not config: labels are short and the
 # full triage budget is Phase 4. PromptBudget truncates exemplars breadth-first.
+# The label call is batched, but each batch must fit the server's context
+# window: the whole prompt (template + numbered excerpts) AND the model's output
+# have to sit inside n_ctx. Lemonade/llama-server commonly loads GGUF models at
+# n_ctx=4096 (and does not expose it via /props), so a single call over every
+# cluster overflows and the server 400s — degrading the WHOLE case to signature.
+# Fix: cap labelling to the top-K salient clusters and split them into
+# context-sized chunks, one chat call each (see _label_clusters).
 _LABEL_CTX_TOKENS = 4096
-_LABEL_RESERVE_OUT = 512
+# Output headroom for one batch: a base plus ~12 tokens per label requested.
+_LABEL_OUT_BASE = 256
+_LABEL_OUT_PER_LABEL = 12
+# Clusters per batched label call — small enough that template + excerpts +
+# output stay within _LABEL_CTX_TOKENS at the common n_ctx=4096.
+_LABEL_CHUNK = 24
+# Only the top-K salient clusters (severity then count) are labelled; the rest
+# keep their signature. Labels are cosmetic and no reader scans hundreds of
+# names — capping K bounds latency (each chunk is one sequential chat call).
+_MAX_LABELLED = 48
 
 # CLUS-03 / Pitfall 4: cap each label by Unicode code points (str slicing is
 # code-point based), never bytes — British/non-ASCII spelling survives intact.
@@ -258,7 +274,15 @@ def _label_clusters(
     # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
     # has_tokenize is a read-only property vs the protocol's plain (invariant)
     # attribute, which pyright flags as a false mismatch.
-    budget = PromptBudget(client, _LABEL_CTX_TOKENS, _LABEL_RESERVE_OUT)  # pyright: ignore[reportArgumentType]
+    estimator = PromptBudget(client, _LABEL_CTX_TOKENS, 0)  # pyright: ignore[reportArgumentType]
+    template_tokens = estimator.estimate(template)
+    # Reserve room for BOTH the model's output (scales with batch size) and the
+    # template + numbering that build_label_prompt prepends — otherwise fit only
+    # bounds the excerpts and the assembled prompt overflows n_ctx.
+    reserve = (
+        _LABEL_OUT_BASE + _LABEL_OUT_PER_LABEL * len(cluster_ids) + template_tokens
+    )
+    budget = PromptBudget(client, _LABEL_CTX_TOKENS, reserve)  # pyright: ignore[reportArgumentType]
     fitted = budget.fit(excerpts)
     if not fitted:
         return {}

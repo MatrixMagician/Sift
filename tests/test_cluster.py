@@ -11,7 +11,7 @@ Phase-2 dedup path.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -366,3 +366,46 @@ def test_label_parse_lenient_ignores_bad_entries() -> None:
         '{"0": "good", "1": 42, "x": "skip", "2": "also good"}'
     )
     assert parsed == {0: "good", 2: "also good"}
+
+
+class _CtxCappedClient:
+    """A fake client whose chat rejects a prompt carrying more than ``capacity``
+    numbered excerpts — mimicking llama-server's ``exceed_context_size`` 400 that
+    made a single large batched label call return zero labels for the whole case.
+    """
+
+    has_tokenize = False
+
+    def __init__(self, capacity: int) -> None:
+        self.capacity = capacity
+        self.calls = 0
+
+    def tokenize(self, text: str) -> int | None:  # PromptBudget seam (unused)
+        return None
+
+    def chat(
+        self,
+        messages: Sequence[dict[str, str]],
+        *,
+        response_format: dict[str, object] | None = None,
+    ) -> str:
+        self.calls += 1
+        prompt = messages[0]["content"]
+        n = sum(
+            1 for line in prompt.splitlines() if line.split(". ", 1)[0].isdigit()
+        )
+        if n > self.capacity:
+            raise ValueError("chat response has no choices")  # 400 overflow
+        return json.dumps({str(i): f"label-{i}" for i in range(n)})
+
+
+def test_label_clusters_chunks_large_case_within_context() -> None:
+    # More clusters than one context-bounded call can hold: a single batched
+    # call overflows (0 labelled); chunking must still name every cluster.
+    n = cluster._LABEL_CHUNK + 6  # pyright: ignore[reportPrivateUsage]
+    ids = list(range(n))
+    excerpts = [f"excerpt for cluster {i}" for i in range(n)]
+    client = _CtxCappedClient(capacity=cluster._LABEL_CHUNK)  # pyright: ignore[reportPrivateUsage]
+    labels = cluster._label_clusters(client, ids, excerpts, "T:\n")  # pyright: ignore[reportPrivateUsage, reportArgumentType]
+    assert len(labels) == n  # every cluster labelled despite the per-call cap
+    assert client.calls == 2  # split into chunks, not one oversized call
