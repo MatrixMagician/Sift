@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: MCM Memory-Pressure Analysis
-current_phase: 09
-current_phase_name: mcm-episode-detection-memory-breakdown
-status: verifying
+current_phase: 10
+current_phase_name: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV
+status: planning
 stopped_at: Completed 09-02-PLAN.md (MCM analyser GREEN)
-last_updated: "2026-07-19T18:50:55.885Z"
+last_updated: "2026-07-19T19:30:13.794Z"
 last_activity: 2026-07-19
-last_activity_desc: Phase 09 execution started
+last_activity_desc: Phase 09 complete, transitioned to Phase 10
 progress:
-  total_phases: 3
+  total_phases: 1
   completed_phases: 1
   total_plans: 2
   completed_plans: 2
@@ -27,16 +27,16 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 
 ## Current Position
 
-Phase: 09 (mcm-episode-detection-memory-breakdown) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-07-19 — Phase 09 execution started
+Phase: 10 — Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-19 — Phase 09 complete, transitioned to Phase 10
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 35
+- Total plans completed: 38
 - Average duration: -
 - Total execution time: -
 
@@ -51,6 +51,7 @@ Last activity: 2026-07-19 — Phase 09 execution started
 | 6 | 5 | - | - |
 | 07 | 6 | - | - |
 | 08 | 3 | - | - |
+| 09 | 3 | - | - |
 
 **Recent Trend:**
 
