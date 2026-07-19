@@ -1,0 +1,40 @@
+2026-07-19T08:00:01Z INFO worker pool started with 8 workers on node app-01
+2026-07-19T08:00:02Z INFO worker pool started with 8 workers on node app-02
+2026-07-19T08:00:05Z INFO health check ok on node app-01 latency 12ms
+2026-07-19T08:00:05Z INFO health check ok on node app-02 latency 14ms
+2026-07-19T08:00:10Z INFO request served id 41821 status 200 in 22ms
+2026-07-19T08:00:11Z INFO request served id 41822 status 200 in 19ms
+2026-07-19T08:00:12Z INFO request served id 41823 status 200 in 31ms
+2026-07-19T08:01:03Z WARN memory high-watermark exceeded: 91% of heap in use on node app-01
+2026-07-19T08:01:04Z INFO request served id 41901 status 200 in 27ms
+2026-07-19T08:01:07Z INFO request served id 41902 status 200 in 24ms
+2026-07-19T08:01:20Z WARN cache pressure high on node app-01 utilisation 88%
+2026-07-19T08:01:21Z INFO cache eviction started, evicting 512 entries on node app-01
+2026-07-19T08:01:34Z INFO cache eviction started, evicting 768 entries on node app-01
+2026-07-19T08:01:35Z INFO request served id 41950 status 200 in 44ms
+2026-07-19T08:01:48Z WARN cache pressure high on node app-01 utilisation 93%
+2026-07-19T08:01:49Z INFO cache eviction started, evicting 1024 entries on node app-01
+2026-07-19T08:02:02Z INFO request served id 42001 status 200 in 61ms
+2026-07-19T08:02:03Z INFO cache eviction started, evicting 1536 entries on node app-01
+2026-07-19T08:02:15Z WARN cache pressure high on node app-01 utilisation 97%
+2026-07-19T08:02:16Z INFO cache eviction started, evicting 2048 entries on node app-01
+2026-07-19T08:02:30Z ERROR oom-killer invoked on node app-01: killed worker pid 20514 (rss 1024MB)
+2026-07-19T08:02:31Z ERROR oom-killer invoked on node app-01: killed worker pid 20518 (rss 998MB)
+2026-07-19T08:02:33Z ERROR oom-killer invoked on node app-01: killed worker pid 20521 (rss 1010MB)
+2026-07-19T08:02:34Z ERROR oom-killer invoked on node app-01: killed worker pid 20527 (rss 1033MB)
+2026-07-19T08:02:36Z ERROR oom-killer invoked on node app-01: killed worker pid 20530 (rss 1005MB)
+2026-07-19T08:02:37Z ERROR oom-killer invoked on node app-01: killed worker pid 20536 (rss 1041MB)
+2026-07-19T08:02:39Z ERROR oom-killer invoked on node app-01: killed worker pid 20544 (rss 1019MB)
+2026-07-19T08:02:40Z ERROR oom-killer invoked on node app-01: killed worker pid 20551 (rss 1027MB)
+2026-07-19T08:02:42Z ERROR request served id 42100 status 503 in 4200ms
+2026-07-19T08:02:43Z ERROR request served id 42101 status 503 in 4100ms
+2026-07-19T08:02:45Z ERROR oom-killer invoked on node app-01: killed worker pid 20560 (rss 1052MB)
+2026-07-19T08:02:46Z ERROR oom-killer invoked on node app-01: killed worker pid 20566 (rss 1038MB)
+2026-07-19T08:02:48Z ERROR oom-killer invoked on node app-01: killed worker pid 20573 (rss 1016MB)
+2026-07-19T08:02:49Z ERROR request served id 42102 status 503 in 4300ms
+2026-07-19T08:02:51Z ERROR oom-killer invoked on node app-01: killed worker pid 20581 (rss 1044MB)
+2026-07-19T08:02:52Z ERROR oom-killer invoked on node app-01: killed worker pid 20588 (rss 1002MB)
+2026-07-19T08:02:54Z WARN worker pool degraded on node app-01: 2 of 8 workers alive
+2026-07-19T08:02:55Z ERROR oom-killer invoked on node app-01: killed worker pid 20595 (rss 1030MB)
+2026-07-19T08:02:57Z ERROR request served id 42103 status 503 in 4400ms
+2026-07-19T08:03:00Z WARN worker pool degraded on node app-01: 1 of 8 workers alive

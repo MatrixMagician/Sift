@@ -1,0 +1,17 @@
+# Frozen ground truth (D-02): authored before any prompt tuning. Do not edit to
+# make a run pass — a regression must fail, not be silently accommodated.
+root_cause: >
+  A memory high-watermark breach triggered progressive cache eviction that
+  cascaded into OOM kills of the worker pool. The repeated OOM-killer errors
+  are the loud symptom; the single early high-watermark warning is the quiet
+  true cause.
+required_evidence:            # regexes, matched case-insensitively against the clusters fed to the model
+  - "watermark.*(exceed|breach)"
+  - "OOM|out of memory|oom-kill"
+  - "evict"
+acceptable_keywords:          # any-of, case-insensitive, vs hypothesis title + narrative
+  - memory
+  - watermark
+  - OOM
+  - cascade
+expect_no_incident: false
