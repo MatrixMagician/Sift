@@ -166,7 +166,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- [pipeline] Fix cluster labels "0 labelled" on large cases (2026-07-19-fix-cluster-labels-0-labelled-on-large-cases.md)
+_None._
 
 ### Blockers/Concerns
 
