@@ -36,6 +36,7 @@ from sift.pipeline.mcm import (
     analyse_mcm,
 )
 from sift.pipeline.mcm_facts import (
+    _MAX_EPISODES,  # pyright: ignore[reportPrivateUsage]
     _load_mcm_fragment,  # pyright: ignore[reportPrivateUsage]
     render_mcm_facts,
 )
@@ -171,6 +172,57 @@ def test_top_5_per_dimension_in_analyser_order() -> None:
     # The dropped rows never appear.
     assert "Source-F" not in block
     assert "Source-G" not in block
+
+
+def _episode_analysis(denial_id: str, severity: str = "critical") -> EpisodeAnalysis:
+    """A minimal single-episode analysis unit carrying one graded flag."""
+    episode = McmEpisode(
+        denial_event_id=denial_id,
+        denial_ts="2026-04-07T12:39:47",
+        recovery=None,
+        open_truncated=True,
+        fragmented=False,
+        event_ids=(denial_id,),
+        lifecycle=(),
+        breakdown=MemoryBreakdown(raw_map={}, current_memory_info={}, mcm_settings={}),
+        hwm_bytes=None,
+        avail_timeline=(),
+    )
+    window = EpisodeWindow(
+        threshold_pct=25,
+        start_event_id=None,
+        hwm_bytes=None,
+        request_count=0,
+        label="lead-up",
+    )
+    attribution = Attribution(
+        by_oid=(), by_source=(), by_sid=(), unmatched_event_ids=()
+    )
+    return EpisodeAnalysis(
+        episode=episode,
+        window=window,
+        flags=(_flag("working_set_pct_virtual", severity, 65.4, "ws high", denial_id),),
+        attribution=attribution,
+    )
+
+
+def test_episode_count_capped_and_dropped_ids_not_citable() -> None:
+    """WR-01: episode COUNT is token-bounded (D-19) — a log with more than
+    ``_MAX_EPISODES`` denial episodes renders exactly ``_MAX_EPISODES`` episode
+    sections, and a dropped episode's ids never enter the citable id set (so a
+    citation of a dropped id is correctly non-citable)."""
+    episodes = tuple(
+        _episode_analysis(f"{i:016x}") for i in range(_MAX_EPISODES + 1)
+    )
+    block, ids = render_mcm_facts(McmAnalysis(episodes=episodes))
+
+    denial_lines = [line for line in block.splitlines() if "MCM denial" in line]
+    assert len(denial_lines) == _MAX_EPISODES
+    # Same severity across episodes -> stable sort keeps chronological order, so
+    # the final (surplus) episode is the one dropped.
+    dropped_id = episodes[-1].episode.denial_event_id
+    assert dropped_id not in block
+    assert dropped_id not in ids
 
 
 def test_empty_analysis_renders_to_empty_pair() -> None:
