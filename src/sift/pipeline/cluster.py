@@ -276,25 +276,34 @@ def _label_clusters(
     # attribute, which pyright flags as a false mismatch.
     estimator = PromptBudget(client, _LABEL_CTX_TOKENS, 0)  # pyright: ignore[reportArgumentType]
     template_tokens = estimator.estimate(template)
-    # Reserve room for BOTH the model's output (scales with batch size) and the
-    # template + numbering that build_label_prompt prepends — otherwise fit only
-    # bounds the excerpts and the assembled prompt overflows n_ctx.
-    reserve = (
-        _LABEL_OUT_BASE + _LABEL_OUT_PER_LABEL * len(cluster_ids) + template_tokens
-    )
-    budget = PromptBudget(client, _LABEL_CTX_TOKENS, reserve)  # pyright: ignore[reportArgumentType]
-    fitted = budget.fit(excerpts)
-    if not fitted:
-        return {}
-    prompt = build_label_prompt(fitted, template)
-    try:
-        content = client.chat([{"role": "user", "content": prompt}])
-    except Exception:  # noqa: BLE001 — degrade to signature, never crash (T-03-19)
-        return {}
     labels: dict[int, str] = {}
-    for index, text in _parse_labels(content).items():
-        if 0 <= index < len(cluster_ids):
-            labels[cluster_ids[index]] = text[:_MAX_LABEL_CHARS]
+    # One batched chat per chunk keeps each assembled prompt (template + numbered
+    # excerpts) plus the model's output inside n_ctx — a single call over every
+    # cluster overflows the server context and 400s. A chunk that fails degrades
+    # only its own clusters to signature (T-03-19), never the whole case.
+    for start in range(0, len(cluster_ids), _LABEL_CHUNK):
+        chunk_ids = cluster_ids[start : start + _LABEL_CHUNK]
+        chunk_excerpts = excerpts[start : start + _LABEL_CHUNK]
+        # Reserve room for BOTH the model's output (scales with batch size) and
+        # the template + numbering build_label_prompt prepends — otherwise fit
+        # only bounds the excerpts and the assembled prompt overflows n_ctx.
+        reserve = (
+            _LABEL_OUT_BASE
+            + _LABEL_OUT_PER_LABEL * len(chunk_ids)
+            + template_tokens
+        )
+        budget = PromptBudget(client, _LABEL_CTX_TOKENS, reserve)  # pyright: ignore[reportArgumentType]
+        fitted = budget.fit(chunk_excerpts)
+        if not fitted:
+            continue
+        prompt = build_label_prompt(fitted, template)
+        try:
+            content = client.chat([{"role": "user", "content": prompt}])
+        except Exception:  # noqa: BLE001 — degrade to signature, never crash (T-03-19)
+            continue
+        for index, text in _parse_labels(content).items():
+            if 0 <= index < len(chunk_ids):
+                labels[chunk_ids[index]] = text[:_MAX_LABEL_CHARS]
     return labels
 
 
@@ -342,10 +351,17 @@ def cluster_and_label(
             rep_excerpt[cluster_id] = (key, texts[index])
 
     cluster_ids = [c.cluster_id for c in clusters]
-    excerpts = [rep_excerpt[cluster_id][1] for cluster_id in cluster_ids]
+    # Label only the top-K salient clusters (severity then count); the rest keep
+    # their signature. Labelling every cluster needs one chat call per chunk, so
+    # an uncapped case with hundreds of clusters would spend minutes on cosmetic
+    # labels. Select by salience, then restore canonical cluster_id order so the
+    # prompt-index -> cluster mapping is stable and small cases are unchanged.
+    salient = sorted(cluster_ids, key=lambda cid: rep_excerpt[cid][0], reverse=True)
+    label_ids = sorted(salient[:_MAX_LABELLED])
+    excerpts = [rep_excerpt[cluster_id][1] for cluster_id in label_ids]
     template = _load_template()
     label_map = _label_clusters(
-        client if label else None, cluster_ids, excerpts, template
+        client if label else None, label_ids, excerpts, template
     )
 
     chunks = [
