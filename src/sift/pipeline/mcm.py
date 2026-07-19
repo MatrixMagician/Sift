@@ -326,7 +326,15 @@ def _prescan(stream: list[_StreamLine]) -> list[_RawEpisode]:
                         span_end=i - 1,
                     )
                 )
-                prev_recovery_idx = start_idx
+                # Close at the line just BEFORE the new denial (mirrors the
+                # normal-recovery branch, which advances the boundary to its
+                # closing line) so the next episode's span_start = i does not
+                # reach back over the just-closed episode. Spans stay DISJOINT:
+                # no lifecycle signal / citation event_id lands in two episodes
+                # (WR-01). The new episode's pre-denial Info Dump, which precedes
+                # index i, is recovered by _build_breakdown's widened backward
+                # scan, NOT by widening this span.
+                prev_recovery_idx = i - 1
                 start_idx, start_eid, start_ts = i, eid, ts
             # else: same-burst repeated banner -> ignore.
 
@@ -405,8 +413,17 @@ def _build_breakdown(
 
     current_info: dict[str, str] = {}
     mcm_settings: dict[str, str] = {}
-    for i in range(ep.denial_idx - 1, ep.span_start - 1, -1):
+    # Scan backward from the denial banner for the nearest pre-denial Info Dump.
+    # The lookup window may reach back BEFORE span_start (a partial-recovery
+    # episode's span_start is its own denial index, so its dump — which precedes
+    # the banner — sits just outside the span), but it STOPS at the previous
+    # episode's boundary: a prior DENIAL_MARKER / NORMAL_MARKER line. This never
+    # reads the previous episode's denial-time block and never widens the
+    # lifecycle/citation span. Absence is tolerated (D-03): no dump -> empty maps.
+    for i in range(ep.denial_idx - 1, -1, -1):
         line = stream_lines[i]
+        if DENIAL_MARKER in line or NORMAL_MARKER in line:
+            break
         if not mcm_settings and MCM_SETTINGS_MARKER in line:
             mcm_settings, _ = parse_abbrev_block(stream_lines, i + 1)
         elif not current_info and CURRENT_INFO_MARKER in line:
