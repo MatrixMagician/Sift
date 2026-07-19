@@ -214,3 +214,73 @@ def test_fragmented_flag() -> None:
     episodes = detect_episodes([denial, neighbour])
     assert len(episodes) == 1
     assert episodes[0].fragmented is True
+
+
+# ------------------------------------------------ WR-01 regression / multi-episode
+
+
+def test_two_episode_partial_recovery_disjoint(tmp_path: Path) -> None:
+    """Two denial episodes closed by partial recovery (denial -> success ->
+    denial, no ``State=normal``) yield exactly two episodes whose lifecycle and
+    denial event_ids are DISJOINT sets — the WR-01 overlapping-span regression.
+
+    Fails against the pre-fix ``prev_recovery_idx = start_idx`` (episode 2's span
+    reaches back over episode 1); passes once spans are kept disjoint.
+    """
+    episodes, ids = _episodes_from_fixture(
+        tmp_path, "hartford_two_episode_partial.log"
+    )
+    assert len(episodes) == 2
+    ep1, ep2 = episodes
+
+    # Episode 2 is the still-open denial at EOF (no State=normal).
+    assert ep2.open_truncated is True
+    assert ep2.recovery is None
+
+    # No lifecycle signal is double-attributed across episodes.
+    life1 = {s.event_id for s in ep1.lifecycle}
+    life2 = {s.event_id for s in ep2.lifecycle}
+    assert life1 and life2
+    assert life1.isdisjoint(life2)
+    assert {s.kind for s in ep1.lifecycle} == {"memory-status-low"}
+    assert {s.kind for s in ep2.lifecycle} == {"emergency-offload-complete"}
+
+    # Citation sets are disjoint: no event_id belongs to both episodes, and every
+    # denial anchor is a distinct real store row (cited ⊆ store).
+    assert set(ep1.event_ids).isdisjoint(set(ep2.event_ids))
+    assert ep1.denial_event_id != ep2.denial_event_id
+    assert ep1.denial_event_id in ids
+    assert ep2.denial_event_id in ids
+
+
+def test_two_episode_own_predenial_settings(tmp_path: Path) -> None:
+    """Each episode carries its OWN pre-denial MCM Settings dump: the backward
+    Info-Dump lookup reaches the block preceding this denial without crossing
+    into the previous episode (widened window, disjoint spans preserved)."""
+    episodes, _ids = _episodes_from_fixture(
+        tmp_path, "hartford_two_episode_partial.log"
+    )
+    ep1, ep2 = episodes
+    assert ep1.breakdown.mcm_settings.get("Memory Reserve") == "1048576"
+    assert ep2.breakdown.mcm_settings.get("Memory Reserve") == "2097152"
+    # Distinct dumps — no cross-episode contamination of the pre-denial picture.
+    assert (
+        ep1.breakdown.mcm_settings["Memory Reserve"]
+        != ep2.breakdown.mcm_settings["Memory Reserve"]
+    )
+
+
+def test_two_episode_determinism_byte_identical(tmp_path: Path) -> None:
+    """Multi-episode detection is deterministic: two runs over the same stored
+    events produce byte-identical JSON (no set iteration in ordered output)."""
+    adapter = DsserrorsAdapter()
+    adapter.input_root = FIXTURES
+    events = list(
+        adapter.parse(FIXTURES / "hartford_two_episode_partial.log", "case1")
+    )
+    store = CaseStore(tmp_path / "case.db")
+    store.insert_events(events)
+    queried = store.query_events()
+    first = [e.model_dump_json() for e in detect_episodes(queried)]
+    second = [e.model_dump_json() for e in detect_episodes(queried)]
+    assert first == second

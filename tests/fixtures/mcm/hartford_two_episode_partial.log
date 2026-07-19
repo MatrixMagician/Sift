@@ -1,0 +1,27 @@
+2026-04-07 12:39:47.100 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImplSH.cpp:336] Current Memory Info:
+System Total = 535325863936 (498.6GB)
+System Available = 52691341312 (49.1GB)
+High Watermark = 469891629056 (437.6GB)
+2026-04-07 12:39:47.101 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:DE7791359A04C60FC7C73EAFCD6E8E35][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:1443] MCM Settings:
+Single Alloc Limit = unlimited
+Memory Reserve = 1048576 (1.0MB)
+SmartHeap Cache Releasable = true
+2026-04-07 12:39:47.110 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628254557760][Kernel][Info][UID:3946BFB92540710A30401AA238E09723][SID:2AB16B9C8C7F809EC1028D3907DA0B0D][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][MSIServerStateLogger.cpp:964] IServer enters MCM denial state. The breakdown of memory usage is:
+Total System Physical Memory(GB): 499
+	Total In Use Physical Memory For Intelligence Server(MB): 373392
+	Total In Use Physical Memory For Other Processes(MB): 94516
+2026-04-07 12:39:47.120 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139632522024512][Kernel][Info][UID:0][SID:0][OID:0][ContractManagerImplSH.cpp:81] Memory status changes to low (available memory is less than 20% of total memory but memory contract manager is still accepting requests)
+2026-04-07 12:39:47.130 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628134786624][Kernel][Info][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:228F633570FB19126BEDB1BE1E017A8A][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:464] Contract Request Succeeded: Source=GovernedObject, Handle=1, Size=17285120, Contracted=22890987520, AvailableMCM=0, AvailableSYS=52691341312, IServerPB=417200287744, IServerOSC=407406687184, IServerPHY=383156236288, HWM(PB)=469891629056
+2026-04-07 12:39:47.140 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:AE7791359A04C60FC7C73EAFCD6E8E36][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImplSH.cpp:336] Current Memory Info:
+System Total = 535325863936 (498.6GB)
+System Available = 31457280000 (29.3GB)
+High Watermark = 469891629056 (437.6GB)
+2026-04-07 12:39:47.141 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628227241536][Kernel][Error][UID:4FD2B668AD4E59ED223D339AA7105CFE][SID:AE7791359A04C60FC7C73EAFCD6E8E36][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][ContractManagerImpl.cpp:1443] MCM Settings:
+Single Alloc Limit = unlimited
+Memory Reserve = 2097152 (2.0MB)
+SmartHeap Cache Releasable = true
+2026-04-07 12:39:47.150 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139628254557760][Kernel][Info][UID:3946BFB92540710A30401AA238E09723][SID:3BB16B9C8C7F809EC1028D3907DA0B0E][OID:A3EDD9C7A24367D7CBEA259E1A9A91C0][MSIServerStateLogger.cpp:964] IServer enters MCM denial state. The breakdown of memory usage is:
+Total System Physical Memory(GB): 499
+	Total In Use Physical Memory For Intelligence Server(MB): 402118
+	Total In Use Physical Memory For Other Processes(MB): 96044
+2026-04-07 12:39:47.160 [HOST:env-325602laio1use1][SERVER:CastorServer][PID:16234][THR:139631454328384][Kernel][Info][UID:0][SID:0][OID:0][MsiSessionManager.cpp:2645] MsiSessionManager::MemoryStatusHandler() : Working set emergency offload completed. Memory consumption after release is 289412771 KB.
