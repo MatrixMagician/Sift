@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Milestone v1.1 — MCM Memory-Pressure Analysis (this milestone)**
 
 - [x] **Phase 9: MCM Episode Detection & Denial-Time Memory Breakdown** - Deterministic, non-interactive detection of every MCM denial episode (full lifecycle) plus the denial-time physical/virtual memory breakdown and MCM settings (MCM-01, MCM-02) (completed 2026-07-19)
-- [ ] **Phase 10: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV** - Machine-independent diagnostic flags, an auto-selected lead-up window, per-OID/Source/SID attribution, shipped as the `sift mcm <case>` report + CSV export (MCM-03, MCM-04, MCM-05)
+- [x] **Phase 10: Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV** - Machine-independent diagnostic flags, an auto-selected lead-up window, per-OID/Source/SID attribution, shipped as the `sift mcm <case>` report + CSV export (MCM-03, MCM-04, MCM-05) (completed 2026-07-19)
 - [ ] **Phase 11: MCM Facts into `sift analyze` + Golden Eval Case** - Deterministic MCM facts fed into `sift analyze` as cited evidence (never model-authored) plus a regression-gated MCM golden case (MCM-06, MCM-07)
 
 ## Phase Details
@@ -321,7 +321,7 @@ Plans:
   4. `sift mcm <case>` writes a deterministic human-readable report and a CSV export of the per-OID/per-Source/per-SID attribution table
   5. Two differently-sized machines under the same relative pressure produce identical flags — verified against a scaled fixture (thresholds are % based, machine-independent)
 
-**Plans:** 4/4 plans executed
+**Plans:** 4/4 plans complete
 
 Plans:
 **Wave 1**
@@ -371,7 +371,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
 | 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
 | 9. MCM Episode Detection & Denial-Time Memory Breakdown | 3/2 | Complete    | 2026-07-19 |
-| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 4/4 | In Progress|  |
+| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 4/4 | Complete    | 2026-07-19 |
 | 11. MCM Facts into `sift analyze` + Golden Eval Case | 0/— | Not started |  |
 
 ---
