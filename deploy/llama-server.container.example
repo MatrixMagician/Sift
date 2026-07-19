@@ -1,0 +1,27 @@
+# EXAMPLE llama-server generation backend as a Podman Quadlet unit.
+#
+# This is a template to adapt, not a ready-to-run unit: the image tag and the model
+# path are placeholders you must supply. Copy to
+# ~/.config/containers/systemd/llama-server.container and edit before enabling.
+#
+# Two-instance setup (llama.cpp constraint): the `--embeddings` flag makes a server
+# EMBEDDING-ONLY, so generation and embeddings cannot share one instance. This unit is
+# the GENERATION backend on port 8080 (Sift's SIFT_GENERATION_BASE_URL). Run a SECOND
+# instance for embeddings — same image, add `--embeddings`, bind `--port 8081` and
+# publish 8081:8081 — to satisfy Sift's SIFT_EMBEDDINGS_BASE_URL.
+
+[Unit]
+Description=llama-server generation backend (example)
+After=network-online.target
+
+[Container]
+# Example Vulkan image tag — Vulkan is the robust default on gfx1151 (SPEC §3). Replace
+# with the tag you actually run; the model file is user-supplied.
+Image=ghcr.io/ggml-org/llama.cpp:server-vulkan
+PublishPort=8080:8080
+# User-supplied model; --host 0.0.0.0 so the published port is reachable.
+Exec=-m /models/model.gguf --host 0.0.0.0 --port 8080
+# Embeddings: run a SECOND instance with --embeddings on port 8081 (see header note).
+
+[Install]
+WantedBy=default.target

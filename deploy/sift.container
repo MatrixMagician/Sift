@@ -1,0 +1,37 @@
+# Sift incident-triage engine — optional Podman Quadlet unit (rootless default).
+#
+# Drop this file at ~/.config/containers/systemd/sift.container (rootless) and run
+# `systemctl --user daemon-reload && systemctl --user start sift`. Podman's Quadlet
+# generator turns it into a transient systemd service.
+#
+# Host reachability (load-bearing): Sift's SSRF guard (src/sift/llm/client.py:54-84,
+# LLM-02) inspects the base_url host as a literal string and never resolves DNS, so
+# it accepts `localhost`/`*.localhost` and literal loopback/RFC1918 IPs only. The two
+# SIFT_*_BASE_URL values below therefore use the literal loopback `127.0.0.1`, which
+# the guard accepts (`ip.is_loopback`) with no break-glass override needed.
+# A bare host magic-DNS name (e.g. host.containers.internal) would be rejected — see
+# docs/decisions/0011-quadlet-loopback-guard.md.
+
+[Unit]
+Description=Sift incident triage (rootless)
+After=network-online.target
+
+[Container]
+# Image is user-provided: build the wheel with `uv build`, then `podman build` a local
+# image tagged `localhost/sift:latest`. Image building and registry publishing are out
+# of scope for M8 — this placeholder is never a registry pull.
+Image=localhost/sift:latest
+# Host networking so 127.0.0.1 below reaches a host-side llama-server identically under
+# both pasta and slirp4netns (the host's loopback is shared).
+Network=host
+Environment=SIFT_GENERATION_BASE_URL=http://127.0.0.1:8080/v1
+Environment=SIFT_EMBEDDINGS_BASE_URL=http://127.0.0.1:8081/v1
+# Case data lives on the host under the user's data directory (:Z relabels for SELinux).
+Volume=%h/.local/share/sift:/data:Z
+Exec=--help
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
