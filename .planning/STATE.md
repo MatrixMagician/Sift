@@ -186,7 +186,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-_None._
+- [Phase 11 code-review INFO] `.planning/todos/pending/2026-07-20-phase11-code-review-info.md` — IN-01 (share one granted-MB formatting helper, `mcm_facts.py:107` vs report renderer) + IN-03 (cosmetic `re.DOTALL`/double-newline tidy in `hypothesise.py:90,106`). Low priority, cosmetic; WR-01 already fixed (`9efab09`).
 
 ### Blockers/Concerns
 
