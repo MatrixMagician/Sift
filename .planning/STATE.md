@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 07
 current_phase_name: evaluation-harness-golden-cases
 status: executing
-stopped_at: Completed 07-01-PLAN.md
-last_updated: "2026-07-19T09:25:38.429Z"
+stopped_at: Completed 07-02-PLAN.md
+last_updated: "2026-07-19T09:40:49.728Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 07 execution started
 progress:
   total_phases: 7
   completed_phases: 6
   total_plans: 37
-  completed_plans: 33
+  completed_plans: 34
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-07-16)
 ## Current Position
 
 Phase: 07 (evaluation-harness-golden-cases) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-07-19 — Phase 07 execution started
 
-Progress: [█████████░] 89%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
@@ -92,6 +92,7 @@ Progress: [█████████░] 89%
 | Phase 06 P03 | 20min | 3 tasks | 6 files |
 | Phase 06 P05 | 20min | 3 tasks | 4 files |
 | Phase 06 P04 | 13m | 3 tasks | 4 files |
+| Phase 07 P02 | ~11 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,7 @@ Recent decisions affecting current work:
 - [Phase ?]: PDF report (REPT-04) behind sift[pdf] extra: MD->HTML->WeasyPrint, egress blocked by self-contained HTML + rejecting url_fetcher; missing extra/pango -> helpful PdfExtraMissing exit 1
 - [Phase ?]: KB context threaded into analyze --kb via a sentinel-delimited triage.md block; non-citability enforced mechanically (prompted_ids unchanged), no-KB prompt byte-identical (golden hash guard)
 - [Phase ?]: Pin pyyaml==6.0.3 as a runtime dependency for eval-harness truth.yaml parsing (M7-only)
+- [Phase ?]: 07-02: truth.yaml parsed via yaml.safe_load + Pydantic Truth (extra=forbid); the 4th metric gates on determinism_stability (higher-better), report displays drift=1-stability.
 
 ### Pending Todos
 
@@ -171,6 +173,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-19T09:25:30.137Z
-Stopped at: Completed 07-01-PLAN.md
+Last session: 2026-07-19T09:40:35.114Z
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
