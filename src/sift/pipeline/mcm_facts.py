@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 from sift.render._util import sanitise
 
 if TYPE_CHECKING:
-    from sift.pipeline.mcm import McmAnalysis
+    from sift.pipeline.mcm import EpisodeAnalysis, McmAnalysis
 
 _PROMPT_PACKAGE = "sift.prompts"
 _MCM_FILE = "mcm_facts.md"
@@ -43,6 +43,28 @@ _SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
 # Top-N attribution rows surfaced per dimension (D-19: token-bounded so the fact
 # block cannot crowd cluster exemplars out of the prompt budget).
 _TOP_N = 5
+
+# Max denial episodes rendered into the fact block. D-19 bounds rows PER episode
+# (top-5 × 3 dimensions) but the episode COUNT was unbounded — a denial storm of
+# dozens of episodes could inflate the un-budgeted prompt prefix past the model
+# context (WR-01). Most-severe-first so a truncated block keeps the worst
+# episodes; only the rendered episodes' ids enter the citable set.
+# ponytail: fixed episode ceiling; swap for budget-aware trimming if real logs
+# ever carry more than this many denial episodes.
+_MAX_EPISODES = 8
+
+
+def _episode_severity_rank(ea: EpisodeAnalysis) -> int:
+    """The episode's worst diagnostic-flag rank (lower = more severe).
+
+    Reuses ``_SEVERITY_ORDER`` (critical < warn < info); an episode with no
+    graded flags sorts last. Used to keep the most severe episodes when the
+    ``_MAX_EPISODES`` cap drops surplus ones.
+    """
+    return min(
+        (_SEVERITY_ORDER.get(f.severity, len(_SEVERITY_ORDER)) for f in ea.flags),
+        default=len(_SEVERITY_ORDER),
+    )
 
 
 def _load_mcm_fragment() -> str:
@@ -71,7 +93,13 @@ def render_mcm_facts(analysis: McmAnalysis) -> tuple[str, set[str]]:
     ids: set[str] = set()
     lines: list[str] = []
 
-    for ea in analysis.episodes:
+    # Cap the episode count (WR-01): keep the most severe episodes, dropping any
+    # surplus. sorted() is stable, so equal-severity episodes retain their D-06
+    # chronological order — deterministic. Only rendered episodes contribute ids,
+    # so a dropped episode's ids stay out of the citable set (cited ⊆ prompted).
+    selected = sorted(analysis.episodes, key=_episode_severity_rank)[:_MAX_EPISODES]
+
+    for ea in selected:
         ep = ea.episode
         # Episode summary — cite the denial event; frame the AvailableMCM descent.
         denial_ts = sanitise(ep.denial_ts) if ep.denial_ts else "an unrecorded time"
