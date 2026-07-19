@@ -64,6 +64,45 @@ class ClusteringConfig(BaseModel):
     distance_threshold: float = 0.3  # cosine threshold for the agglomerative fallback.
 
 
+class ThresholdPair(BaseModel):
+    """A (warn, critical) severity cut-point pair for one MCM diagnostic ratio."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warn: float
+    critical: float
+
+
+class McmThresholdsConfig(BaseModel):
+    """MCM diagnostic-flag cut-points (D-12 / MCM-03), each a % of HWM/total —
+    never an absolute GB (the milestone-locked machine-independence invariant).
+
+    Defaults are the RESEARCH Deliverable-1 table, calibrated against the real
+    Hartford episode so it reads CRITICAL on the correct driver (working-set =
+    65.4% of IServer virtual). An absent ``[mcm.thresholds]`` block yields these
+    documented constants; overrides are config-only (no per-run CLI knob).
+    ``system_free_headroom_pct`` is the inverted metric (lower free-% is worse) —
+    stored as authored; the grader flips the comparison direction, not the config.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    working_set_pct_virtual: ThresholdPair = ThresholdPair(warn=20, critical=40)
+    other_processes_pct_physical: ThresholdPair = ThresholdPair(warn=10, critical=20)
+    cube_pct_virtual: ThresholdPair = ThresholdPair(warn=25, critical=40)
+    mmf_pct_of_cube_low: float = 10  # MMF covering <10% of cube = underutilised
+    smartheap_pool_pct_virtual: ThresholdPair = ThresholdPair(warn=5, critical=15)
+    system_free_headroom_pct: ThresholdPair = ThresholdPair(warn=20, critical=5)
+
+
+class McmConfig(BaseModel):
+    """``[mcm]`` wrapper so the TOML table is literally ``[mcm.thresholds]``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    thresholds: McmThresholdsConfig = McmThresholdsConfig()
+
+
 class SiftConfig(BaseModel):
     # T-04-02: a typo'd key must fail loudly, never be silently dropped.
     model_config = ConfigDict(extra="forbid")
@@ -74,6 +113,7 @@ class SiftConfig(BaseModel):
     generation: GenerationConfig = GenerationConfig()
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
     clustering: ClusteringConfig = ClusteringConfig()
+    mcm: McmConfig = McmConfig()
 
     @field_validator("timezones")
     @classmethod
