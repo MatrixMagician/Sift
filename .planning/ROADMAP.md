@@ -321,12 +321,12 @@ Plans:
   4. `sift mcm <case>` writes a deterministic human-readable report and a CSV export of the per-OID/per-Source/per-SID attribution table
   5. Two differently-sized machines under the same relative pressure produce identical flags — verified against a scaled fixture (thresholds are % based, machine-independent)
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 10-01-PLAN.md — Window inputs (`hwm_bytes`/`avail_timeline` on `McmEpisode`) + non-interactive 25%-of-HWM `select_window` + pre-denial multi-SID descending fixture (MCM-04 window) (wave 1)
+- [x] 10-01-PLAN.md — Window inputs (`hwm_bytes`/`avail_timeline` on `McmEpisode`) + non-interactive 25%-of-HWM `select_window` + pre-denial multi-SID descending fixture (MCM-04 window) (wave 1)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -371,7 +371,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 7. Evaluation Harness & Golden Cases | 6/6 | Complete    | 2026-07-19 |
 | 8. Packaging & Deploy | 3/3 | Complete    | 2026-07-19 |
 | 9. MCM Episode Detection & Denial-Time Memory Breakdown | 3/2 | Complete    | 2026-07-19 |
-| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 0/— | Not started |  |
+| 10. Diagnostic Flags, Lead-Up Attribution & `sift mcm` Report + CSV | 1/4 | In Progress|  |
 | 11. MCM Facts into `sift analyze` + Golden Eval Case | 0/— | Not started |  |
 
 ---
