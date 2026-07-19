@@ -991,6 +991,85 @@ def report(
         store.close()
 
 
+class McmFormat(StrEnum):
+    """Report format for ``sift mcm`` (an unknown value is a Typer usage error,
+    exit 2 — mirrors ``ReportFormat``; ADR 0007). The CSV is always written."""
+
+    md = "md"
+    json = "json"
+
+
+@app.command()
+def mcm(
+    case: str,
+    fmt: Annotated[
+        McmFormat,
+        typer.Option("--format", help="Report format: md (default) or json"),
+    ] = McmFormat.md,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Write the MCM forensics bundle for a case (MCM-05, D-10).
+
+    Runs the deterministic ``analyse_mcm`` over the stored events (no LLM, no
+    network — the figures are computed from log text, never model-authored) and
+    ALWAYS writes ``<case>/mcm/mcm_report.md`` (or ``mcm_report.json`` with
+    ``--format json``) AND ``<case>/mcm/mcm_attribution.csv``, then prints a
+    short stdout summary. Thresholds and the lead-up window are config-only —
+    there is no per-run CLI knob (D-12/D-13). Exit-code contract (ADR 0007):
+    0 = bundle written (including an empty case), 1 = missing case / write
+    failure, 2 = Typer usage (bad ``--format``).
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        from sift.pipeline.mcm import analyse_mcm
+        from sift.render.mcm_report import (
+            render_mcm_json,
+            render_mcm_markdown,
+            write_attribution_csv,
+        )
+
+        # T-10-14: the bundle dir is derived from the SAME resolved case path
+        # _case_store validated (case_db_path asserts containment) — only
+        # <case>/mcm/ beneath it is ever created, never a user-supplied path.
+        mcm_dir = case_db_path(config.data_dir, case).parent / "mcm"
+        analysis = analyse_mcm(store.query_events(), config.mcm.thresholds)
+        if fmt is McmFormat.json:
+            report_name = "mcm_report.json"
+            report_text = render_mcm_json(analysis)
+        else:
+            report_name = "mcm_report.md"
+            report_text = render_mcm_markdown(analysis)
+        try:
+            mcm_dir.mkdir(parents=True, exist_ok=True)
+            (mcm_dir / report_name).write_text(report_text, encoding="utf-8")
+            write_attribution_csv(analysis, mcm_dir / "mcm_attribution.csv")
+        except OSError as exc:
+            # WR-02: a write-target failure is exit 1 with a helpful, sanitised
+            # message, never a raw traceback (mirrors report).
+            print(f"Error: cannot write MCM bundle to {mcm_dir}: {_sanitise(str(exc))}")
+            raise typer.Exit(1) from None
+
+        n = len(analysis.episodes)
+        plural = "episode" if n == 1 else "episodes"
+        print(
+            f"Analysed {n} MCM denial {plural}; wrote {report_name} + "
+            f"mcm_attribution.csv to {mcm_dir}"
+        )
+        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
+        for i, ea in enumerate(analysis.episodes, start=1):
+            flags = sorted(ea.flags, key=lambda f: _sev_rank.get(f.severity, 3))
+            if flags:
+                top = flags[0]
+                # T-10-15: log-derived message text through _sanitise before echo.
+                print(f"  Episode {i}: {top.severity} — {_sanitise(top.message)}")
+            else:
+                print(f"  Episode {i}: no diagnostic flags raised")
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring report.
+        store.close()
+
+
 @app.command("eval")
 def eval_(
     suite: Annotated[
