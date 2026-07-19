@@ -237,13 +237,13 @@ Plans:
   3. `sift eval` exits non-zero when a planted regression drops scores below `eval/thresholds.toml` thresholds
   4. Optional LLM-as-judge grading via the same local model is reported alongside (never instead of) keyword scores
 
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 
 Plans:
 
 - [x] 07-01-PLAN.md — PyYAML legitimacy checkpoint + pinned install (unblocks truth.yaml parsing)
 - [x] 07-02-PLAN.md — Harness skeleton: one golden case runs end-to-end offline through `sift eval` and prints its metric row (truth loader + 4 metrics + runner + table)
-- [ ] 07-03-PLAN.md — Threshold gate + non-zero exit on planted regression + ADR 0010
+- [x] 07-03-PLAN.md — Threshold gate + non-zero exit on planted regression + ADR 0010
 - [ ] 07-04-PLAN.md — Full 6-case golden suite (all SPEC exemplars + quiet-cause, mixed-tz, negative) + suite validation
 - [ ] 07-05-PLAN.md — Optional LLM-as-judge grading (advisory, `--judge`, never gates)
 
@@ -274,7 +274,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (Ph
 | 4. Salience, RAG & Citation-Gated Hypotheses | 6/6 | Complete    | 2026-07-17 |
 | 5. Domain Adapters (journald, dsserrors, eustack) | 6/6 | In Progress|  |
 | 6. Renderers & KB Retrieval | 5/5 | Complete    | 2026-07-18 |
-| 7. Evaluation Harness & Golden Cases | 2/5 | In Progress|  |
+| 7. Evaluation Harness & Golden Cases | 3/5 | In Progress|  |
 | 8. Packaging & Deploy | 0/TBD | Not started | - |
 
 ---
