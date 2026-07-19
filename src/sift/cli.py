@@ -11,6 +11,7 @@ import sqlite3
 import sys
 from datetime import UTC, datetime
 from enum import StrEnum
+from importlib.metadata import PackageNotFoundError, version
 from itertools import batched
 from pathlib import Path
 from typing import Annotated, cast
@@ -40,6 +41,42 @@ from sift.render._util import sanitise as _sanitise
 from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
+
+
+def _version_string() -> str:
+    """Return the installed package version, or the source default off-tree."""
+    try:
+        return version("sift")
+    except PackageNotFoundError:
+        # Running from an uninstalled checkout (e.g. ``python -m sift.cli``):
+        # no dist metadata exists, so fall back to the declared version.
+        return "0.1.0"
+
+
+def _version_callback(value: bool) -> None:
+    """Eager ``--version`` handler: print the version and exit before dispatch.
+
+    An eager Option callback fires during parsing, so it works even though the
+    top-level group requires a subcommand (``no_args_is_help=True``).
+    """
+    if value:
+        typer.echo(_version_string())
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(  # pyright: ignore[reportUnusedFunction] — registered via @app.callback
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            help="Show the Sift version and exit.",
+            is_eager=True,
+            callback=_version_callback,
+        ),
+    ] = False,
+) -> None:
+    """Sift — a fully local, privacy-preserving incident triage engine."""
 
 
 class DiskFullError(Exception):

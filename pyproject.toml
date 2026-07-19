@@ -46,10 +46,11 @@ testpaths = ["tests"]
 # Pitfall 5: the default suite excludes 100 MB-scale gates and live-server
 # integration tests; an explicit `uv run pytest -m perf` (or `-m live`) on the
 # command line overrides this addopts filter.
-addopts = "-m 'not perf and not live'"
+addopts = "-m 'not perf and not live and not packaging'"
 markers = [
     "perf: 100 MB-scale gates, run explicitly via -m perf",
     "live: real-inference-server integration tests, run explicitly via -m live",
+    "packaging: offline install smoke + Quadlet dry-run, run explicitly via -m packaging",
 ]
 
 [tool.ruff]
