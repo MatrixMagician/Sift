@@ -147,6 +147,29 @@ def _order_by_index(rows: object, count: int) -> list[object]:
     return cast(list[object], slots)
 
 
+def _embed_reject_message(data: dict[str, object], max_input_chars: int) -> str:
+    """Actionable message when ``/embeddings`` returns no ``data`` list.
+
+    llama.cpp/Lemonade answer an over-context request with HTTP 200 and an
+    ``{"error": ...}`` body (no ``data``). Name the cause and the knob rather
+    than the cryptic 'data is not a list'.
+    """
+    detail = ""
+    err = data.get("error")
+    if isinstance(err, dict):
+        message = cast(dict[str, object], err).get("message")
+        if isinstance(message, str):
+            detail = message
+    elif isinstance(err, str):
+        detail = err
+    suffix = f" (server: {detail})" if detail else ""
+    return (
+        f"embeddings response has no 'data' list{suffix}; an input may exceed "
+        f"the model's context window — lower embeddings.max_input_chars "
+        f"(currently {max_input_chars}) or increase the server context"
+    )
+
+
 class InferenceClient:
     """The only HTTP client in Sift; hits both inference roles.
 
@@ -158,6 +181,8 @@ class InferenceClient:
         retries: Extra attempts after the first on connect/timeout/5xx.
         backoff_base: Seconds for exponential backoff (`base * 2**attempt`).
         batch_size: Max inputs per ``/embeddings`` request.
+        max_input_chars: Cap each embedding input to this many characters, so a
+            large record cannot exceed the model's context and abort the batch.
     """
 
     def __init__(
@@ -170,6 +195,7 @@ class InferenceClient:
         retries: int = 2,
         backoff_base: float = 0.5,
         batch_size: int = 64,
+        max_input_chars: int = 8000,
     ) -> None:
         _assert_local(generation.base_url, allow_public)
         _assert_local(embeddings.base_url, allow_public)
@@ -179,6 +205,7 @@ class InferenceClient:
         self._retries = retries
         self._backoff_base = backoff_base
         self._batch_size = max(1, batch_size)
+        self._max_input_chars = max(1, max_input_chars)
         self._has_tokenize: bool | None = None  # None = not yet probed
         self._has_props: bool | None = None
         # Model id the embeddings server reported on the last embed (STORE-03
@@ -218,7 +245,14 @@ class InferenceClient:
         vectors: list[list[float]] = []
         dim: int | None = None
         for start in range(0, len(inputs), self._batch_size):
-            batch = list(inputs[start : start + self._batch_size])
+            # Cap each input so a large multi-line record (MCM memory dump,
+            # stack trace) never exceeds the model's context window and makes
+            # the backend reject the whole batch. Embedded text is never cited,
+            # so a deterministic prefix truncation is safe.
+            batch = [
+                text[: self._max_input_chars]
+                for text in inputs[start : start + self._batch_size]
+            ]
             payload: dict[str, object] = {"input": batch}
             if self._embeddings.model is not None:
                 payload["model"] = self._embeddings.model
@@ -230,7 +264,12 @@ class InferenceClient:
             reported = data.get("model")
             if isinstance(reported, str) and reported:
                 self._last_embedding_model = reported
-            for embedding in _order_by_index(data.get("data"), len(batch)):
+            raw_rows = data.get("data")
+            if not isinstance(raw_rows, list):
+                # llama.cpp/Lemonade answer an over-context request with 200 +
+                # {"error": ...} and no "data"; surface the cause and the knob.
+                raise ValueError(_embed_reject_message(data, self._max_input_chars))
+            for embedding in _order_by_index(cast(list[object], raw_rows), len(batch)):
                 vector = _coerce_vector(embedding)
                 if dim is None:
                     dim = len(vector)

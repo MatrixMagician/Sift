@@ -42,6 +42,12 @@ class EmbeddingsConfig(BaseModel):
     model: str | None = None  # D-03: NO baked default — identity comes from config.
     timeout: float = 60.0
     batch_size: int = 64
+    # Cap each embedding input to this many characters before sending. A large
+    # multi-line record (MCM memory dump, stack trace) can exceed the model's
+    # context window; the backend then rejects the whole request and aborts
+    # analyze. 8000 chars is ~2000-2700 tokens, safely under an 8192-token
+    # context; lower it for a small-context model (e.g. bge-small = 512).
+    max_input_chars: int = 8000
 
 
 class ClusteringConfig(BaseModel):
@@ -96,6 +102,7 @@ _ENV_SCALARS: dict[str, tuple[str, str]] = {
     "SIFT_EMBEDDINGS_MODEL": ("embeddings", "model"),
     "SIFT_EMBEDDINGS_TIMEOUT": ("embeddings", "timeout"),
     "SIFT_EMBEDDINGS_BATCH_SIZE": ("embeddings", "batch_size"),
+    "SIFT_EMBEDDINGS_MAX_INPUT_CHARS": ("embeddings", "max_input_chars"),
 }
 
 

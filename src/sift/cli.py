@@ -786,6 +786,7 @@ def analyze(
                     retries=config.generation.retries,
                     backoff_base=config.generation.backoff_base,
                     batch_size=config.embeddings.batch_size,
+                    max_input_chars=config.embeddings.max_input_chars,
                 )
             except ValueError as exc:
                 print(f"Error: {_sanitise(str(exc))}")
