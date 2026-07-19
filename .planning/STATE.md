@@ -5,8 +5,8 @@ milestone_name: MCM Memory-Pressure Analysis
 current_phase: 10
 current_phase_name: diagnostic-flags-lead-up-attribution-sift-mcm-report-csv
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-07-19T20:40:51.262Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-07-19T20:53:07.493Z"
 last_activity: 2026-07-19
 last_activity_desc: Phase 10 execution started
 progress:
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 10 (diagnostic-flags-lead-up-attribution-sift-mcm-report-csv) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-19 — Phase 10 execution started
 
@@ -103,6 +103,7 @@ Last activity: 2026-07-19 — Phase 10 execution started
 | Phase 09 P01 | 6min | 2 tasks | 3 files |
 | Phase 09 P02 | ~35m | 2 tasks | 3 files |
 | Phase 10 P01 | ~14min | 2 tasks | 3 files |
+| Phase 10 P02 | ~18min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,7 @@ Recent decisions affecting current work:
 - [Phase ?]: PKG-02 deploy default ships Network=host + literal 127.0.0.1 (guard-clean); host.containers.internal rejected by DNS-free guard — ADR 0011 (D-06 corrected)
 - [Phase ?]: Phase 9 RED (09-01): pinned sift.pipeline.mcm public API (detect_episodes/McmEpisode/MemoryBreakdown/LifecycleSignal) via 8 failing golden tests + verbatim Hartford deny slice; MCM-01/02 completed at GREEN 09-02
 - [Phase ?]: MCM breakdown non-Optional: absent block is EMPTY MemoryBreakdown (accessors None) per D-03, honouring the fixed test contract
+- [Phase ?]: MCM-03 flags: value_pct rounded to 1 dp at source; x2 (power-of-two) scaling is bit-exact under IEEE division so machine-independence holds without extra rounding tolerance
 
 ### Pending Todos
 
@@ -195,6 +197,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-19T20:40:51.256Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-07-19T20:53:07.487Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
