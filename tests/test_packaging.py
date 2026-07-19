@@ -14,10 +14,24 @@ does NOT need a ``_no_network`` exemption (unlike ``live``): do not add a
 """
 
 import os
+import re
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
+
+# _assert_local is module-private; the guard-acceptability lock (PKG-02) must
+# exercise the real guard, so import it directly under a scoped suppression.
+from sift.llm.client import _assert_local  # pyright: ignore[reportPrivateUsage]
+
+_DEPLOY = Path(__file__).resolve().parent.parent / "deploy"
+
+
+def _shipped_base_urls() -> list[str]:
+    """Extract every ``SIFT_*_BASE_URL`` value from ``deploy/sift.container``."""
+    text = (_DEPLOY / "sift.container").read_text()
+    return re.findall(r"SIFT_\w+_BASE_URL=(\S+)", text)
 
 
 def _run(argv: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -117,3 +131,60 @@ def test_offline_wheel_install_yields_working_console_script(tmp_path: Path) -> 
         ],
         env,
     )
+
+
+@pytest.mark.packaging
+def test_deploy_base_urls_are_guard_clean() -> None:
+    """The shipped Quadlet default reaches the host llama-server WITHOUT override.
+
+    Regression-locks PKG-02 (D-06 corrected): every ``SIFT_*_BASE_URL`` in
+    ``deploy/sift.container`` must pass ``_assert_local(allow_public=False)``
+    without raising — i.e. no ``--i-know-what-im-doing`` is ever needed for the
+    deploy default. If a future edit reintroduced a bare hostname (e.g.
+    ``host.containers.internal``) the DNS-free guard would raise and this fails.
+    Each host is additionally pinned to the literal loopback ``127.0.0.1``.
+    """
+    urls = _shipped_base_urls()
+    assert urls, "deploy/sift.container defines no SIFT_*_BASE_URL entries"
+    for url in urls:
+        # No raise = guard accepts the shipped default with no break-glass.
+        _assert_local(url, allow_public=False)
+        assert urlsplit(url).hostname == "127.0.0.1", url
+
+
+@pytest.mark.packaging
+def test_quadlet_generator_dry_run_validates_or_skips() -> None:
+    """The Podman Quadlet generator lints ``deploy/`` — graceful skip if absent (D-07).
+
+    The systemd generator dry-run is the authoritative Quadlet linter (NOT
+    ``podman quadlet install --dry-run``, which previews updates, not parse
+    validity). Where the generator binary is present we assert a clean run whose
+    generated stdout references the ``sift`` unit; where it is absent (the likely
+    CI case) we skip rather than fail — D-07 requires the dry-run to be
+    best-effort, never a hard CI failure.
+    """
+    generator = next(
+        (
+            p
+            for p in (
+                "/usr/lib/systemd/system-generators/podman-system-generator",
+                "/usr/libexec/podman/quadlet",  # legacy pre-5.x path
+            )
+            if Path(p).exists()
+        ),
+        None,
+    )
+    if generator is None:
+        pytest.skip("podman quadlet generator absent; dry-run is best-effort (D-07)")
+
+    proc = subprocess.run(
+        [generator, "--user", "--dryrun"],
+        env={**os.environ, "QUADLET_UNIT_DIRS": str(_DEPLOY)},
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, (
+        f"quadlet dry-run exited {proc.returncode}\n"
+        f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+    )
+    assert "sift" in proc.stdout, proc.stdout
