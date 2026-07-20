@@ -69,6 +69,27 @@ NO_PLACEABLE_LABEL = (
     "hazard, not dropped)"
 )
 
+# D-08/WR-03: the case-level disclosure label for perfmon samples that carry no
+# placeable timestamp when episodes ARE present. On the episodes branch such a
+# sample falls in no [start, end] span and is caught by no per-episode hazard, so
+# it would vanish silently — the exact defect WR-03 closed only on the
+# no-episodes branch. This group is NOT a resolved correlation window (it has no
+# span at all): it is a boundless case-wide disclosure that the samples were
+# retained but could not be attributed to any denial window. The wording mirrors
+# NO_PLACEABLE_LABEL and is free of Markdown metacharacters so it survives
+# ``_field`` intact.
+UNATTRIBUTED_LABEL = (
+    "Perfmon samples carried no placeable timestamp, so they fall in no denial "
+    "window and no sample range; they are disclosed here rather than dropped "
+    "silently (a case-wide disclosure, not a correlation window)"
+)
+
+# The synthetic key for the case-wide unattributed-samples disclosure group.
+# Deliberately not a real ``source_file`` (which is what file-scope groups key
+# on): the disclosure is case-wide, not per-file, so its key must not collide
+# with any file's group.
+_UNATTRIBUTED_KEY = "<unattributed>"
+
 # Cited-id ceiling per hazard, with the true total stated in the message. A file
 # where every row drifted would otherwise put one event_id per row into a single
 # hazard — the unbounded-growth problem WR-02's _NOTE_CAP solved, reappearing in
@@ -645,6 +666,49 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
     return tuple(groups)
 
 
+def _unattributed_group(events: list[Event]) -> TrendGroup | None:
+    """The case-level disclosure of perfmon samples with no placeable timestamp (D-08).
+
+    Reached only on the episodes-present branch, where a ``dssperfmon`` sample
+    with ``ts is None`` falls in no ``[start, end]`` span and is caught by no
+    per-episode hazard — the exact silent drop WR-03 closed on the no-episodes
+    branch. This is that same disclosure, reusing ``_hazard_unplaceable_samples``
+    verbatim so its wording and citation shape (``severity="info"``, ``_CITE_CAP``
+    cap, ``event_id`` sort) match the file-scope path exactly — no second
+    disclosure implementation.
+
+    Filters to ``source == "dssperfmon"`` before the ``ts is None`` test: the
+    caller passes the whole event list, which includes the episode's boundary
+    events (``source == "dsserrors"``) — some of which legitimately carry no
+    timestamp (D-04) and must NOT be miscited as unplaceable perfmon samples.
+
+    Returns a synthetic ``scope="file"`` group carrying ONLY that hazard
+    (``sample_count=0``, no counters, no boundary, ``start_ts=None``), mirroring
+    the shipped zero-sample ``NO_PLACEABLE_LABEL`` group so the ``sift perfmon``
+    renderers need no change; or ``None`` when every perfmon sample is placeable,
+    so the caller can append it unconditionally. ``UNATTRIBUTED_LABEL`` states
+    plainly this is a case-wide disclosure, not a resolved window, so the
+    one-hazard-per-span invariant holds: a synthetic disclosure group is not a
+    correlation.
+    """
+    hazard = _hazard_unplaceable_samples(
+        [e for e in events if e.source == "dssperfmon" and e.ts is None]
+    )
+    if hazard is None:
+        return None
+    return TrendGroup(
+        scope="file",
+        key=_UNATTRIBUTED_KEY,
+        label=UNATTRIBUTED_LABEL,
+        start_ts=None,
+        end_ts=None,
+        boundary_event_ids=(),
+        sample_count=0,
+        counters=(),
+        hazards=(hazard,),
+    )
+
+
 def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
     """Correlate perfmon samples with every MCM episode (PERF-04).
 
@@ -734,4 +798,14 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
                 hazards=tuple(hazards),
             )
         )
+
+    # D-08/WR-03: after the episode loop, in this FIXED code position (never
+    # sorted in), disclose any perfmon sample that carried no placeable timestamp
+    # and so fell in no episode span — the silent drop WR-03 closed only on the
+    # no-episodes branch. Appended last so ``model_dump_json`` stays byte-identical
+    # across runs (D-21). ``None`` when every sample was placeable (the Hartford
+    # reference), so the reference goldens are untouched.
+    disclosure = _unattributed_group(events)
+    if disclosure is not None:
+        groups.append(disclosure)
     return PerfmonAnalysis(groups=tuple(groups))
