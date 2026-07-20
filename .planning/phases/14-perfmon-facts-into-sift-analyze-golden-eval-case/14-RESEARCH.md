@@ -250,9 +250,11 @@ Not applicable — no external ecosystem movement. The relevant "state of the ar
 
 **All other claims are `[VERIFIED]` against the working tree at `file:line`.**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 ### 1. D-08: `PerfmonAnalysis` field vs. synthetic TrendGroup (Claude's Discretion — planner decides)
+
+> **RESOLVED: Option B** (synthetic zero-sample disclosure `TrendGroup`, add-alongside) — decided in `14-02-PLAN.md`'s `<assumption_delta_decision>` block for lowest blast radius on the shipped Phase 13 surface.
 
 The deferred WR-03 fix: when episodes ARE present, untimestamped perfmon samples (`ts is None`) fall in no span and vanish (the episode path at `perfmon.py:648-737` never calls `_hazard_unplaceable_samples`; only the no-episodes `_file_scope_groups` does, `perfmon.py:592`). Both options reuse `_hazard_unplaceable_samples` (`perfmon.py:523-554`) for identical text/cap/sort.
 
@@ -267,6 +269,9 @@ The deferred WR-03 fix: when episodes ARE present, untimestamped perfmon samples
 **Evidence-based lean (not a verdict):** Option B has **lower blast radius on the shipped Phase 13 surface** — the zero-sample hazard-only `TrendGroup` path already exists and the report renderers already consume it, so "nothing disappears silently" holds with no `sift perfmon` edits and no model-invariant rewrite. The cost is a synthetic group and a `scope` decision. Option A is more semantically honest but forces a docstring-invariant rewrite plus new render paths in three out-of-scope renderers. Given the phase's "strictly additive, don't perturb Phase 13" posture, **B is the lazier correct default**; choose A only if the team prefers the model to state case-level disclosures explicitly. The planner should confirm which renderers enumerate `analysis.groups` vs. a hypothetical new field before deciding (grep `render/perfmon_report.py`).
 
 ### 2. Does the golden eval case need the full 13,596-sample CSV or a slice?
+
+> **RESOLVED: overlapping slice** — decided in `14-01-PLAN.md` (a small re-timed/synthetic Hartford-derived slice built Wave 1, with a self-verifying overlap guard).
+
 Recommendation: a **small overlapping slice** (tens of samples), built Wave 0. The eval harness ingests `input/` through the real pipeline (`runner.py:147`), and a 2 MB CSV would slow every `sift eval` run for no added signal — the gate needs *one* citable perfmon fact, not fidelity. Keep the full-fidelity assertions at correlator-unit level (`test_perfmon.py`), exactly as Phase 13 did for the non-overlapping pair (ROADMAP Phase 13 note).
 
 ## Environment Availability

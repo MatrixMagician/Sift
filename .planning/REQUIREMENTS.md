@@ -81,6 +81,8 @@ one phase; no requirement appears in two phases.
 | Snapshot-case perfmon CSV | `/home/oliverh/Downloads/hartford/hartford_linux_snapshot.csv` | 6,803 samples, same 23-counter set — second golden-case candidate |
 | Snapshot/shutdown logs | `/home/oliverh/Downloads/hartford/hartford_Linux_snapshotDSSErrors (3).log`, `hartford_Linux_Shutdown_DSSErrors (3).log` | Pairs with the snapshot CSV |
 
+> **Note (Phase 14 eval anchor):** the raw deny-case CSV ends ~6 s *before* the denial banner, so the raw CSV+log pair has **zero perfmon samples in the correlation span** — a golden case built on it verbatim would be vacuous (no citable perfmon `event_id`). The PERF-08 golden case (`perfmon-denial`) therefore uses a **re-timed overlapping slice** derived from this Hartford signal (D-07 sanctions synthetic-builder / real-slice fixture mechanics), guarded by a self-verifying overlap assertion. Full-fidelity counter behaviour stays asserted at correlator-unit level, as in Phase 13.
+
 **Observed lead-in trend (deny case), first sample → last sample:**
 
 | Counter | Start | End (6 s pre-denial) |
