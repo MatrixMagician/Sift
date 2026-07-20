@@ -191,7 +191,7 @@ window and `analyse_mcm` orchestration — shipped)
   12:39:39.397. Golden trend figures are therefore asserted at correlator-unit level; the ingested
   pair is the natural integration test for the non-overlap hazard.
 
-**Plans**: 4/6 plans executed
+**Plans**: 5/6 plans executed
 
 Plans:
 **Wave 1**
@@ -206,7 +206,7 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [x] 13-04-PLAN.md — The three PERF-05 hazards: non-overlap, always-zero `Total MCM Denial`, counter-set drift
-- [ ] 13-05-PLAN.md — Renderer: Markdown, canonical JSON, trend CSV with the formula-injection guard (PERF-06)
+- [x] 13-05-PLAN.md — Renderer: Markdown, canonical JSON, trend CSV with the formula-injection guard (PERF-06)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

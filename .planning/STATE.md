@@ -5,15 +5,15 @@ milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministi
 current_phase: 13
 current_phase_name: episode-correlation-hazard-flags-sift-perfmon-report-csv
 status: executing
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-07-20T14:49:53.018Z"
+stopped_at: Completed 13-05-PLAN.md
+last_updated: "2026-07-20T15:01:10.263Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 13 execution started
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 33
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 13 (episode-correlation-hazard-flags-sift-perfmon-report-csv) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 13 execution started
 
-Progress: [████████░░] 80% (1/3 v1.2 phases)
+Progress: [█████████░] 90% (1/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -123,6 +123,7 @@ Progress: [████████░░] 80% (1/3 v1.2 phases)
 | Phase 13 P02 | ~35 min | 3 tasks | 2 files |
 | Phase 13 P03 | 25m | 3 tasks | 2 files |
 | Phase 13 P04 | 35 min | 3 tasks | 2 files |
+| Phase 13 P05 | 25m | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -217,6 +218,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Parse notes capped at 10 per category with one suppression summary; cli.py needed no change (WR-02)
 - [Phase ?]: _find_counter_key returns every matching counter key, not one — a single-key lookup cannot enforce the 'every instance must read zero' rule (T-13-EVADE)
 - [Phase ?]: Perfmon hazard determinism is asserted on _cited's order-preservation directly; two in-process runs cannot detect set iteration because hash order is fixed per process
+- [Phase ?]: Perfmon trend CSV guards string cells with _csv_safe (=+-@ TAB CR); numeric cells stay unguarded so negative slopes keep their sign
+- [Phase ?]: PERFMON_CSV_HEADER carries boundary_event_ids so every CSV row cites the span it was computed over
 
 ### Pending Todos
 
@@ -245,8 +248,8 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T14:49:53.011Z
-Stopped at: Completed 13-04-PLAN.md
+Last session: 2026-07-20T15:01:00.334Z
+Stopped at: Completed 13-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
