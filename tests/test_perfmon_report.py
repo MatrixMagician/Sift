@@ -13,6 +13,8 @@ network, no ``input()`` — the conftest guards are autouse.
 
 from __future__ import annotations
 
+import json
+
 from sift.pipeline.perfmon import (
     CounterTrend,
     PerfmonAnalysis,
@@ -20,6 +22,7 @@ from sift.pipeline.perfmon import (
     TrendGroup,
 )
 from sift.render.perfmon_report import (
+    render_perfmon_json,
     render_perfmon_markdown,
 )
 
@@ -165,3 +168,52 @@ def test_markdown_cells_pass_through_field() -> None:
 
     assert _BIDI_OVERRIDE not in out
     assert "Hostile" in out
+
+
+# --------------------------------------------------------------------------- #
+# JSON (Task 2)
+# --------------------------------------------------------------------------- #
+
+
+def _json_analysis(counter: str = "Memory\\Available MBytes") -> PerfmonAnalysis:
+    return PerfmonAnalysis(
+        groups=(_group(counters=(_trend(counter),), hazards=(_hazard(),)),),
+        hazards=(_hazard(value=None),),
+    )
+
+
+def test_json_is_key_sorted_and_newline_terminated() -> None:
+    """D-21: sort_keys + a single trailing newline make the artefact re-runnable."""
+    out = render_perfmon_json(_json_analysis())
+
+    assert out.endswith("\n")
+    assert not out.endswith("\n\n")
+    body = out[:-1]
+    reserialised = json.dumps(
+        json.loads(body), sort_keys=True, ensure_ascii=True, indent=2
+    )
+    assert reserialised == body
+
+
+def test_json_is_pure_ascii() -> None:
+    """T-13-JSONESC: no raw C1/Cf byte survives into the JSON artefact."""
+    out = render_perfmon_json(_json_analysis(f"Memory{_BIDI_OVERRIDE}\\Hostile"))
+
+    out.encode("ascii")  # raises UnicodeEncodeError if a raw byte survived
+    assert _BIDI_OVERRIDE not in out
+    assert "\\u202e" in out
+
+
+def test_json_round_trips_through_loads() -> None:
+    """T-13-JSONNAN: no bare NaN/Infinity token can reach a downstream parser."""
+    out = render_perfmon_json(_json_analysis())
+
+    assert json.loads(out)
+    assert "NaN" not in out
+    assert "Infinity" not in out
+
+
+def test_json_byte_identical_on_repeat() -> None:
+    analysis = _json_analysis()
+
+    assert render_perfmon_json(analysis) == render_perfmon_json(analysis)
