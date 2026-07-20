@@ -4,15 +4,15 @@ milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 current_phase: 14
 current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
-status: discussing
-stopped_at: Phase 14 context gathered — ready for /gsd-plan-phase 14 --research
-last_updated: "2026-07-20T17:19:34.385Z"
+status: planned
+stopped_at: Phase 14 planned (5 plans, 3 waves) — ready for /gsd-execute-phase 14
+last_updated: "2026-07-20T18:03:35.717Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 14 CONTEXT.md gathered via discuss-phase (8 decisions D-01..D-08)
+last_activity_desc: Phase 14 planning complete (5 plans, 3 waves) — VERIFICATION PASSED
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 10
+  total_plans: 15
   completed_plans: 10
   percent: 67
 ---
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 
 Phase: 13 (episode-correlation-hazard-flags-sift-perfmon-report-csv) — EXECUTING
 Plan: 6 of 6
-Status: Phase complete — ready for verification
+Status: Ready to execute
 Last activity: 2026-07-20 — Phase 13 execution started
 
 Progress: [██████████] 100% (1/3 v1.2 phases)
