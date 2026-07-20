@@ -16,6 +16,7 @@ from _perfmon_fixtures import write_collision_csv
 from sift.adapters.base import ParseStats
 from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.adapters.dssperfmon import (
+    _DRIFT_ATTR,  # pyright: ignore[reportPrivateUsage] — the per-event drift evidence key under test
     _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the key set the collision/shadowing guards assert against
     DssperfmonAdapter,
 )
@@ -434,3 +435,54 @@ def test_counter_named_like_reserved_attr_cannot_clobber_provenance(
     assert event.event_id == event_id("syn.csv", header_bytes)
     # The counter's own value is still retrievable, just namespaced.
     assert event.attrs["counter.byte_offset"] == "266042"
+
+
+# ------------------------------------------------- per-event drift evidence ---
+
+SHORT_ROW = b'"04/07/2026 12:39:39.397","266042"\n'
+
+
+def test_drift_marker_in_attrs(tmp_path: Path) -> None:
+    """A drifted row carries citable per-event evidence; a good row does not.
+
+    The file-level ``stats.notes`` entry is a disclosure, not evidence: it
+    carries no ``event_id`` a hazard could cite, and it is capped. The marker
+    is what plan 13-04's counter-set-drift hazard reads (WR-05, D-15).
+    """
+    events, _, _ = run_syn(tmp_path, GOOD_ROW, SHORT_ROW)
+    good, drifted = events
+    assert _DRIFT_ATTR not in good.attrs
+    assert drifted.severity == "unknown"
+    marker = drifted.attrs[_DRIFT_ATTR]
+    assert "2" in marker and "3" in marker, marker
+
+
+def test_drift_marker_survives_note_cap(tmp_path: Path) -> None:
+    """Every drifted row keeps its marker however many rows drift.
+
+    The marker lives per event, so bounding ``stats.notes`` cannot destroy the
+    evidence — the precise interaction that makes WR-02's cap safe.
+    """
+    events, _, _ = run_syn(tmp_path, *([SHORT_ROW] * 40))
+    assert len(events) == 40
+    assert all(_DRIFT_ATTR in e.attrs for e in events)
+
+
+def test_counter_named_like_drift_marker_cannot_shadow_it(tmp_path: Path) -> None:
+    """A counter named after the marker is namespaced, not allowed to shadow it.
+
+    Counter names come from the customer's CSV, so without ``_DRIFT_ATTR`` in
+    ``_RESERVED_ATTRS`` a crafted header could rewrite the drift evidence the
+    hazard cites while the row still looked clean (T-13-ATTRKEY).
+    """
+    assert _DRIFT_ATTR in _RESERVED_ATTRS
+    header = (
+        b'"(PDH-CSV 4.0) (Eastern Standard Time)(300)",'
+        b'"\\\\host1\\MSTR Server\\' + _DRIFT_ATTR.encode() + b'",'
+        b'"\\\\host1\\MSTR Server\\Total MCM Denial"\n'
+    )
+    events, _, _ = run_syn(tmp_path, SHORT_ROW, header=header)
+    assert len(events) == 1
+    attrs = events[0].attrs
+    assert attrs[f"counter.{_DRIFT_ATTR}"] == "266042"
+    assert "expected" in attrs[_DRIFT_ATTR] or "3" in attrs[_DRIFT_ATTR]
