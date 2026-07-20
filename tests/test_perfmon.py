@@ -28,12 +28,21 @@ from pydantic import ValidationError
 from sift.adapters.dssperfmon import DssperfmonAdapter
 from sift.config import load_config
 from sift.models import Event
+from sift.pipeline.mcm import (
+    Attribution,
+    EpisodeAnalysis,
+    EpisodeWindow,
+    McmAnalysis,
+    McmEpisode,
+    MemoryBreakdown,
+)
 from sift.pipeline.perfmon import (
     SLOPE_DP,
     CounterTrend,
     PerfmonAnalysis,
     PerfmonHazard,
     _numeric,  # pyright: ignore[reportPrivateUsage] — the finite-only gate D-11 turns on
+    analyse_perfmon,
 )
 from sift.store import CaseStore, case_db_path
 
@@ -167,3 +176,122 @@ def test_empty_analysis_constructs() -> None:
         excluded_samples=0,
     )
     assert partial.at_denial is None
+
+
+# ------------------------------------------------- Task 2: span resolution ---
+
+
+_WRONG_DENIAL_TS = "1999-01-01 00:00:00.000"
+
+
+def _episode_analysis(
+    denial_event_id: str,
+    event_ids: tuple[str, ...] = (),
+    start_event_id: str | None = None,
+) -> EpisodeAnalysis:
+    """One minimal ``EpisodeAnalysis`` carrying only the span inputs.
+
+    ``denial_ts`` is deliberately a WRONG date: the correlator must resolve the
+    end bound from the denial event's ``Event.ts`` and never parse this string
+    (D-01), so a span contaminated by it is visibly wrong rather than plausible.
+    """
+    return EpisodeAnalysis(
+        episode=McmEpisode(
+            denial_event_id=denial_event_id,
+            denial_ts=_WRONG_DENIAL_TS,
+            recovery=None,
+            open_truncated=False,
+            fragmented=False,
+            event_ids=event_ids,
+            lifecycle=(),
+            breakdown=MemoryBreakdown(
+                raw_map={}, current_memory_info={}, mcm_settings={}
+            ),
+            hwm_bytes=None,
+            avail_timeline=(),
+        ),
+        window=EpisodeWindow(
+            threshold_pct=0,
+            start_event_id=start_event_id,
+            hwm_bytes=None,
+            request_count=0,
+            label="full available lead-up",
+        ),
+        flags=(),
+        attribution=Attribution(
+            by_oid=(), by_source=(), by_sid=(), unmatched_event_ids=()
+        ),
+    )
+
+
+def test_span_from_event_ids() -> None:
+    """Both bounds come from resolved ``Event.ts``, never from ``denial_ts`` (D-01)."""
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    ea = _episode_analysis(denial.event_id, start_event_id=start.event_id)
+    analysis = analyse_perfmon(McmAnalysis(episodes=(ea,)), [*samples, start, denial])
+
+    group = analysis.groups[0]
+    assert samples[0].ts is not None
+    assert samples[-1].ts is not None
+    assert group.start_ts == samples[0].ts.isoformat()
+    assert group.end_ts == samples[-1].ts.isoformat()
+    # The wrong denial_ts year must appear nowhere: proof it was never parsed.
+    assert "1999" not in f"{group.start_ts}{group.end_ts}"
+
+
+def test_span_full_leadup_fallback() -> None:
+    """``start_event_id=None`` scans for the first TIMESTAMPED entry (D-03).
+
+    ``attribute_window`` takes ``event_ids[0]`` unconditionally; here the first
+    entry carries no timestamp, so taking it would leave the span unplaceable.
+    """
+    samples = ingest_perfmon_slice()
+    untimed = log_boundary_event("u" * 16, None)
+    timed = log_boundary_event("t" * 16, samples[5].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    ea = _episode_analysis(
+        denial.event_id,
+        event_ids=(untimed.event_id, timed.event_id),
+        start_event_id=None,
+    )
+    analysis = analyse_perfmon(
+        McmAnalysis(episodes=(ea,)), [*samples, untimed, timed, denial]
+    )
+
+    assert samples[5].ts is not None
+    assert analysis.groups[0].start_ts == samples[5].ts.isoformat()
+
+
+def test_span_missing_ts_hazard() -> None:
+    """A boundary with ``ts=None`` yields a hazard and NO trend (D-04).
+
+    No neighbouring event's timestamp is substituted and ``denial_ts`` is not
+    consulted — an unresolvable span stays unresolved and says why.
+    """
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, None)
+    ea = _episode_analysis(denial.event_id, start_event_id=start.event_id)
+    analysis = analyse_perfmon(McmAnalysis(episodes=(ea,)), [*samples, start, denial])
+
+    group = analysis.groups[0]
+    assert group.counters == ()
+    assert group.start_ts is None
+    assert group.end_ts is None
+    assert group.sample_count == 0
+    assert len(group.hazards) == 1
+    assert group.hazards[0].event_ids
+
+
+def test_span_boundaries_are_inclusive() -> None:
+    """A sample landing exactly on either bound is INCLUDED (D-05)."""
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    ea = _episode_analysis(denial.event_id, start_event_id=start.event_id)
+    analysis = analyse_perfmon(McmAnalysis(episodes=(ea,)), [*samples, start, denial])
+
+    # Both edge samples counted, so all 20 fall in the closed interval.
+    assert analysis.groups[0].sample_count == len(samples) == 20

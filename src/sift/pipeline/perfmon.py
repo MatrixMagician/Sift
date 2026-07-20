@@ -13,8 +13,13 @@ rounding at source, all ordering explicit.
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from sift.models import Event
+    from sift.pipeline.mcm import EpisodeAnalysis, McmAnalysis
 
 # Slope decimal places, rounded at source so float repr noise cannot vary the
 # rendered output between runs (mirroring _mb_bytes's 3 dp at mcm_report.py:79).
@@ -128,3 +133,142 @@ class PerfmonAnalysis(BaseModel):
 
     groups: tuple[TrendGroup, ...]
     hazards: tuple[PerfmonHazard, ...]
+
+
+class _Span(NamedTuple):
+    """A resolved correlation span, or the reason it could not be resolved.
+
+    ``reason`` is ``None`` exactly when both ``start`` and ``end`` are present.
+    Never raises: an unresolvable span is a value the caller grades, not an
+    exception (D-04).
+    """
+
+    start: Event | None
+    end: Event | None
+    reason: str | None
+
+
+def _resolve_span(ea: EpisodeAnalysis, by_id: dict[str, Event]) -> _Span:
+    """Resolve BOTH span ends by ``event_id`` against the store's events (D-01).
+
+    The window is CONSUMED, not recomputed: ``mcm.select_window`` already chose
+    it and is never called from here (D-02).
+
+    End bound: the denial event's own ``Event.ts``. ``McmEpisode.denial_ts`` is a
+    formatted string and is deliberately NOT parsed as a consolation when the
+    event fails to resolve — that fallback is the easy mistake here, and a span
+    built from it would look plausible while citing nothing (D-01/D-04).
+
+    Start bound: ``window.start_event_id`` when set; otherwise the first entry of
+    ``episode.event_ids`` that both resolves AND carries a timestamp (D-03).
+    ``attribute_window`` takes ``event_ids[0]`` unconditionally, which does not
+    guarantee a placeable timestamp, so the shape is mirrored but not the rule.
+    """
+    end = by_id.get(ea.episode.denial_event_id)
+    if end is None:
+        return _Span(None, None, "the denial event is absent from the case store")
+    if end.ts is None:
+        return _Span(None, None, "the denial event carries no timestamp")
+
+    if ea.window.start_event_id is not None:
+        start = by_id.get(ea.window.start_event_id)
+        if start is None:
+            return _Span(None, None, "the window start event is absent from the store")
+        if start.ts is None:
+            return _Span(None, None, "the window start event carries no timestamp")
+        return _Span(start, end, None)
+
+    # Full-lead-up fallback: the earliest episode row that can be placed at all.
+    for event_id in ea.episode.event_ids:
+        candidate = by_id.get(event_id)
+        if candidate is not None and candidate.ts is not None:
+            return _Span(candidate, end, None)
+    return _Span(None, None, "no episode event carries a timestamp to start from")
+
+
+def _in_span(events: list[Event], start: Event, end: Event) -> list[Event]:
+    """The perfmon samples inside the CLOSED interval ``[start.ts, end.ts]`` (D-05).
+
+    Closed deliberately: Hartford's last sample before the denial can land
+    exactly on a bound, and excluding it would drop the very reading the report
+    is about. Input order is the store's canonical
+    ``ORDER BY ts IS NULL, ts, source_file, line_start`` and is preserved rather
+    than re-sorted.
+
+    ``EXCLUDED_FROM_RANKING`` is deliberately not imported: it means "held out of
+    ranking", which is a different concept from "is a perfmon sample".
+    """
+    assert start.ts is not None and end.ts is not None  # noqa: S101 — _Span invariant
+    return [
+        e
+        for e in events
+        if e.source == "dssperfmon" and e.ts is not None and start.ts <= e.ts <= end.ts
+    ]
+
+
+def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
+    """Correlate perfmon samples with every MCM episode (PERF-04).
+
+    One ``TrendGroup`` per episode, including episodes whose span could not be
+    resolved — those carry a graded hazard and no counters, so nothing disappears
+    silently. Pure and deterministic: ``model_dump_json`` is byte-identical on
+    re-run.
+
+    Two omissions are deliberate, not oversights: correlation hazards (empty
+    window, non-overlap) are added in plan 13-04, and D-20's ``scope="file"``
+    whole-file path lands in plan 13-06 with the CLI test that proves it. Until
+    then ``PerfmonAnalysis.hazards`` stays empty.
+    """
+    by_id = {e.event_id: e for e in events}  # mirrors the attribute_window precedent
+    groups: list[TrendGroup] = []
+    for ea in analysis.episodes:
+        span = _resolve_span(ea, by_id)
+        if span.start is None or span.end is None:
+            attempted = tuple(
+                dict.fromkeys(
+                    eid
+                    for eid in (ea.window.start_event_id, ea.episode.denial_event_id)
+                    if eid is not None
+                )
+            )
+            groups.append(
+                TrendGroup(
+                    scope="episode",
+                    key=ea.episode.denial_event_id,
+                    label=ea.window.label,
+                    start_ts=None,
+                    end_ts=None,
+                    boundary_event_ids=attempted,
+                    sample_count=0,
+                    counters=(),
+                    hazards=(
+                        PerfmonHazard(
+                            dimension="span",
+                            severity="warn",
+                            message=(
+                                "No perfmon trend could be correlated: "
+                                f"{span.reason}."
+                            ),
+                            event_ids=attempted,
+                        ),
+                    ),
+                )
+            )
+            continue
+
+        samples = _in_span(events, span.start, span.end)
+        assert span.start.ts is not None and span.end.ts is not None  # noqa: S101
+        groups.append(
+            TrendGroup(
+                scope="episode",
+                key=ea.episode.denial_event_id,
+                label=ea.window.label,
+                start_ts=span.start.ts.isoformat(),
+                end_ts=span.end.ts.isoformat(),
+                boundary_event_ids=(span.start.event_id, span.end.event_id),
+                sample_count=len(samples),
+                counters=(),
+                hazards=(),
+            )
+        )
+    return PerfmonAnalysis(groups=tuple(groups), hazards=())
