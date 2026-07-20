@@ -11,9 +11,13 @@ malformed cases are authored inline via ``write`` rather than checked in (D-17).
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from _perfmon_fixtures import write_collision_csv
 from sift.adapters.base import ParseStats
 from sift.adapters.dsserrors import DsserrorsAdapter
-from sift.adapters.dssperfmon import DssperfmonAdapter
+from sift.adapters.dssperfmon import (
+    _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the key set the collision/shadowing guards assert against
+    DssperfmonAdapter,
+)
 from sift.models import Event, event_id
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dssperfmon"
@@ -344,6 +348,64 @@ def test_cr_only_line_endings_degrade_not_crash(tmp_path: Path) -> None:
     assert all(e.severity == "unknown" for e in events)
     assert stats.event_count == len(events)
     assert stats.unknown_fallback_bytes > 0
+
+
+def test_collision_qualified_keys_retain_both_counters(tmp_path: Path) -> None:
+    r"""Two columns sharing one short name are BOTH kept, under distinct keys.
+
+    Before this, ``dict(zip(counter_names, ...))`` silently dropped one of the
+    two — the correlator's figures would have been quietly incomplete with no
+    disclosure anywhere (WR-03, T-13-DROP).
+    """
+    path = write_collision_csv(tmp_path)
+    events, stats = run_parse(tmp_path, path.name)
+    assert len(events) == 3
+    attrs = events[0].attrs
+    left = "Process(MSTRSvr)\\Size(MB)"
+    right = "Process(other)\\Size(MB)"
+    assert left in attrs, sorted(attrs)
+    assert right in attrs, sorted(attrs)
+    # Distinct values prove neither column overwrote the other.
+    assert attrs[left] != attrs[right]
+    # Non-colliding names are untouched.
+    assert attrs["RAM used(MB)"] in {"463900", "463901", "463902"}
+    counter_keys = set(attrs) - set(_RESERVED_ATTRS)
+    assert len(counter_keys) == 3
+    assert any("Size(MB)" in note for note in stats.notes)
+
+
+def test_hartford_keys_byte_identical() -> None:
+    """Phase 12's shipped key spelling is unchanged by the collision fix.
+
+    Asserted against an explicit literal, not a recomputed value: a recomputed
+    expectation would move with the implementation and prove nothing.
+    """
+    events, _ = run_parse(FIXTURES, SLICE)
+    counter_keys = sorted(set(events[0].attrs) - set(_RESERVED_ATTRS))
+    assert counter_keys == [
+        "% CPU time",
+        "Element Server Cache(MB)",
+        "Memory Used by Change Journal Search (KB)",
+        "Memory Used by Cube Element Blocks (KB)",
+        "Memory Used by Cube Index Keys (KB)",
+        "Memory Used by Cube Rowmaps (KB)",
+        "Memory Used by Report Caches (MB)",
+        "Number Of Report Cache Swaps",
+        "Number of Document Cache Swaps",
+        "Number of Intelligent Cube Cache Swaps",
+        "Object Server Cache(MB)",
+        "Open Project Sessions",
+        "Open Sessions",
+        "RAM used(MB)",
+        "RSS(MB)",
+        "Size(MB)",
+        "Total CPU",
+        "Total MCM Denial",
+        "Total Memory Mapped Files Size (MB)",
+        "Total size (in MB) of cubes loaded in memory",
+        "Total size (in MB) of document caches loaded in memory",
+        "Working set cache RAM usage(MB)",
+    ]
 
 
 def test_counter_named_like_reserved_attr_cannot_clobber_provenance(
