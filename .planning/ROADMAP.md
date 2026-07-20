@@ -186,7 +186,20 @@ window and `analyse_mcm` orchestration — shipped)
 
 - Mirrors Phase 10's shape: analyser + graded flags + standalone command with report/CSV bundle.
 
-**Plans**: TBD
+- The shipped fixture pair does not overlap in time: `tests/fixtures/mcm/hartford_deny_slice.log`
+  spans 12:39:47.142-12:39:47.356 while `tests/fixtures/dssperfmon/hartford_deny_slice.csv` ends at
+  12:39:39.397. Golden trend figures are therefore asserted at correlator-unit level; the ingested
+  pair is the natural integration test for the non-overlap hazard.
+
+**Plans**: 6 plans
+
+Plans:
+- [ ] 13-01-PLAN.md — Wave 0: synthetic CSV builders (collision / drift / non-finite) and the two new test modules
+- [ ] 13-02-PLAN.md — Correlator core: frozen models, finite-only converter, span resolution, trend figures (PERF-04)
+- [ ] 13-03-PLAN.md — Adapter hardening: WR-03 collision-qualified keys, WR-05 drift marker, WR-02 note caps
+- [ ] 13-04-PLAN.md — The three PERF-05 hazards: non-overlap, always-zero `Total MCM Denial`, counter-set drift
+- [ ] 13-05-PLAN.md — Renderer: Markdown, canonical JSON, trend CSV with the formula-injection guard (PERF-06)
+- [ ] 13-06-PLAN.md — `sift perfmon` command, the D-20 full-sample-range path, criteria 2 and 5 (PERF-06)
 
 ---
 
