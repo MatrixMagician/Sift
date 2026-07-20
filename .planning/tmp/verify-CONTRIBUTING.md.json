@@ -1,0 +1,14 @@
+{
+  "doc_path": "CONTRIBUTING.md",
+  "claims_checked": 22,
+  "claims_passed": 21,
+  "claims_failed": 1,
+  "failures": [
+    {
+      "line": 126,
+      "claim": "Existing dependencies carry inline comments in `pyproject.toml` explaining why they are there",
+      "expected": "inline justification comment on each dependency in pyproject.toml",
+      "actual": "only pyyaml, rich and the pdf extra carry comments; httpx, pydantic, scikit-learn, sqlite-vec, typer, zstandard have none"
+    }
+  ]
+}
