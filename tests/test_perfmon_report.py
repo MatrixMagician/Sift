@@ -13,7 +13,9 @@ network, no ``input()`` — the conftest guards are autouse.
 
 from __future__ import annotations
 
+import csv
 import json
+from pathlib import Path
 
 from sift.pipeline.perfmon import (
     CounterTrend,
@@ -22,8 +24,10 @@ from sift.pipeline.perfmon import (
     TrendGroup,
 )
 from sift.render.perfmon_report import (
+    PERFMON_CSV_HEADER,
     render_perfmon_json,
     render_perfmon_markdown,
+    write_perfmon_trend_csv,
 )
 
 # A Unicode format (category Cf) code point — written as an escape, never as a
@@ -217,3 +221,100 @@ def test_json_byte_identical_on_repeat() -> None:
     analysis = _json_analysis()
 
     assert render_perfmon_json(analysis) == render_perfmon_json(analysis)
+
+
+# --------------------------------------------------------------------------- #
+# CSV (Task 3)
+# --------------------------------------------------------------------------- #
+
+
+def _read_csv(path: Path) -> list[list[str]]:
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.reader(fh))
+
+
+def test_csv_row_per_counter_per_group(tmp_path: Path) -> None:
+    """D-18: one row per counter per episode, and byte-identical on re-run."""
+    analysis = PerfmonAnalysis(
+        groups=(
+            _group(key="denial00", counters=(_trend("A"), _trend("B"))),
+            _group(scope="file", key="perf.csv", counters=(_trend("C"),)),
+        ),
+        hazards=(),
+    )
+    first = tmp_path / "one.csv"
+    second = tmp_path / "two.csv"
+    write_perfmon_trend_csv(analysis, first)
+    write_perfmon_trend_csv(analysis, second)
+
+    rows = _read_csv(first)
+    assert rows[0] == list(PERFMON_CSV_HEADER)
+    assert len(rows) - 1 == sum(len(g.counters) for g in analysis.groups) == 3
+    assert first.read_bytes() == second.read_bytes()
+
+
+def test_csv_header_only_when_no_groups(tmp_path: Path) -> None:
+    """The header is written before any iteration, so an empty case still parses."""
+    path = tmp_path / "empty.csv"
+    write_perfmon_trend_csv(PerfmonAnalysis(groups=(), hazards=()), path)
+
+    assert _read_csv(path) == [list(PERFMON_CSV_HEADER)]
+
+
+def test_csv_formula_guard(tmp_path: Path) -> None:
+    """T-13-CSVINJ: every formula trigger is neutralised with a leading quote."""
+    for trigger in ("=", "+", "-", "@", "\t", "\r"):
+        name = f"{trigger}cmd|'/c calc'!A0"
+        path = tmp_path / "guard.csv"
+        write_perfmon_trend_csv(
+            PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),), hazards=()),
+            path,
+        )
+        counter_cell = _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")]
+        assert counter_cell == f"'{name}", f"trigger {trigger!r} not neutralised"
+
+
+def test_csv_formula_guard_leaves_ordinary_names_unchanged(tmp_path: Path) -> None:
+    """The guard is not over-broad: an ordinary name round-trips byte-for-byte."""
+    name = "Process(MSTRSvr)\\Working Set"
+    path = tmp_path / "ordinary.csv"
+    write_perfmon_trend_csv(
+        PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),), hazards=()), path
+    )
+
+    assert _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")] == name
+
+
+def test_csv_none_figures_are_empty_cells(tmp_path: Path) -> None:
+    """An uncomputable figure is an empty cell, never the string ``None``."""
+    path = tmp_path / "none.csv"
+    write_perfmon_trend_csv(
+        PerfmonAnalysis(
+            groups=(
+                _group(
+                    counters=(
+                        _trend(slope_per_second=None, peak=None, peak_event_id=None),
+                    )
+                ),
+            ),
+            hazards=(),
+        ),
+        path,
+    )
+
+    row = _read_csv(path)[1]
+    assert row[PERFMON_CSV_HEADER.index("slope_per_second")] == ""
+    assert row[PERFMON_CSV_HEADER.index("peak")] == ""
+    assert b"None" not in path.read_bytes()
+
+
+def test_csv_event_ids_semicolon_joined(tmp_path: Path) -> None:
+    """A multi-id cell uses ';' so csv.writer adds no comma-quoting."""
+    path = tmp_path / "ids.csv"
+    write_perfmon_trend_csv(
+        PerfmonAnalysis(groups=(_group(counters=(_trend(),)),), hazards=()), path
+    )
+
+    cell = _read_csv(path)[1][PERFMON_CSV_HEADER.index("boundary_event_ids")]
+    assert cell == "bnd11111;bnd22222"
+    assert '"' not in path.read_text(encoding="utf-8")
