@@ -5,10 +5,10 @@ milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministi
 current_phase: 13
 current_phase_name: episode-correlation-hazard-flags-sift-perfmon-report-csv
 status: secured
-stopped_at: Phase 13 threat-secure (27/27 closed, threats_open 0) — ready for /gsd-complete or Phase 14
-last_updated: "2026-07-20T15:12:50.728Z"
+stopped_at: Phase 14 context gathered
+last_updated: "2026-07-20T17:19:34.385Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 13 security gate confirmed passed (SECURITY.md verified, committed f216ab7)
+last_activity_desc: Phase 13 execution started
 progress:
   total_phases: 3
   completed_phases: 2
@@ -249,9 +249,9 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T15:12:50.721Z
-Stopped at: Completed 13-06-PLAN.md
-Resume file: None
+Last session: 2026-07-20T17:19:34.377Z
+Stopped at: Phase 14 context gathered
+Resume file: .planning/phases/14-perfmon-facts-into-sift-analyze-golden-eval-case/14-CONTEXT.md
 
 ## Operator Next Steps
 
