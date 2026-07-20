@@ -89,14 +89,18 @@ Do not start work on the next milestone while the current one's tests are red.
 
 ```
 src/sift/
-  cli.py            Typer app — the eight subcommands and the ingest orchestrator
+  cli.py            Typer app — the nine subcommands (new, ingest, show, analyze,
+                    report, mcm, perfmon, eval, doctor) and the ingest orchestrator
   config.py         config precedence: CLI flags > SIFT_* env > config.toml > defaults
   models.py         frozen Event dataclass + event_id(); Hypothesis/HypothesisSet
-  store.py          SQLite + sqlite-vec case store; owns migrations
-  adapters/         pluggable parsers (base.py holds the frozen Adapter protocol)
-  pipeline/         dedup, cluster, salience, retrieve, hypothesise, mcm
+  store.py          SQLite + sqlite-vec case store; owns migrations and the
+                    EXCLUDED_FROM_RANKING source-kind seam
+  adapters/         pluggable parsers (base.py holds the frozen Adapter protocol);
+                    five shipped: genericlog, journald, dsserrors, eustack, dssperfmon
+  pipeline/         dedup, cluster, salience, retrieve, hypothesise; mcm + mcm_facts
+                    (MCM denial episodes), perfmon + perfmon_facts (DSSPerformanceMonitor)
   llm/              client.py — the ONLY module that opens HTTP; budget.py
-  render/           markdown (primary), json_out, mcm_report, pdf (extra)
+  render/           markdown (primary), json_out, mcm_report, perfmon_report, pdf (extra)
   prompts/          versioned *.md prompt templates, loaded as package data
   eval/             golden-case harness behind `sift eval`
 tests/              pytest suite; tests/perf and tests/fixtures alongside
@@ -149,6 +153,13 @@ The invariant: **adding an adapter requires exactly a new module plus one
 registration line — nothing else changes.** If your change touches `cli.py`,
 `store.py`, or the pipeline, you have found a leak in the abstraction; fix the
 leak rather than routing around it.
+
+`dssperfmon` (`src/sift/adapters/dssperfmon.py`) is the most recent worked
+example — the fifth adapter, added in v1.2 for MicroStrategy
+DSSPerformanceMonitor PDH-CSV samples. It held to the invariant with one
+sanctioned exception, covered in step 5: a whole *source kind* that must remain
+citable but be held out of the ranking pipeline. Read it alongside this
+walkthrough.
 
 ### 1. The contract
 
@@ -228,8 +239,12 @@ One line in `src/sift/adapters/__init__.py`:
 
 ```python
 REGISTRY: dict[str, Adapter] = {
-    ...
-    "myformat": MyFormatAdapter(),
+    "genericlog": GenericLogAdapter(),
+    "journald": JournaldAdapter(),
+    "dsserrors": DsserrorsAdapter(),
+    "eustack": EustackAdapter(),
+    "dssperfmon": DssperfmonAdapter(),
+    "myformat": MyFormatAdapter(),   # your new adapter
 }
 ```
 
@@ -248,6 +263,33 @@ Add `tests/test_myformat.py` plus a fixture under `tests/fixtures/`, and extend
 detection matrix — including the negative case that your adapter does *not*
 claim other adapters' fixtures. Then run the gate.
 
+### 5. The one sanctioned exception: source-kind ranking exclusion
+
+Most adapters produce diagnostic events that should flow through the whole
+pipeline. Some do not. `dssperfmon` emits periodic monitoring samples —
+thousands of near-identical PDH-CSV rows that carry no incident signal to
+dedup, cluster, salience or hypothesis excerpts, and would dominate template
+counts if ranked. They must stay fully **citable** (a hypothesis can reference
+a sample, and `sift show events` lists them) while being **held out of
+ranking**.
+
+That is the sole case in which adding a source touches an existing file, and it
+is a deliberately single seam: one entry in the `EXCLUDED_FROM_RANKING`
+frozenset in `src/sift/store.py`.
+
+```python
+EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon"})
+```
+
+The store's ranking-facing readers filter by this set; the citation- and
+display-facing readers deliberately do not, so exclusion never means the events
+disappear. Exclusion is a property of the *source kind*, owned in `store.py`
+and never caller-supplied — which is why it lives in exactly one place rather
+than being threaded as a flag through every pipeline stage. If your adapter
+produces monitoring or telemetry data rather than incidents, add its name here;
+otherwise leave the set alone. This is the only pipeline-adjacent edit a new
+adapter is permitted to make.
+
 ## Walkthrough: working on prompts
 
 All prompts live in `src/sift/prompts/` as Markdown and are loaded at runtime
@@ -258,6 +300,7 @@ with `importlib.resources`:
 | `triage.md` | `pipeline/hypothesise.py` |
 | `cluster_label.md` | `pipeline/cluster.py` |
 | `mcm_facts.md` | `pipeline/mcm_facts.py` |
+| `perfmon_facts.md` | `pipeline/perfmon_facts.py` |
 | `judge.md` | `eval/judge.py` |
 
 Rules for changing one:

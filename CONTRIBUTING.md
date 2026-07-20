@@ -77,7 +77,7 @@ representative example):
 
 **Status:** Accepted
 **Date:** YYYY-MM-DD
-**Answers:** which SPEC section or open question this closes
+**Answers:** the design question or open decision this closes
 
 ## Context
 ## Decision
@@ -133,7 +133,7 @@ purpose, because Sift needs precise control of the request shape.
 - Branch from `main`.
 - Keep the change focused — one concern per pull request.
 - Make sure `ruff check`, `pyright`, and `pytest` are all clean before opening it.
-- Describe what changed and why, and link the SPEC section or ADR it relates to.
+- Describe what changed and why, and link any ADR in [docs/decisions/](docs/decisions/) it relates to.
 - If you ran the marker-gated suites (`perf`, `live`, `packaging`), say which.
 
 ## Reporting bugs

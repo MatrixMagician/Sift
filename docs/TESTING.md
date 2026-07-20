@@ -10,7 +10,9 @@ is about running, reading, and extending that suite.
 - **Framework:** pytest (>= 9.1.1, declared in the `dev` dependency group of
   `pyproject.toml`).
 - **Setup:** `uv sync` — nothing else. No servers, no fixtures to download, no
-  network. The whole default suite (509 test functions across `tests/`) runs offline.
+  network. The whole default suite runs offline: `uv run pytest --collect-only`
+  reports 666 tests collected, of which 8 are deselected by the default marker
+  filter, leaving 658 in the default run.
 - **Config:** `[tool.pytest.ini_options]` in `pyproject.toml`. `testpaths = ["tests"]`
   and `addopts = "-m 'not perf and not live and not packaging'"`.
 
@@ -65,8 +67,10 @@ matching `extraPaths` execution environments for pyright).
 | Area | Files | Covers |
 |------|-------|--------|
 | Core models & store | `test_models.py`, `test_store.py`, `test_store_vectors.py`, `test_disk_full.py` | `event_id` derivation, SQLite migrations, sqlite-vec vector table, disk-exhaustion behaviour |
-| Adapters | `test_adapters_detect.py`, `test_dsserrors.py`, `test_eustack.py`, `test_journald.py`, `test_genericlog.py`, `test_configurable_adapter.py` | sniff/parse contract, registry + override resolution, per-format parsing |
+| Adapters | `test_adapters_detect.py`, `test_dsserrors.py`, `test_eustack.py`, `test_journald.py`, `test_genericlog.py`, `test_dssperfmon.py`, `test_configurable_adapter.py` | sniff/parse contract, registry + override resolution, per-format parsing (incl. PDH-CSV perfmon) |
 | MCM analysis | `test_mcm.py`, `test_mcm_facts.py`, `test_mcm_report.py`, `test_mcm_analyze.py`, `test_cli_mcm.py` | episode detection, memory breakdown, attribution, fact rendering into `analyze` |
+| Perfmon (DSSPerformanceMonitor) | `test_perfmon.py`, `test_perfmon_facts.py`, `test_perfmon_report.py`, `test_perfmon_analyze.py`, `test_cli_perfmon.py` | counter-trend correlation, hazard model, span boundaries, fact rendering into `analyze`, CLI wiring (v1.2) |
+| Config | `test_config.py` | CLI > `SIFT_*` env > TOML > default precedence |
 | Pipeline | `test_dedup.py`, `test_cluster.py`, `test_salience.py`, `test_kb_retrieval.py`, `test_kb_analyze.py`, `test_budget.py` | masking/templating, HDBSCAN clustering, ranking, KB retrieval, token budgeting |
 | LLM boundary | `test_llm_client.py`, `test_hypothesise.py` | endpoint guards, retries, llama.cpp `response_format` shape, schema + citation enforcement |
 | Rendering | `test_render_markdown.py`, `test_render_json.py`, `test_render_pdf.py`, `test_report_determinism.py`, `test_cli_report.py` | report output and byte-identity |
@@ -85,6 +89,11 @@ by name (`from _report_fixtures import ...`), deliberately **not** conftest fixt
   FLAGGED verdicts and the degraded flag.
 - `tests/_eval_fixtures.py` — `single_case_suite()`, `eval_handler()`, `patch_http()`,
   `GOOD_HYPSET`: the offline eval-harness rig.
+- `tests/_perfmon_fixtures.py` — `write_collision_csv()`, `write_drift_csv()`,
+  `write_non_finite_csv()`: synthetic PDH-CSV builders (see *Synthetic PDH-CSV
+  fixtures* below). Each builder is paired with a guard test in the same module
+  asserting the fixture genuinely carries the defect it claims, so it runs only
+  when named explicitly (`uv run pytest tests/_perfmon_fixtures.py`).
 
 ## Shared fixtures (`tests/conftest.py`)
 
@@ -139,8 +148,8 @@ three layers:
    ```
 
    Tests that construct an `InferenceClient` directly pass an `httpx.Client` bound to a
-   `MockTransport` the same way. Around 42 call sites across the suite use
-   `httpx.MockTransport`.
+   `MockTransport` the same way. `httpx.MockTransport` is the suite-wide seam for a
+   fake OpenAI-compatible server, used across dozens of tests.
 
 3. **The fake OpenAI-compatible server.** There is no separate server process — the
    "server" is a request handler function. `_eval_fixtures.eval_handler()` is the
@@ -175,7 +184,30 @@ tests/fixtures/eustack/threaddump.txt
 tests/fixtures/journald/basic.json, field_types.json
 tests/fixtures/mcm/hartford_deny_slice.log, hartford_deny_double.log,
                    hartford_deny_predenial_multisid.log, hartford_two_episode_partial.log
+tests/fixtures/dssperfmon/hartford_deny_slice.csv
 ```
+
+### Synthetic PDH-CSV fixtures
+
+The shipped Hartford `DSSPerformanceMonitor` cut is clean in exactly the ways that
+make the dssperfmon adapter's defensive branches unreachable from real data: every
+data row is the same width, no two counters collapse to the same short name, and
+there are zero blank or non-numeric cells — so the `severity="unknown"` fallback
+path and the collision/drift/non-finite guards cannot be exercised by it.
+`tests/_perfmon_fixtures.py` manufactures those conditions synthetically, each
+builder writing strictly beneath the pytest-supplied `tmp_path`:
+
+- `write_collision_csv()` — two instances of one object carrying the same counter,
+  so two distinct columns map to one short name.
+- `write_drift_csv()` — a mid-file row narrower than the header, well-formed rows
+  either side, to exercise mid-file column-drift detection.
+- `write_non_finite_csv()` — `nan`/`inf` cells that pass a bare `float()` but fail
+  `isfinite`, the exact gap the non-finite guard closes.
+
+`tests/test_dssperfmon.py` covers the `severity="unknown"` fallbacks (blank cell,
+non-numeric cell, bad timestamp, column drift, embedded newline) with small inline
+synthetic PDH files, since a blank or malformed cell is precisely what the real
+export never contains.
 
 Adapter tests bind them with a module-level constant and a small local helper, e.g. in
 `tests/test_dsserrors.py`:
@@ -303,10 +335,10 @@ eval/cases/disk-full/
 └── input/         # the raw artefacts sift ingests (system.log)
 ```
 
-The seven committed cases are `dependency-timeout-mixed-tz`, `disk-full`,
-`mcm-denial`, `memory-watermark-cascade`, `negative-no-incident`,
+The eight committed cases are `dependency-timeout-mixed-tz`, `disk-full`,
+`mcm-denial`, `memory-watermark-cascade`, `negative-no-incident`, `perfmon-denial`,
 `smtp-rejection-storm`, and `thread-pool-exhaustion`.
-`tests/test_eval_cases.py::test_suite_is_exactly_the_seven_cases` pins that set, and
+`tests/test_eval_cases.py::test_suite_is_exactly_the_eight_cases` pins that set, and
 `test_special_shapes_present` pins the special shapes (the negative case, the mixed-
 timezone case, the MCM case).
 
@@ -383,13 +415,26 @@ perfect score while a case reads `FAILED` is a red flag, not a pass.
    against the evidence text, `acceptable_keywords` against the conclusion you expect,
    and `expect_no_incident: true` if this is a negative case.
 4. Update the pinned set in `tests/test_eval_cases.py`
-   (`test_suite_is_exactly_the_seven_cases`, and `test_special_shapes_present` if your
+   (`test_suite_is_exactly_the_eight_cases`, and `test_special_shapes_present` if your
    case has a special shape).
-5. Add a case-specific offline test if the case guards something particular. The
-   `mcm-denial` case is the model here: `test_mcm_denial_case_discovered_and_scored_positive`,
-   `test_mcm_denial_ingests_via_dsserrors_autosniff` (the adapter must auto-sniff it,
-   no override), and `test_mcm_denial_citation_validity_is_mcm_sensitive` (the case
-   genuinely exercises the MCM path rather than passing by accident).
+5. Add a case-specific offline test if the case guards something particular. Two
+   cases are the model here:
+   - `mcm-denial`: `test_mcm_denial_case_discovered_and_scored_positive`,
+     `test_mcm_denial_ingests_via_dsserrors_autosniff` (the adapter must auto-sniff
+     it, no override), and `test_mcm_denial_citation_validity_is_mcm_sensitive`.
+   - `perfmon-denial` (v1.2): `test_perfmon_denial_case_discovered_and_scored_positive`
+     and `test_perfmon_denial_citation_validity_is_perfmon_sensitive`. This case pairs
+     a `DSSPerformanceMonitor` PDH-CSV (`perfmon_overlap.csv`) with a denial log
+     (`perfmon_denial.log`) whose sample windows overlap, so the perfmon correlation
+     path is genuinely exercised. The sensitivity test is **non-vacuous by
+     counterfactual**: it plants a hypothesis citing a `dssperfmon` counter
+     `event_id` that is citable **only** because `render_perfmon_facts` unions it into
+     `prompted_ids`; with the perfmon block stripped at the chokepoint (monkeypatching
+     `render_perfmon_facts` to emit nothing) that same citation is FLAGGED, dropping
+     `citation_validity_rate` below its `1.00` floor and turning the case red. The
+     regexes in `truth.yaml` match the raw log clusters, not the injected fact block,
+     so `citation_validity_rate` — not `retrieval_hit_rate` — is the perfmon-sensitive
+     metric.
 6. Run `uv run sift eval` and confirm exit 0 — then run the full gate.
 
 Use `_eval_fixtures.single_case_suite(tmp_path, case="<name>")` when you want a test to

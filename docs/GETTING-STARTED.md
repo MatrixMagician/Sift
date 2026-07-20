@@ -10,6 +10,7 @@ This guide assumes all of that already works and covers what comes next:
 - inspecting intermediate state with `sift show`
 - when you need `--adapter glob=name`
 - the MCM memory-pressure workflow
+- the DSSPerformanceMonitor correlation workflow (`sift perfmon`)
 - re-running stages, idempotency, and the exit-code contracts
 - the failure modes you are most likely to hit
 
@@ -59,12 +60,13 @@ silent re-embed.
 | `sift report <case>` | Renders a self-contained report from `case.db` | No |
 | `sift show <case> <target>` | Inspects events, clusters or hypotheses | No |
 | `sift mcm <case>` | Deterministic MicroStrategy memory-contract forensics | No |
+| `sift perfmon <case>` | Deterministic DSSPerformanceMonitor correlation against MCM episodes | No |
 | `sift eval` | Runs the golden-case suite and gates on thresholds | Yes |
 | `sift doctor [case]` | Verifies endpoints, embeddings round-trip, sqlite-vec | Yes |
 
-Only `analyze`, `eval` and `doctor` construct an inference client. `report`
-and `mcm` are pure functions of the case database — you can render and
-re-render them with the backend shut down entirely.
+Only `analyze`, `eval` and `doctor` construct an inference client. `report`,
+`mcm` and `perfmon` are pure functions of the case database — you can render
+and re-render them with the backend shut down entirely.
 
 Every command accepts `--data-dir` to override where case directories live.
 
@@ -96,12 +98,21 @@ sift ingest hartford-oom
 ```
 
 ```
-DSSErrors_2026-05-11.log  coverage 99.4%  184213 events  184213 new
+DSSErrors_2026-05-11.log       coverage 99.4%  184213 events  184213 new
   note: 41 unparseable regions emitted as severity=unknown
-iserver1_stacks.txt       coverage 100.0%  62 events  62 new
-Total: 184275 new events
+DSSPerformanceMonitor.csv      coverage 100.0%  13596 events  13596 new
+iserver1_stacks.txt            coverage 100.0%  62 events  62 new
+Total: 197871 new events
 Template groups: 1904
 ```
+
+A `DSSPerformanceMonitor` PDH-CSV export ingests here too, one event per
+sample row and each individually citable. Perfmon samples are deliberately
+held out of dedup, clustering and salience ranking — the template-group and
+cluster output is byte-identical whether or not a perfmon CSV was ingested —
+so they never inflate the group count above. They exist to corroborate the
+error timeline, which is what `sift perfmon` (and the cited perfmon evidence
+inside `sift analyze`) draws on.
 
 Read that output carefully — it is the honesty layer:
 
@@ -168,8 +179,11 @@ This is the whole triage slice in one command:
    incident time. `--top-clusters` (default 12) caps how many reach the
    prompt.
 5. **Hypothesise** — the top clusters, their evidence, and (for
-   MicroStrategy cases) deterministic MCM facts are sent to the model, which
-   must cite event IDs it was actually shown.
+   MicroStrategy cases) deterministic MCM facts and computed perfmon counter
+   figures are sent to the model, which must cite event IDs it was actually
+   shown. The perfmon figures are built before generation, so a hypothesis
+   may cite a counter reading by event ID but the model can neither alter nor
+   invent it; a case with no perfmon data produces a byte-identical prompt.
 
 Everything in steps 1–3 is persisted inside a single transaction. If the
 embed call fails partway, the run rolls back to zero clusters and zero
@@ -395,8 +409,9 @@ tool stays clean.
 
 Ingestion is adapter-driven. Each adapter sniffs a file, returns a
 confidence, and the highest scorer wins; anything unrecognised falls back to
-`genericlog` rather than being dropped. Four adapters ship: `dsserrors`,
-`eustack`, `journald`, `genericlog`.
+`genericlog` rather than being dropped. Five adapters ship: `dsserrors`,
+`dssperfmon` (DSSPerformanceMonitor PDH-CSV exports), `eustack`, `journald`,
+`genericlog`.
 
 Auto-detection is right nearly always. Override it when it is not:
 
@@ -468,6 +483,52 @@ quantitative bundle; running `analyze` gives you the narrative that uses it.
 
 An empty case (no MCM episodes found) still writes the bundle and exits 0.
 
+## DSSPerformanceMonitor correlation
+
+When a case contains a `DSSPerformanceMonitor` PDH-CSV export, `sift perfmon`
+correlates the machine's memory counters against the MCM denial episodes that
+`analyse_mcm` detects — each span annotated with the counter figures computed
+over the **same** window `sift mcm` already selects. Like the MCM analysis it
+is fully deterministic: every figure is computed from the CSV, no model
+authors any number, and no network call is made:
+
+```bash
+sift perfmon hartford-oom
+```
+
+```
+Correlated 2 spans; wrote perfmon_report.md + perfmon_trend.csv to
+/home/you/.local/share/sift/hartford-oom/perfmon
+  Span 1: critical — working set climbed to 266042 MB across the lead-up window
+  Span 2: no correlation hazards raised
+```
+
+It **always** writes both files into `<case>/perfmon/`:
+
+- `perfmon_report.md` (or `perfmon_report.json` with `--format json`) — the
+  per-span correlation narrative.
+- `perfmon_trend.csv` — the counter trend behind the report.
+
+It works on a case that contains a perfmon CSV and **no DSSErrors log at
+all**: with no episodes there is no window, so the figures are computed over
+each file's full sample range and the report says so plainly, degrading to a
+plain counter-trend report.
+
+Correlation **hazards** — a CSV and log whose time windows do not overlap, an
+always-zero `Total MCM Denial` counter, a counter set that drifts mid-file, or
+samples that cannot be placed on the timeline — are reported as explicit,
+severity-graded (`info` / `warn` / `critical`) flags rather than silently
+producing a fabricated correlation. The perfmon hazards themselves take no
+config knob; only the MCM window selection they lean on is configurable.
+
+Like `sift mcm`, `sift perfmon` and `sift analyze` are complementary. The same
+computed perfmon figures are also spliced into the triage prompt as **cited**
+evidence, so a hypothesis can reference a real counter reading by event ID.
+Running `perfmon` gives you the full quantitative bundle; running `analyze`
+gives you the narrative that can cite it.
+
+An empty case still writes the bundle and exits 0.
+
 ## Re-running stages and idempotency
 
 Event identity is `sha256(source_file, byte_offset)[:16]`. That single fact
@@ -487,8 +548,8 @@ governs all re-run behaviour:
   different `--since` / `--until` / `--top-clusters` to re-rank the same
   case around a different incident time. Each run replaces the previous
   clusters and hypotheses.
-- **`sift report` and `sift mcm` are pure reads.** Run them as often as you
-  like, with the backend down.
+- **`sift report`, `sift mcm` and `sift perfmon` are pure reads.** Run them as
+  often as you like, with the backend down.
 
 Determinism holds across runs: an identical case, config, model and seed
 produce byte-identical JSON output, modulo timestamps. The recorded prompt
@@ -497,7 +558,7 @@ prompt.
 
 To delete a case, delete its directory. A clean command exit checkpoints the
 write-ahead log, so the directory holds only `case.db` (plus `mcm/` if you
-ran `sift mcm`).
+ran `sift mcm`, and `perfmon/` if you ran `sift perfmon`).
 
 ## Exit codes
 
@@ -534,6 +595,11 @@ by the in-document banner and FLAGGED rows, not by the exit code. See
 
 `0` bundle written (including an empty case), `1` missing case or write
 failure, `2` bad `--format`.
+
+### `sift perfmon` — 0 / 1 / 2
+
+Identical to `sift mcm`: `0` bundle written (including an empty case), `1`
+missing case or write failure, `2` bad `--format`.
 
 ### `sift ingest`
 

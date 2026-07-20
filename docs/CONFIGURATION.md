@@ -121,6 +121,15 @@ the generation server's `/props` and falls back to 8192 tokens when the endpoint
 is absent, reserving 1024 tokens for output. Cluster labelling uses a fixed 4096-token
 budget.
 
+The MCM and DSSPerformanceMonitor fact blocks that `sift analyze` folds into the prompt
+have no config surface either. Their caps — the number of MCM episodes and the number of
+perfmon correlation groups retained (most-severe-first) so a correlation storm cannot
+inflate the prompt — and the set of salient perfmon counters are hard-coded module
+constants in `src/sift/pipeline/mcm_facts.py` and `src/sift/pipeline/perfmon_facts.py`.
+There is deliberately no `[perfmon]` (or `[mcm]` fact-block) table, no `SIFT_PERFMON_*`
+environment variable, and no CLI flag; the only MCM knobs exposed to `config.toml` are the
+severity cut-points in `[mcm.thresholds]` above.
+
 ## Worked example
 
 `~/.config/sift/config.toml`:
