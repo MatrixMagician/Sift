@@ -259,7 +259,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
   case would be vacuous. An overlapping re-timed/synthetic pair + a self-verifying overlap guard are
   built first (Wave 1, plan 14-01) — within D-07's sanctioned discretion, not a reversal.
 
-**Plans**: 3/5 plans executed
+**Plans**: 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -270,7 +270,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 14-04-PLAN.md — Splice into `hypothesise._assemble`, union perfmon ids into `prompted_ids`, 4-combo byte-identity + anti-hallucination tests (D-01/D-02/D-05, PERF-07) (wave 2)
+- [x] 14-04-PLAN.md — Splice into `hypothesise._assemble`, union perfmon ids into `prompted_ids`, 4-combo byte-identity + anti-hallucination tests (D-01/D-02/D-05, PERF-07) (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

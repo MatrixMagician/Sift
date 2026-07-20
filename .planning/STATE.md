@@ -5,15 +5,15 @@ milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministi
 current_phase: 14
 current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
 status: executing
-stopped_at: Completed 14-03-PLAN.md
-last_updated: "2026-07-20T18:48:28.002Z"
+stopped_at: Completed 14-04-PLAN.md
+last_updated: "2026-07-20T19:04:02.472Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 14 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 67
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 14 (perfmon-facts-into-sift-analyze-golden-eval-case) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 14 execution started
 
-Progress: [█████████░] 87% (1/3 v1.2 phases)
+Progress: [█████████░] 93% (1/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -128,6 +128,7 @@ Progress: [█████████░] 87% (1/3 v1.2 phases)
 | Phase 14 P01 | 30 | 2 tasks | 3 files |
 | Phase 14 P02 | 18min | 2 tasks | 2 files |
 | Phase 14 P03 | 35m | 2 tasks | 4 files |
+| Phase 14 P04 | 40m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -227,6 +228,7 @@ Recent decisions affecting current work:
 - [Phase ?]: 14-01: reused shipped hartford deny slice verbatim + prepended 3 re-timed AvailableMCM lead-up lines to widen the resolved window to ~12s, so the perfmon-denial golden pair genuinely overlaps (non-vacuous)
 - [Phase ?]: 14-01: overlap guard test_fixture_overlaps asserts >=1 non-None at_denial_event_id (cited in store), proven RED on the non-overlapping shipped pair — PERF-07/PERF-08 remain OPEN (satisfied in 14-03/14-04/14-05)
 - [Phase ?]: 14-02: episodes-present untimestamped perfmon samples disclosed via a synthetic hazard-only TrendGroup (Option B add-alongside), reusing _hazard_unplaceable_samples verbatim; appended in a fixed position for D-21 determinism
+- [Phase ?]: PERF-07 delivered: perfmon facts spliced + unioned into prompted_ids (citable); no-perfmon prompt byte-identical (block-stripping restores ef5b76801235d179)
 
 ### Pending Todos
 
@@ -255,8 +257,8 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T18:48:27.994Z
-Stopped at: Completed 14-03-PLAN.md
+Last session: 2026-07-20T19:04:02.464Z
+Stopped at: Completed 14-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
