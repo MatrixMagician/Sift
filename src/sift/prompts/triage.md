@@ -48,3 +48,6 @@ Evidence:
 <!-- MCM_BLOCK_START (inserted only when the case has MCM denial episodes; hypothesise._apply_mcm_block substitutes <<MCM_FACTS>> with the deterministic render_mcm_facts block and drops these two marker lines, or removes the whole block — start marker through end marker — when there is no MCM data, so the no-MCM prompt stays byte-identical) -->
 <<MCM_FACTS>>
 <!-- MCM_BLOCK_END -->
+<!-- PERFMON_BLOCK_START (inserted only when the case has correlated perfmon groups; hypothesise._apply_perfmon_block substitutes <<PERFMON_FACTS>> with the deterministic render_perfmon_facts block and drops these two marker lines, or removes the whole block — start marker through end marker — when there is no perfmon data, so the no-perfmon prompt stays byte-identical) -->
+<<PERFMON_FACTS>>
+<!-- PERFMON_BLOCK_END -->
