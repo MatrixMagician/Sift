@@ -18,7 +18,9 @@ Three pure functions over the Plan 13-02 ``PerfmonAnalysis``:
   — T-13-JSONESC) and newline-terminated, hence byte-identical on re-run (D-21).
 - ``write_perfmon_trend_csv`` — the summary trend CSV, one row per counter per
   span (D-18), via stdlib ``csv.writer``. Every string cell passes through
-  ``_csv_safe``, which neutralises spreadsheet formula triggers (T-13-CSVINJ).
+  ``_csv_safe``, which first ``sanitise``s away terminal-driving C1/bidi bytes
+  (T-13-MDESC/JSONESC — CR-02) and then neutralises spreadsheet formula triggers
+  (T-13-CSVINJ).
 
 Pure ``PerfmonAnalysis -> str`` / ``-> file``: no store re-read, no recompute,
 no network, no LLM. The only I/O is the CSV file write. Reuses the markdown
@@ -36,6 +38,7 @@ from typing import TYPE_CHECKING
 # NOT a second implementation. ``_field`` wraps ``render._util.sanitise``;
 # importing it here is the sanctioned cross-module reuse (as ``mcm_report``
 # does), never a reimplementation.
+from sift.render._util import sanitise
 from sift.render.markdown import _field  # pyright: ignore[reportPrivateUsage]
 
 if TYPE_CHECKING:
@@ -212,23 +215,28 @@ def _csv_safe(value: str) -> str:
     2. ``csv.writer`` quoting prevents delimiter and newline injection, but a
        quoted cell beginning ``=`` is still evaluated as a formula when the file
        is opened in a spreadsheet. Quoting is the wrong layer for this threat.
-    3. ``render._util.sanitise`` cannot serve as the guard either: it strips
-       control characters and Unicode-Cf code points, and every trigger except
-       tab and CR is an ordinary printable character that passes through it
-       untouched.
+    3. ``render._util.sanitise`` handles a DIFFERENT threat and is composed here
+       ALONGSIDE the formula guard, not instead of it (CR-02): it strips the
+       control characters and Unicode-Cf code points (a single-byte CSI 0x9B, a
+       bidi override) that would otherwise drive the terminal of an operator who
+       ``cat``s the bundle — the same threat T-13-MDESC/T-13-JSONESC close for
+       the Markdown and JSON artefacts. Every printable formula trigger passes
+       through it untouched, so it cannot replace the quote-prefix.
 
     Only string cells are guarded. A numeric cell is written by ``csv.writer``
     from a real ``float``/``int``, so a legitimately negative figure such as a
     falling slope keeps its leading minus sign rather than being corrupted into
     text by a guard it never needed.
 
-    The first SIGNIFICANT character is tested, not literally the first one: a
-    spreadsheet strips leading whitespace before deciding a cell is a formula,
-    so ``" =cmd"`` and ``"\\t=cmd"`` are just as dangerous as a bare ``=`` and
-    must be quoted too (WR-05).
+    Ordering is load-bearing: sanitise FIRST (strip the control bytes), then
+    quote — quoting first would leave a stripped-to-empty trigger sitting behind
+    the quote. The first SIGNIFICANT character is tested, not literally the first
+    one: a spreadsheet strips leading whitespace before deciding a cell is a
+    formula, so ``" =cmd"`` is as dangerous as a bare ``=`` (WR-05).
     """
-    significant = value.lstrip(" \t\r\n")
-    return f"'{value}" if significant.startswith(_FORMULA_TRIGGERS) else value
+    cleaned = sanitise(value)
+    significant = cleaned.lstrip(" \t\r\n")
+    return f"'{cleaned}" if significant.startswith(_FORMULA_TRIGGERS) else cleaned
 
 
 def write_perfmon_trend_csv(analysis: PerfmonAnalysis, path: Path) -> None:
