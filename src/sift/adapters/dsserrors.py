@@ -87,8 +87,20 @@ _DSS_SEVERITY = {
 }
 
 # Sniff signature: a source-location token or a well-known MicroStrategy string.
+#
+# The MCM markers are qualified, never the bare substring "MCM" (ADR 0013). A
+# DSSPerformanceMonitor PDH-CSV header names the counter `Total MCM Denial` —
+# the very counter PERF-05 tracks — so a bare "MCM" made this adapter claim
+# every real perfmon CSV at 0.8. `AvailableMCM=` and `MCM Settings:` are both
+# DSSErrors-only spellings and appear in no PDH counter path.
 _SNIFF_SRCLOC_RE = re.compile(r"\[[A-Za-z]\w*\.cpp:\d+\]")
-_SNIFF_STRINGS = ("Contract Request Failed", "Info Dump", "MCM", "I-Server")
+_SNIFF_STRINGS = (
+    "Contract Request Failed",
+    "Info Dump",
+    "AvailableMCM",
+    "MCM Settings",
+    "I-Server",
+)
 
 
 def _severity_from(text: str) -> str:
