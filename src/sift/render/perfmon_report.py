@@ -28,6 +28,7 @@ load-bearing, not polish.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 # Reuse the load-bearing markdown escaping (sanitise + Markdown/HTML escape) —
@@ -157,3 +158,19 @@ def render_perfmon_markdown(analysis: PerfmonAnalysis) -> str:
     for group in analysis.groups:
         out.extend(_group_section(group))
     return "\n".join(out)
+
+
+def render_perfmon_json(analysis: PerfmonAnalysis) -> str:
+    """Serialise the analysis to canonical, key-sorted, ASCII-safe JSON (D-21).
+
+    ``ensure_ascii=True`` backslash-u-escapes every non-ASCII code point so the
+    JSON report carries no raw C1/Cf terminal-injection byte (T-13-JSONESC) —
+    a security control, not a cosmetic choice; ``sort_keys`` plus the trailing
+    newline are what make the artefact byte-identical on re-run.
+
+    No bare ``NaN``/``Infinity`` token can appear (T-13-JSONNAN): the
+    correlator's ``_numeric`` guarantees every stored figure is finite or
+    ``None``, so ``json.dumps``' non-standard float path is never reached.
+    """
+    doc = analysis.model_dump(mode="json")
+    return json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
