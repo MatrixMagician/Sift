@@ -191,7 +191,7 @@ window and `analyse_mcm` orchestration — shipped)
   12:39:39.397. Golden trend figures are therefore asserted at correlator-unit level; the ingested
   pair is the natural integration test for the non-overlap hazard.
 
-**Plans**: 2/6 plans executed
+**Plans**: 3/6 plans executed
 
 Plans:
 **Wave 1**
@@ -201,7 +201,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 13-02-PLAN.md — Correlator core: frozen models, finite-only converter, span resolution, trend figures (PERF-04)
-- [ ] 13-03-PLAN.md — Adapter hardening: WR-03 collision-qualified keys, WR-05 drift marker, WR-02 note caps
+- [x] 13-03-PLAN.md — Adapter hardening: WR-03 collision-qualified keys, WR-05 drift marker, WR-02 note caps
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
