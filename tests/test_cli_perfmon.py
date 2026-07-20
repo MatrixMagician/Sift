@@ -229,6 +229,31 @@ def test_write_failure_exit_one(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "cannot write perfmon bundle" in result.output
 
 
+def test_csv_write_failure_removes_partial_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WR-06/IN-02: a CSV write failure AFTER the report was written must not
+    leave a valid-looking report next to a missing/truncated CSV.
+
+    ``write_perfmon_trend_csv`` goes through ``path.open``, not ``write_text``,
+    so the report succeeds first — the failure mode WR-06 names. Exit 1, and
+    neither bundle file survives on disk.
+    """
+    case_dir = _build_perfmon_case()
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr("sift.render.perfmon_report.write_perfmon_trend_csv", _boom)
+    result = runner.invoke(app, ["perfmon", "perfonly"])
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "cannot write perfmon bundle" in result.output
+    perfmon_dir = case_dir / "perfmon"
+    assert not (perfmon_dir / "perfmon_report.md").exists()
+    assert not (perfmon_dir / "perfmon_trend.csv").exists()
+
+
 # --- Task 3: criterion 5 end-to-end and criterion 2 byte-identity ----------
 
 
