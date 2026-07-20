@@ -59,13 +59,13 @@ repository uses it, including CLI output and report text.
 Changes that settle a design question get an ADR in
 [docs/decisions/](docs/decisions/). Write one when your change:
 
-- answers an open question from SPEC.md §10;
+- settles a design question the project has deliberately left open;
 - picks one option where a reasonable engineer would have picked another
   (a dependency choice, a storage layout, an exit-code scheme);
 - deliberately accepts a limitation or some debt that a later reader would
   otherwise mistake for an oversight.
 
-Routine bug fixes and behaviour that SPEC.md already prescribes do not need one.
+Routine bug fixes, and behaviour that is already specified, do not need one.
 
 To add one: take the next free four-digit number, name the file
 `NNNN-kebab-case-title.md`, and follow the existing shape (see

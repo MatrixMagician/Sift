@@ -37,7 +37,7 @@ def _no_network(  # pyright: ignore[reportUnusedFunction] — autouse fixture
 ) -> None:
     """Make any network connection attempt fail loudly.
 
-    Zero network egress in tests is a hard project rule (CLAUDE.md). The block is
+    Zero network egress in tests is a hard project rule. The block is
     installed for every test EXCEPT those carrying the ``live`` marker: live
     integration tests exist precisely to reach the configured loopback inference
     endpoint (pyproject.toml, run explicitly via ``-m live``), so patching their
@@ -54,7 +54,7 @@ def _no_network(  # pyright: ignore[reportUnusedFunction] — autouse fixture
     def _blocked(self: socket.socket, address: Any) -> None:
         raise RuntimeError(
             "Network access is forbidden in tests (zero-network-in-tests rule, "
-            "see CLAUDE.md). Inject a fake instead."
+            "see docs/TESTING.md). Inject a fake instead."
         )
 
     monkeypatch.setattr(socket.socket, "connect", _blocked)

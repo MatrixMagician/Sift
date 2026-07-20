@@ -2,7 +2,7 @@
 
 Two halves of one invariant, proven offline (no external server, no real egress):
 
-- **Unmarked tests stay socket-blocked** — the zero-network rule (CLAUDE.md) is
+- **Unmarked tests stay socket-blocked** — the zero-network rule is
   installed for every ordinary test; `socket.connect` raises RuntimeError.
 - **`@pytest.mark.live` tests bypass the guard** — live integration tests exist
   precisely to reach the configured loopback inference endpoint, so the guard

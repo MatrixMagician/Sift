@@ -115,7 +115,7 @@ three layers:
 1. **The socket guard.** `_no_network` in `tests/conftest.py` replaces
    `socket.socket.connect` with a function that raises:
 
-   > `Network access is forbidden in tests (zero-network-in-tests rule, see CLAUDE.md).
+   > `Network access is forbidden in tests (zero-network-in-tests rule, see docs/TESTING.md).
    > Inject a fake instead.`
 
    `live`-marked tests are exempted — they exist precisely to reach the configured
