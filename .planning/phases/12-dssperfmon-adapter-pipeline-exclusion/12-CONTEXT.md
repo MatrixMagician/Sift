@@ -191,7 +191,7 @@ by it.
 - `src/sift/pipeline/salience.py:126` `rank_clusters` — consumes clusters/groups only; inherits exclusion transitively
 
 ### Reference artefacts (real data, read-only)
-- `/home/oliverh/Downloads/hartford/hartford_Linux_DenyDSSPerformanceMonitor16234.csv` — 13,596 samples, 23 counters, header `"(PDH-CSV 4.0) (Eastern Standard Time)(300)"`
+- `/home/oliverh/Downloads/hartford/hartford_Linux_DenyDSSPerformanceMonitor16234.csv` — 13,596 samples, 22 counters (23 CSV fields incl. timestamp), header `"(PDH-CSV 4.0) (Eastern Standard Time)(300)"`
 - `/home/oliverh/Downloads/hartford/hartford_linux_deny_.log` — the paired DSSErrors log (denials 2026-04-07 12:39:45)
 - `/home/oliverh/Downloads/hartford/hartford_linux_snapshot.csv` — 6,803 samples, same counter set
 
@@ -232,7 +232,7 @@ by it.
 
 - Real header verified this session:
   `"(PDH-CSV 4.0) (Eastern Standard Time)(300)","\\env-325602laio1use1\System\Total CPU",...`
-- Real sample row shape verified: `"04/02/2026 19:21:38.236","0","186503",...` — 23 counters, all
+- Real sample row shape verified: `"04/02/2026 19:21:38.236","0","186503",...` — 22 counters, all
   numeric, no blanks anywhere in the file; ~30 s interval; 13,596 data rows.
 - Counter names carry instance qualifiers in parens (`Process(MSTRSvr)`,
   `MicroStrategy Server Users(CastorServer)`) and units in the leaf (`(MB)`, `(KB)`) — the short-name

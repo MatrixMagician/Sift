@@ -331,9 +331,10 @@ accidental.
 
 ### Column-count note
 
-The header row and data rows must be compared on parsed column count. The Hartford header has 24
-fields (1 timestamp label + 23 counters) [VERIFIED: 23 counters per CONTEXT.md, confirmed by the
-file's structure]. `header_columns[0]` is the `(PDH-CSV 4.0) (Zone)(bias)` string, not a counter —
+The header row and data rows must be compared on parsed column count. The Hartford header has 23
+fields (1 timestamp label + 22 counters) [VERIFIED 2026-07-20 by parsing the real artefact and the
+committed fixture with `csv.reader`: both yield 23 fields per row. An earlier count of 23 counters /
+24 fields, recorded in CONTEXT.md and REQUIREMENTS.md, was off by one and has been corrected]. `header_columns[0]` is the `(PDH-CSV 4.0) (Zone)(bias)` string, not a counter —
 parse the zone/bias from it, do not treat it as column 0 of the counter set.
 
 ## Priority Question 5: Ingest orchestration touchpoints — no `cli.py` change needed

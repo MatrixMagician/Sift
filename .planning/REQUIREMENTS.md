@@ -76,7 +76,7 @@ one phase; no requirement appears in two phases.
 
 | Artefact | Path | Notes |
 |----------|------|-------|
-| Deny-case perfmon CSV | `/home/oliverh/Downloads/hartford/hartford_Linux_DenyDSSPerformanceMonitor16234.csv` | 13,596 samples, 23 counters, ~30 s interval, 2026-04-02 19:21 → 2026-04-07 12:39 Eastern; ends 6 s before the denial banner |
+| Deny-case perfmon CSV | `/home/oliverh/Downloads/hartford/hartford_Linux_DenyDSSPerformanceMonitor16234.csv` | 13,596 samples, 22 counters (23 CSV fields incl. timestamp), ~30 s interval, 2026-04-02 19:21 → 2026-04-07 12:39 Eastern; ends 6 s before the denial banner |
 | Deny-case log | `/home/oliverh/Downloads/hartford/hartford_linux_deny_.log` | MCM denials at 2026-04-07 12:39:45; same host `env-325602laio1use1`, PID 16234 |
 | Snapshot-case perfmon CSV | `/home/oliverh/Downloads/hartford/hartford_linux_snapshot.csv` | 6,803 samples, same 23-counter set — second golden-case candidate |
 | Snapshot/shutdown logs | `/home/oliverh/Downloads/hartford/hartford_Linux_snapshotDSSErrors (3).log`, `hartford_Linux_Shutdown_DSSErrors (3).log` | Pairs with the snapshot CSV |
