@@ -17,6 +17,7 @@ from sift.adapters.base import ParseStats
 from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.adapters.dssperfmon import (
     _DRIFT_ATTR,  # pyright: ignore[reportPrivateUsage] — the per-event drift evidence key under test
+    _NOTE_CAP,  # pyright: ignore[reportPrivateUsage] — the bound the cap tests are written against
     _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the key set the collision/shadowing guards assert against
     DssperfmonAdapter,
 )
@@ -486,3 +487,49 @@ def test_counter_named_like_drift_marker_cannot_shadow_it(tmp_path: Path) -> Non
     attrs = events[0].attrs
     assert attrs[f"counter.{_DRIFT_ATTR}"] == "266042"
     assert "expected" in attrs[_DRIFT_ATTR] or "3" in attrs[_DRIFT_ATTR]
+
+
+# ------------------------------------------------------- bounded parse notes ---
+
+# A bare CR inside an unquoted field: stdlib csv refuses to tokenise it.
+CSV_ERROR_ROW = b"04/07/2026 12:39:39.397,266\r042,1\n"
+
+SUMMARY_MARK = "suppressed"
+
+
+def notes_matching(stats: ParseStats, needle: str) -> list[str]:
+    return [note for note in stats.notes if needle in note]
+
+
+def test_notes_capped(tmp_path: Path) -> None:
+    """A pathological file yields a bounded note list, not one note per row.
+
+    On the real Hartford artefact a single header-width mismatch would mean
+    13,596 notes — roughly 1 MB in one ``parse_coverage`` meta row and 13,596
+    lines to the operator's terminal (WR-02, T-13-DOS).
+    """
+    extra = 5
+    events, stats, _ = run_syn(tmp_path, *([SHORT_ROW] * (_NOTE_CAP + extra)))
+    assert len(notes_matching(stats, "expected 3")) == _NOTE_CAP
+    summaries = notes_matching(stats, SUMMARY_MARK)
+    assert len(summaries) == 1
+    assert str(extra) in summaries[0], summaries[0]
+    # The cap bounds the disclosure without destroying the evidence: every
+    # drifted event still carries its own citable marker.
+    assert all(_DRIFT_ATTR in e.attrs for e in events)
+
+
+def test_note_cap_is_per_category(tmp_path: Path) -> None:
+    """One noisy category cannot consume another's disclosure budget."""
+    rows = [SHORT_ROW] * (_NOTE_CAP + 2) + [CSV_ERROR_ROW] * (_NOTE_CAP + 3)
+    _, stats = run_parse(tmp_path, syn(tmp_path, *rows)[0].name)
+    assert len(notes_matching(stats, "expected 3")) == _NOTE_CAP
+    assert len(notes_matching(stats, "could not tokenise")) == _NOTE_CAP
+    assert len(notes_matching(stats, SUMMARY_MARK)) == 2
+
+
+def test_no_summary_note_below_cap(tmp_path: Path) -> None:
+    """The summary appears only when suppression actually happened."""
+    _, stats, _ = run_syn(tmp_path, *([SHORT_ROW] * (_NOTE_CAP - 1)))
+    assert len(notes_matching(stats, "expected 3")) == _NOTE_CAP - 1
+    assert notes_matching(stats, SUMMARY_MARK) == []
