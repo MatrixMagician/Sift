@@ -255,7 +255,29 @@ def write_perfmon_trend_csv(analysis: PerfmonAnalysis, path: Path) -> None:
         writer.writerow(PERFMON_CSV_HEADER)
         for g in analysis.groups:
             boundaries = _csv_safe(";".join(g.boundary_event_ids))
-            for t in g.counters:
+            # WR-01/D-06: a span with no counters (an unresolved span, or the
+            # CRITICAL zero-in-span non-overlap hazard) still gets one figure-less
+            # row, so a reader of the CSV alone sees the span WAS analysed rather
+            # than an empty table that looks like nothing happened.
+            for t in g.counters or (None,):
+                if t is None:
+                    writer.writerow(
+                        (
+                            _csv_safe(g.scope),
+                            _csv_safe(g.key),
+                            _csv_safe(g.label),
+                            "",  # counter
+                            "",  # at_denial
+                            "",  # at_denial_event_id
+                            "",  # slope_per_second
+                            "",  # peak
+                            "",  # peak_event_id
+                            g.sample_count,
+                            "",  # excluded_samples
+                            boundaries,
+                        )
+                    )
+                    continue
                 writer.writerow(
                     (
                         _csv_safe(g.scope),
