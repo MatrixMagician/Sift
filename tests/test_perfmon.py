@@ -21,14 +21,18 @@ from __future__ import annotations
 
 import csv
 import math
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from _perfmon_fixtures import write_non_finite_csv
+from _perfmon_fixtures import write_drift_csv, write_non_finite_csv
 from pydantic import ValidationError
 
-from sift.adapters.dssperfmon import DssperfmonAdapter
+from sift.adapters.dssperfmon import (
+    _DRIFT_ATTR,  # pyright: ignore[reportPrivateUsage] — the ingest-time marker the drift hazard cites (D-15)
+    DssperfmonAdapter,
+)
 from sift.config import load_config
 from sift.models import Event
 from sift.pipeline.mcm import (
@@ -40,6 +44,7 @@ from sift.pipeline.mcm import (
     MemoryBreakdown,
 )
 from sift.pipeline.perfmon import (
+    HAZARD_COUNTER_SET_DRIFT,
     HAZARD_DENIAL_ALWAYS_ZERO,
     HAZARD_NON_OVERLAP,
     MCM_DENIAL_COUNTER,
@@ -615,3 +620,105 @@ def test_find_counter_key_survives_qualification() -> None:
         f"Jobs(B)\\{MCM_DENIAL_COUNTER}",
     )
     assert _find_counter_key({"RAM used(MB)": "463915"}) == ()
+
+
+# --------------------- Task 3 (13-04): counter-set drift + stable ordering ---
+
+
+def _write_drift_and_zero_csv(tmp_path: Path) -> Path:
+    """A PDH-CSV carrying BOTH defects: a mid-file short row and a zero denial.
+
+    ``test_hazards_deterministic_order`` needs two hazards of EQUAL severity in
+    one group so the tie-break path is actually exercised; drift and always-zero
+    are both ``warn``. ``_perfmon_fixtures.write_drift_csv`` has no denial
+    column, so it cannot raise the second one.
+    """
+    host = "env-325602laio1use1"
+    header = [
+        "(PDH-CSV 4.0) (Eastern Standard Time)(300)",
+        f"\\\\{host}\\MicroStrategy Server Jobs(CastorServer)\\{MCM_DENIAL_COUNTER}",
+        f"\\\\{host}\\System\\RAM used(MB)",
+        f"\\\\{host}\\Process(MSTRSvr)\\Size(MB)",
+    ]
+    rows = [
+        ["04/07/2026 12:39:09.397", "0", "463915", "401603"],
+        ["04/07/2026 12:39:39.397", "0", "463920"],  # drifted, mid-file
+        ["04/07/2026 12:40:09.397", "0", "463925", "401620"],
+    ]
+    path = tmp_path / "drift_and_zero.csv"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, quoting=csv.QUOTE_ALL, lineterminator="\n")
+        writer.writerow(header)
+        writer.writerows(rows)
+    return path
+
+
+def test_counter_set_drift_hazard(tmp_path: Path) -> None:
+    """Drifted rows in the span raise one warn hazard citing those events (D-15)."""
+    events = ingest_perfmon_slice(case="drift", csv_path=write_drift_csv(tmp_path))
+    start = log_boundary_event("s" * 16, events[0].ts)
+    denial = log_boundary_event("d" * 16, events[-1].ts)
+    analysis = _correlate(events, start, denial)
+
+    hazards = _of_dimension(analysis, HAZARD_COUNTER_SET_DRIFT)
+    assert len(hazards) == 1
+    assert hazards[0].severity == "warn"
+    assert hazards[0].value == 1.0  # one drifted row in the fixture
+    assert hazards[0].event_ids
+    # Every cited id belongs to an event that actually carries the marker.
+    marked = {e.event_id for e in events if _DRIFT_ATTR in e.attrs}
+    assert set(hazards[0].event_ids) <= marked
+
+
+def test_no_drift_no_drift_hazard() -> None:
+    """Hartford is uniformly 23 columns wide, so nothing drifts and nothing fires."""
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    analysis = _correlate(samples, start, denial)
+
+    assert _of_dimension(analysis, HAZARD_COUNTER_SET_DRIFT) == []
+    assert not any(_DRIFT_ATTR in s.attrs for s in samples)
+
+
+def test_drift_hazard_reads_marker_not_row_widths(tmp_path: Path) -> None:
+    """Strip the marker, keep the ragged rows: the hazard must go silent.
+
+    Proof that drift is detected ONCE at ingest and never re-derived here — a
+    second detector could disagree with the adapter about what drifted (D-15).
+    """
+    events = ingest_perfmon_slice(case="driftbare", csv_path=write_drift_csv(tmp_path))
+    assert any(_DRIFT_ATTR in e.attrs for e in events), "fixture stopped drifting"
+    # The underlying rows stay ragged — only the marker is removed.
+    stripped = [
+        replace(e, attrs={k: v for k, v in e.attrs.items() if k != _DRIFT_ATTR})
+        for e in events
+    ]
+    assert len({len(e.attrs) for e in stripped}) > 1, "rows are no longer ragged"
+
+    start = log_boundary_event("s" * 16, stripped[0].ts)
+    denial = log_boundary_event("d" * 16, stripped[-1].ts)
+    analysis = _correlate(stripped, start, denial)
+    assert _of_dimension(analysis, HAZARD_COUNTER_SET_DRIFT) == []
+
+
+def test_hazards_deterministic_order(tmp_path: Path) -> None:
+    """Two runs over identical inputs produce byte-identical output (D-21).
+
+    The fixture raises TWO ``warn`` hazards — drift and always-zero denial — so
+    the equal-severity tie-break is genuinely exercised rather than assumed.
+    """
+    events = ingest_perfmon_slice(
+        case="driftzero", csv_path=_write_drift_and_zero_csv(tmp_path)
+    )
+    start = log_boundary_event("s" * 16, events[0].ts)
+    denial = log_boundary_event("d" * 16, events[-1].ts)
+
+    first = _correlate(events, start, denial)
+    hazards = first.groups[0].hazards
+    assert [h.severity for h in hazards] == ["warn", "warn"]
+    assert {h.dimension for h in hazards} == {
+        HAZARD_DENIAL_ALWAYS_ZERO,
+        HAZARD_COUNTER_SET_DRIFT,
+    }
+    assert first.model_dump_json() == _correlate(events, start, denial).model_dump_json()
