@@ -15,10 +15,12 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from test_perfmon import FIXTURES, SLICE
 from typer.testing import CliRunner
 
 from sift.adapters.dssperfmon import DssperfmonAdapter
+from sift.cli import app
 from sift.config import load_config
 from sift.models import Event
 from sift.pipeline.mcm import McmAnalysis
@@ -170,3 +172,59 @@ def test_file_group_order_deterministic(tmp_path: Path) -> None:
     second_run = analyse_perfmon(_NO_EPISODES, events)
     assert len(first_run.groups) == 2
     assert first_run.model_dump_json() == second_run.model_dump_json()
+
+
+# --- Task 2: the sift perfmon command, mirroring sift mcm (D-17, ADR 0007) --
+
+
+def test_bundle_written() -> None:
+    """D-17: the command always writes BOTH the report and the trend CSV under
+    ``<case>/perfmon/``, prints a summary and exits 0."""
+    case_dir = _build_perfmon_case()
+    result = runner.invoke(app, ["perfmon", "perfonly"])
+    assert result.exit_code == 0, result.output
+    assert (case_dir / "perfmon" / "perfmon_report.md").exists()
+    assert (case_dir / "perfmon" / "perfmon_trend.csv").exists()
+    assert "perfmon_trend.csv" in result.output
+
+
+def test_json_format() -> None:
+    """``--format json`` writes the JSON report and not the Markdown one; the
+    CSV is written regardless of report format."""
+    case_dir = _build_perfmon_case()
+    result = runner.invoke(app, ["perfmon", "perfonly", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    assert (case_dir / "perfmon" / "perfmon_report.json").exists()
+    assert not (case_dir / "perfmon" / "perfmon_report.md").exists()
+    assert (case_dir / "perfmon" / "perfmon_trend.csv").exists()
+
+
+def test_exit_codes() -> None:
+    """An unknown ``--format`` is a Typer usage error (exit 2), rejected before
+    the command body runs and therefore before any filesystem access."""
+    case_dir = _build_perfmon_case()
+    result = runner.invoke(app, ["perfmon", "perfonly", "--format", "xml"])
+    assert result.exit_code == 2
+    assert not (case_dir / "perfmon").exists()
+
+
+def test_missing_case_exit_one() -> None:
+    """An unknown case exits 1 with a helpful message, never a traceback."""
+    result = runner.invoke(app, ["perfmon", "ghost"])
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+
+
+def test_write_failure_exit_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A write failure under the bundle directory exits 1 with a sanitised
+    message and no traceback chain (``raise ... from None``)."""
+    _build_perfmon_case()
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+    result = runner.invoke(app, ["perfmon", "perfonly"])
+    assert result.exit_code == 1
+    assert "Traceback" not in result.output
+    assert "cannot write perfmon bundle" in result.output
