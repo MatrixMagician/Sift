@@ -180,14 +180,20 @@ recorded in [ADR 0011](docs/decisions/0011-quadlet-loopback-guard.md).
 
 Ingestion is adapter-driven. Each adapter sniffs a file and reports a
 confidence; the best match wins, and anything unrecognised falls back to the
-generic log parser rather than being dropped. Four adapters ship today:
+generic log parser rather than being dropped. Five adapters ship today:
 
 | Adapter | Handles |
 | --- | --- |
 | `dsserrors` | MicroStrategy Intelligence Server `DSSErrors` logs, including multi-line MCM memory-contract blocks |
+| `dssperfmon` | MicroStrategy `DSSPerformanceMonitor` PDH-CSV exports — one sample row per event, each individually citable |
 | `eustack` | EU-stack thread dumps (one dump block = one event) |
 | `journald` | systemd journal exports |
 | `genericlog` | Any other plain-text application log — the fallback |
+
+Perfmon samples are deliberately held out of dedup, clustering, and salience
+ranking — a case's cluster output is byte-identical whether or not a perfmon CSV
+was ingested — while remaining individually citable by event ID. They exist to
+corroborate the error timeline, not to compete with it in the clusters.
 
 Override the automatic choice per file pattern when you need to:
 
@@ -211,6 +217,32 @@ It always writes both `<case>/mcm/mcm_report.md` (or `mcm_report.json` with
 `--format json`) and `<case>/mcm/mcm_attribution.csv`, then prints a short
 summary. Thresholds and the lead-up window are configuration-only, so the same
 case and configuration always yield the same bundle.
+
+## DSSPerformanceMonitor correlation
+
+When a case also contains a `DSSPerformanceMonitor` PDH-CSV export, `sift perfmon`
+correlates the machine's memory counters against the MCM denial episodes — each
+episode annotated with the counter value at denial time, the slope across the
+lead-up window, and the peak, computed over the **same** window `sift mcm`
+already selects. Like the MCM analysis it is fully deterministic: every figure is
+computed from the CSV, no model authors any number, and no network call is made.
+
+```bash
+sift perfmon my-incident
+```
+
+It writes both `<case>/perfmon/perfmon_report.md` (or `perfmon_report.json` with
+`--format json`) and `<case>/perfmon/perfmon_trend.csv`, then prints a short
+summary. It works on a case that contains a perfmon CSV and **no DSSErrors log at
+all**, degrading to a plain counter-trend report. Correlation hazards — a CSV and
+log whose time windows do not overlap, an always-zero `Total MCM Denial` counter,
+or a counter set that drifts mid-file — are reported as explicit flags rather
+than silently producing a fabricated correlation.
+
+When present, these computed perfmon figures are also fed into `sift analyze` as
+**cited** evidence: hypotheses may cite a counter reading by event ID, but the
+figures are built before generation, so the model can neither alter nor invent
+them. A case with no perfmon data produces a byte-identical prompt to before.
 
 ## Requirements
 
