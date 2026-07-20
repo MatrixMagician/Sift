@@ -5,15 +5,15 @@ milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministi
 current_phase: 12
 current_phase_name: dssperfmon-adapter-pipeline-exclusion
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-07-20T10:21:30.348Z"
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-07-20T10:30:06.318Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 12 (dssperfmon-adapter-pipeline-exclusion) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 12 execution started
 
-Progress: [███░░░░░░░] 25% (0/3 v1.2 phases)
+Progress: [█████░░░░░] 50% (0/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -115,6 +115,7 @@ Progress: [███░░░░░░░] 25% (0/3 v1.2 phases)
 | Phase 11 P02 | ~25 min | 3 tasks | 4 files |
 | Phase 11 P03 | ~30 min | 2 tasks | 6 files |
 | Phase 12 P01 | 15m | 2 tasks | 3 files |
+| Phase 12 P02 | ~20 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -193,6 +194,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 10-03: attribute_window ports parse_log as three top-level dims (by_oid/by_source/by_sid, D-14); every AttributionRow carries event_ids (D-16 cited ⊆ ep ⊆ store); analyse_mcm is the single orchestration entry
 - [Phase ?]: 11-01: render_mcm_facts exposes only printed [evt:] ids (id set == printed tokens); mcm_facts.md holds zero digits (strict C3 guard).
 - [Phase ?]: MCM facts spliced into hypothesise as citable evidence: printed [evt:] ids unioned into prompted_ids (inverse of KB); figures built pre-generation so the model cannot alter them; no-MCM prompt byte-identical (_NO_KB_PROMPT_HASH intact).
+- [Phase ?]: dssperfmon column drift keeps a recoverable ts: D-16 requires severity='unknown', not the loss of a parsed timestamp
+- [Phase ?]: _parse_header returns its disclosure notes rather than taking a stats parameter, preserving 12-01's signature ownership
 
 ### Pending Todos
 
@@ -221,8 +224,8 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T10:21:30.341Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-07-20T10:30:06.311Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
