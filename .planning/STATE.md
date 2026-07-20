@@ -4,15 +4,15 @@ milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 current_phase: 13
 current_phase_name: Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
-status: planning
-stopped_at: Phase 13 context gathered
-last_updated: "2026-07-20T12:24:17.240Z"
+status: executing
+stopped_at: Phase 13 planned
+last_updated: "2026-07-20T14:35:00.000Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 12 complete, transitioned to Phase 13
+last_activity_desc: Phase 13 planned — 6 plans in 4 waves
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 4
+  total_plans: 10
   completed_plans: 4
   percent: 33
 ---
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-19)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 12 — dssperfmon-adapter-pipeline-exclusion
+**Current focus:** Phase 13 — episode-correlation-hazard-flags-sift-perfmon-report-csv
 
 ## Current Position
 
 Phase: 13 — Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-20 — Phase 12 complete, transitioned to Phase 13
+Status: Ready to execute
+Last activity: 2026-07-20 — Phase 13 planned (6 plans, 4 waves)
 
-Progress: [██████████] 100% (0/3 v1.2 phases)
+Progress: [███░░░░░░░] 33% (1/3 v1.2 phases)
 
 ## Performance Metrics
 

@@ -194,11 +194,22 @@ window and `analyse_mcm` orchestration — shipped)
 **Plans**: 6 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 13-01-PLAN.md — Wave 0: synthetic CSV builders (collision / drift / non-finite) and the two new test modules
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 13-02-PLAN.md — Correlator core: frozen models, finite-only converter, span resolution, trend figures (PERF-04)
 - [ ] 13-03-PLAN.md — Adapter hardening: WR-03 collision-qualified keys, WR-05 drift marker, WR-02 note caps
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 13-04-PLAN.md — The three PERF-05 hazards: non-overlap, always-zero `Total MCM Denial`, counter-set drift
 - [ ] 13-05-PLAN.md — Renderer: Markdown, canonical JSON, trend CSV with the formula-injection guard (PERF-06)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 13-06-PLAN.md — `sift perfmon` command, the D-20 full-sample-range path, criteria 2 and 5 (PERF-06)
 
 ---
