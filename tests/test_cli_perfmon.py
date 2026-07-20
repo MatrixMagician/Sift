@@ -29,6 +29,7 @@ from sift.pipeline.perfmon import (
     FULL_RANGE_LABEL,
     HAZARD_DENIAL_ALWAYS_ZERO,
     HAZARD_NON_OVERLAP,
+    HAZARD_UNPLACEABLE_SAMPLES,
     analyse_perfmon,
 )
 from sift.store import CaseStore, case_db_path
@@ -115,12 +116,15 @@ def test_no_episodes_no_events_yields_empty_groups() -> None:
     assert result.groups == ()
 
 
-def test_no_episodes_untimestamped_file_yields_no_group() -> None:
-    """A perfmon file whose every sample lost its timestamp has no first or last
-    sample to bound a full range with, so it is skipped rather than indexed.
+def test_no_episodes_untimestamped_file_yields_disclosure_group() -> None:
+    """A perfmon file whose every sample lost its timestamp has no sample range
+    to bound, but it must NOT vanish (WR-03): it yields one boundless disclosure
+    group carrying an ``unplaceable_samples`` info hazard that cites the sample,
+    rather than the silent drop the old ``continue`` produced.
 
-    This is the test the empty guard actually turns on: the no-events-at-all
-    case never enters the per-file loop, so it cannot prove the guard by itself.
+    The empty guard stays load-bearing: this Case-B path must never index
+    ``placeable`` — removing ``if not placeable`` makes ``placeable[0]`` raise
+    IndexError, which is exactly why the group is built without a boundary.
     """
     undated = Event(
         event_id="undated0000000001",
@@ -140,7 +144,21 @@ def test_no_episodes_untimestamped_file_yields_no_group() -> None:
         raw="sample with no placeable timestamp",
     )
     result = analyse_perfmon(_NO_EPISODES, [undated])
-    assert result.groups == ()
+
+    assert len(result.groups) == 1
+    group = result.groups[0]
+    assert group.scope == "file"
+    assert group.key == "undated.csv"
+    assert group.sample_count == 0
+    assert group.start_ts is None
+    assert group.end_ts is None
+    assert group.counters == ()
+    assert group.boundary_event_ids == ()
+
+    hazards = [h for h in group.hazards if h.dimension == HAZARD_UNPLACEABLE_SAMPLES]
+    assert len(hazards) == 1
+    assert hazards[0].severity == "info"
+    assert "undated0000000001" in hazards[0].event_ids
 
 
 def test_no_episodes_no_denial_hazard() -> None:
