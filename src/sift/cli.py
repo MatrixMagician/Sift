@@ -1046,6 +1046,14 @@ def mcm(
             (mcm_dir / report_name).write_text(report_text, encoding="utf-8")
             write_attribution_csv(analysis, mcm_dir / "mcm_attribution.csv")
         except OSError as exc:
+            # WR-06: report is written before the CSV, so a mid-CSV failure would
+            # leave a valid-looking report next to a truncated CSV. Unlink both so
+            # a half-written bundle is never mistaken for a complete one.
+            for partial in (
+                mcm_dir / report_name,
+                mcm_dir / "mcm_attribution.csv",
+            ):
+                partial.unlink(missing_ok=True)
             # WR-02: a write-target failure is exit 1 with a helpful, sanitised
             # message, never a raw traceback (mirrors report).
             print(f"Error: cannot write MCM bundle to {mcm_dir}: {_sanitise(str(exc))}")
@@ -1135,6 +1143,15 @@ def perfmon(
             (perfmon_dir / report_name).write_text(report_text, encoding="utf-8")
             write_perfmon_trend_csv(analysis, perfmon_dir / "perfmon_trend.csv")
         except OSError as exc:
+            # WR-06: the report is written before the CSV, so a mid-CSV failure
+            # would otherwise leave a valid-looking report next to a truncated
+            # CSV. Unlink both so a later reader never mistakes a half-written
+            # bundle for a complete one.
+            for partial in (
+                perfmon_dir / report_name,
+                perfmon_dir / "perfmon_trend.csv",
+            ):
+                partial.unlink(missing_ok=True)
             # T-13-ERRLEAK: exit 1 with a sanitised message; `from None`
             # suppresses the traceback chain so no stack frame or internal path
             # reaches the operator.
