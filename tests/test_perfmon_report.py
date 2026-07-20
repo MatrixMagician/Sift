@@ -291,6 +291,26 @@ def test_csv_leading_whitespace_then_ordinary_is_not_quoted(tmp_path: Path) -> N
     assert _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")] == name
 
 
+def test_csv_strips_terminal_driving_bytes(tmp_path: Path) -> None:
+    """CR-02: no raw C1/bidi byte from a counter name reaches the trend CSV.
+
+    The trend CSV was the only shipped artefact that did not sanitise its
+    attacker-influenceable counter names, so a single-byte CSI (0x9B) or a bidi
+    override could drive the terminal of an operator who ``cat``s the bundle —
+    exactly the threat T-13-MDESC/T-13-JSONESC closed for Markdown and JSON.
+    """
+    csi = "\x9b"
+    name = f"Memory{_BIDI_OVERRIDE}{csi}\\Hostile"
+    path = tmp_path / "sanitise.csv"
+    write_perfmon_trend_csv(
+        PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),)), path
+    )
+    text = path.read_text(encoding="utf-8")
+    assert _BIDI_OVERRIDE not in text
+    assert csi not in text
+    assert "Hostile" in text
+
+
 def test_csv_formula_guard_leaves_ordinary_names_unchanged(tmp_path: Path) -> None:
     """The guard is not over-broad: an ordinary name round-trips byte-for-byte."""
     name = "Process(MSTRSvr)\\Working Set"
