@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
-current_phase: 12
-current_phase_name: dssperfmon-adapter-pipeline-exclusion
-status: verifying
+current_phase: 13
+current_phase_name: Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
+status: planning
 stopped_at: Completed 12-04-PLAN.md
-last_updated: "2026-07-20T11:45:37.408Z"
+last_updated: "2026-07-20T12:08:17.404Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 12 execution started
+last_activity_desc: Phase 12 complete, transitioned to Phase 13
 progress:
   total_phases: 3
   completed_phases: 1
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 
 ## Current Position
 
-Phase: 12 (dssperfmon-adapter-pipeline-exclusion) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-07-20 — Phase 12 execution started
+Phase: 13 — Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-20 — Phase 12 complete, transitioned to Phase 13
 
 Progress: [██████████] 100% (0/3 v1.2 phases)
 
@@ -39,7 +39,7 @@ Progress: [██████████] 100% (0/3 v1.2 phases)
 
 **Velocity:**
 
-- Total plans completed: 45
+- Total plans completed: 49
 - Average duration: -
 - Total execution time: -
 
@@ -57,6 +57,7 @@ Progress: [██████████] 100% (0/3 v1.2 phases)
 | 09 | 3 | - | - |
 | 10 | 4 | - | - |
 | 11 | 3 | - | - |
+| 12 | 4 | - | - |
 
 **Recent Trend:**
 

@@ -66,7 +66,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Milestone v1.2 — DSSPerformanceMonitor Correlation (this milestone)**
 
-- [ ] **Phase 12: `dssperfmon` Adapter & Pipeline Exclusion** - PDH-CSV ingestion as deterministic, citable, UTC-normalised time-series events, held out of dedup/embed/cluster/salience by source kind (PERF-01, PERF-02, PERF-03)
+- [x] **Phase 12: `dssperfmon` Adapter & Pipeline Exclusion** - PDH-CSV ingestion as deterministic, citable, UTC-normalised time-series events, held out of dedup/embed/cluster/salience by source kind (PERF-01, PERF-02, PERF-03) (completed 2026-07-20)
 - [ ] **Phase 13: Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV** - Each MCM episode annotated with its corroborating counter trend over MCM-04's existing lead-up window, deterministic correlation-hazard flags, shipped as the standalone `sift perfmon <case>` report + CSV (PERF-04, PERF-05, PERF-06)
 - [ ] **Phase 14: Perfmon Facts into `sift analyze` + Golden Eval Case** - Computed perfmon figures injected into `sift analyze` as cited evidence (never model-authored) plus a regression-gated perfmon golden case (PERF-07, PERF-08)
 
@@ -240,7 +240,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
 | 9. MCM Episode Detection & Breakdown | v1.1 | 3/3 | Complete | 2026-07-19 |
 | 10. Flags, Attribution, `sift mcm` | v1.1 | 4/4 | Complete | 2026-07-19 |
 | 11. MCM Facts into `sift analyze` | v1.1 | 3/3 | Complete | 2026-07-20 |
-| 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | In Progress|  |
+| 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | Complete    | 2026-07-20 |
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 0/? | Not started | - |
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 0/? | Not started | - |
 
