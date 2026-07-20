@@ -111,6 +111,34 @@ def test_no_episodes_no_events_yields_empty_groups() -> None:
     assert result.groups == ()
 
 
+def test_no_episodes_untimestamped_file_yields_no_group() -> None:
+    """A perfmon file whose every sample lost its timestamp has no first or last
+    sample to bound a full range with, so it is skipped rather than indexed.
+
+    This is the test the empty guard actually turns on: the no-events-at-all
+    case never enters the per-file loop, so it cannot prove the guard by itself.
+    """
+    undated = Event(
+        event_id="undated0000000001",
+        case_id="perfonly",
+        ts=None,
+        ts_confidence="missing",
+        source="dssperfmon",
+        source_file="undated.csv",
+        line_start=2,
+        line_end=2,
+        severity="info",
+        component=None,
+        thread=None,
+        session=None,
+        message="sample with no placeable timestamp",
+        attrs={_WORKING_SET: "1.0"},
+        raw="sample with no placeable timestamp",
+    )
+    result = analyse_perfmon(_NO_EPISODES, [undated])
+    assert result.groups == ()
+
+
 def test_no_episodes_no_denial_hazard() -> None:
     """With no detected denial there is nothing for a zero counter to
     contradict, so the always-zero denial hazard must not fire (D-14)."""

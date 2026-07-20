@@ -46,6 +46,15 @@ HAZARD_COUNTER_SET_DRIFT = "counter_set_drift"
 # _resolve_span, _in_span or _counter_trends.
 MCM_DENIAL_COUNTER = "Total MCM Denial"
 
+# D-20: the window label used when there are no episodes and therefore no
+# window at all. Stated plainly, because the report must never let a
+# full-file trend be read as a correlation against a denial that was never
+# detected. Free of Markdown metacharacters so it survives ``_field`` intact.
+FULL_RANGE_LABEL = (
+    "Full sample range (no MCM denial episode detected, so no correlation "
+    "window was resolved)"
+)
+
 # Cited-id ceiling per hazard, with the true total stated in the message. A file
 # where every row drifted would otherwise put one event_id per row into a single
 # hazard — the unbounded-growth problem WR-02's _NOTE_CAP solved, reappearing in
@@ -485,6 +494,57 @@ def _hazard_counter_set_drift(samples: list[Event]) -> PerfmonHazard | None:
     )
 
 
+def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
+    """One full-sample-range TrendGroup per source file (D-20).
+
+    Reached only when the case has NO episodes, so there is no window to
+    correlate against. The figures are identical IN KIND to the episode path —
+    literally the same ``_counter_trends`` call, never a second implementation —
+    but they are computed over the file's whole sample range rather than a
+    denial window. That difference is why ``FULL_RANGE_LABEL`` says so plainly:
+    the report must state that no correlation was performed rather than let a
+    whole-file trend be silently substituted for one.
+
+    Grouping is by ``Event.source_file`` via ``dict.fromkeys`` over the
+    canonically-ordered event list, so first-appearance order is preserved and
+    no ``set`` iteration can vary the output between runs (D-21). Samples within
+    a file are already canonically ordered and are deliberately not re-sorted.
+    """
+    by_file: dict[str, list[Event]] = {}
+    for event in perfmon_events:
+        by_file.setdefault(event.source_file, []).append(event)
+
+    groups: list[TrendGroup] = []
+    for source_file, samples in by_file.items():
+        placeable = [s for s in samples if s.ts is not None]
+        if not placeable:
+            # Guarded BEFORE indexing: a file whose every sample lost its
+            # timestamp has no first or last sample to bound a range with, and
+            # placeable[0] would raise IndexError.
+            continue
+        first, last = placeable[0], placeable[-1]
+        assert first.ts is not None and last.ts is not None  # noqa: S101 — filtered
+        # Counter-set drift is a property of the FILE, so it is meaningful with
+        # no episode at all. The always-zero denial hazard is deliberately not
+        # run here: with no detected denial there is nothing for a zero counter
+        # to contradict (D-14).
+        drift = _hazard_counter_set_drift(placeable)
+        groups.append(
+            TrendGroup(
+                scope="file",
+                key=source_file,
+                label=FULL_RANGE_LABEL,
+                start_ts=first.ts.isoformat(),
+                end_ts=last.ts.isoformat(),
+                boundary_event_ids=(first.event_id, last.event_id),
+                sample_count=len(placeable),
+                counters=_counter_trends(placeable),
+                hazards=() if drift is None else (drift,),
+            )
+        )
+    return tuple(groups)
+
+
 def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
     """Correlate perfmon samples with every MCM episode (PERF-04).
 
@@ -493,11 +553,20 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
     silently. Pure and deterministic: ``model_dump_json`` is byte-identical on
     re-run.
 
-    Two omissions are deliberate, not oversights: correlation hazards (empty
-    window, non-overlap) are added in plan 13-04, and D-20's ``scope="file"``
-    whole-file path lands in plan 13-06 with the CLI test that proves it. Until
-    then ``PerfmonAnalysis.hazards`` stays empty.
+    With NO episodes there is no window at all, so D-20's ``scope="file"`` path
+    is taken instead: the same figures computed over each source file's full
+    sample range. The two paths are exclusive — never both — and the file path's
+    ``FULL_RANGE_LABEL`` is what stops the report implying a correlation that
+    was not performed.
     """
+    if not analysis.episodes:
+        return PerfmonAnalysis(
+            groups=_file_scope_groups(
+                [e for e in events if e.source == "dssperfmon"]
+            ),
+            hazards=(),
+        )
+
     by_id = {e.event_id: e for e in events}  # mirrors the attribute_window precedent
     all_samples = _placeable_samples(events)  # once, for the non-overlap message
     groups: list[TrendGroup] = []
