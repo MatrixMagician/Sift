@@ -1,15 +1,18 @@
 ---
 phase: 13-episode-correlation-hazard-flags-sift-perfmon-report-csv
 verified: 2026-07-20T00:00:00Z
-status: human_needed
+status: passed
 score: 5/5 roadmap success criteria verified
 behavior_unverified: 0
 overrides_applied: 0
+human_verification_resolved: 2026-07-20
 human_verification:
   - test: "Confirm PERF-04's identical-span guarantee is acceptable on the full-lead-up fallback path (window.start_event_id is None)."
+    resolution: "ACCEPTED as a documented D-03 limitation. The correlator cannot place an untimed event, so no code-correct alternative span exists; the Hartford reference data exercises the primary path only, where span identity was verified as genuine. No hazard added."
     expected: "attribute_window (mcm.py:903) takes ep.event_ids[0] UNCONDITIONALLY as its walk head; _resolve_span (perfmon.py:213-217) takes the first episode event that both resolves AND carries a ts. When event_ids[0] has ts=None the two heads are different events, so the trend span and the OID/Source/SID attribution span are not byte-identical, and no hazard is raised to say so. Decide whether this documented D-03 divergence satisfies PERF-04's 'identical time span' wording or needs a hazard."
     why_human: "Requirement-wording judgment, not a code defect. Both behaviours are deliberate and documented; the correlator cannot place an untimed event, so no purely-code-correct alternative exists. Needs the requirement owner to accept or reject."
   - test: "Confirm PERF-05's non-overlap hazard scope excludes host identity."
+    resolution: "ACCEPTED — the parenthetical enumerates causes of time non-overlap; detecting the overlap failure satisfies PERF-05. Host identity stays PERFV2-02 backlog. PERF-05 is Complete."
     expected: "_hazard_non_overlap (perfmon.py:370-377) states in its own message that it covers time non-overlap ONLY, not host identity — a CSV from the wrong host whose clock overlaps the log will NOT trip it (deferred to PERFV2-02). REQUIREMENTS.md PERF-05 names 'wrong timezone, host, or day' as causes. Decide whether the parenthetical is a list of causes of time non-overlap (satisfied) or a requirement to detect host mismatch directly (partial)."
     why_human: "Scope-boundary judgment against requirement wording. The limitation is disclosed to the operator in the hazard text itself, so it is honest either way — but it changes whether PERF-05 is Complete or partial-scope."
 ---
