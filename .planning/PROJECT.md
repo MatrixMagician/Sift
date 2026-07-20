@@ -8,17 +8,20 @@ Sift is a fully local, privacy-preserving incident triage engine. It ingests dia
 
 Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs (the anti-hallucination mechanism is load-bearing, not polish).
 
-## Current Milestone: v1.1 MCM Memory-Pressure Analysis
+## Current Milestone: v1.2 DSSPerformanceMonitor Correlation
 
-**Goal:** Turn a DSSErrors.log into a deterministic, evidence-cited MCM memory-pressure forensics report — every distinct denial episode analysed for headroom descent, memory breakdown, diagnostic flags, and per-object/session memory attribution — with those facts also feeding the LLM hypothesis pipeline.
+**Goal:** Ingest DSSPerformanceMonitor PDH-CSV exports as citable time-series events and correlate their memory counters against MCM denial episodes — turning v1.1's point-in-time forensic snapshot into a corroborated lead-in timeline.
 
 **Target features:**
-- Detect every distinct MCM denial episode with full lifecycle (denial banner, memory-status-low, emergency working-set offload, `State=normal` *and* `AvailableMCM`-recovery), non-interactively — all episodes, auto-selected lead-up windows
-- Parse the denial-time memory breakdown (physical/virtual, cube/MMF/SmartHeap/working-set) + MCM settings; emit deterministic, machine-independent diagnostic flags
-- Attribute memory granted in each lead-up window by **OID, Source= request type, and SID (session)** — SID is the discriminating dimension when one object spans many sessions
-- Ship a deterministic report **+ CSV export**, and feed structured MCM facts into `sift analyze` as cited evidence (citation invariant preserved; LLM narration additive)
+- New `dssperfmon` adapter: PDH-CSV header → counter set, rows → timestamped Events (`event_id = sha256(file, byte_offset)`, idempotent re-ingest), timezone from the header's declared zone + offset
+- Perfmon events excluded from dedup/embed/cluster/salience by source-kind — citable, but never competing with error clusters
+- Episode lead-in annotation: each MCM episode gains a corroborating perfmon trend (values at denial time, slope, peak) over the **same auto-selected lead-up window MCM-04 already computes**
+- Standalone `sift perfmon <case>` trend report + CSV export, usable without a DSSErrors log present
+- Perfmon figures fed into `sift analyze` as cited evidence (MCM-06 pattern: computed, never model-authored)
+- Deterministic diagnostic flags — including CSV/log window misalignment and the always-zero `Total MCM Denial` counter
+- Golden perfmon eval case, regression-gated (MCM-07 pattern)
 
-**Key context:** Integrates & extends the reference script `analyze_dss8.py`. Validated against the real Hartford deny log (working-set blowout at 65% of IServer virtual, `AvailableMCM=0`, one-OID/many-SID fan-out). DSSPerformanceMonitor PDH-CSV time-series correlation is deferred to a later milestone (SEED-001).
+**Key context:** Consumes SEED-001 / PERF-01, planted during v1.1. The seed's premise is partly invalidated by the real data: the `Total MCM Denial` counter reads 0 across all 13,596 Hartford samples despite confirmed denials, so correlation keys off the memory counters (`Working set cache RAM usage(MB)` 27 → 266,042; `RAM used(MB)` 186,503 → 463,915; `Open Sessions` 3 → 1,488) and the dead counter becomes a reported flag, not an input. The Hartford CSV ends 6 s before the denial banner — lead-in is fully covered, **no post-recovery data exists**, so recovery-trend analysis is out of scope. Time join trusts the declared PDH timezone (`Eastern Standard Time`, offset 300 min) normalised via `base.to_utc`, flagging non-overlapping windows loudly.
 
 ## Requirements
 
@@ -38,7 +41,7 @@ Turn a directory of raw diagnostics into a structured, evidence-cited triage rep
 
 ### Active
 
-_No active requirements — v1.0 and v1.1 both shipped. Start the next milestone with `/gsd-new-milestone`._
+_v1.2 requirements are defined in `.planning/REQUIREMENTS.md` (PERF-*)._
 
 **Carried from v1.0 (validated, listed for continuity)**
 
@@ -108,4 +111,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-20 — v1.1 milestone shipped (MCM Memory-Pressure Analysis, Phases 9–11, MCM-01..07). v1.0 + v1.1 both complete and archived under `.planning/milestones/`. Next: `/gsd-new-milestone`.*
+*Last updated: 2026-07-20 — v1.2 milestone started (DSSPerformanceMonitor Correlation). v1.0 + v1.1 complete and archived under `.planning/milestones/`.*
