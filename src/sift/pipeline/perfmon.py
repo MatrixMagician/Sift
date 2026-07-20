@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from pydantic import BaseModel, ConfigDict
 
 from sift.adapters.dssperfmon import (
+    _DRIFT_ATTR,  # pyright: ignore[reportPrivateUsage] — imported, never redeclared, so the marker and its reader cannot drift apart (D-15)
     _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the adapter owns these keys; importing the single source of truth stops the exclusion set drifting
 )
 
@@ -37,6 +38,7 @@ _VALUE_DP = 3
 HAZARD_SPAN = "span"
 HAZARD_NON_OVERLAP = "non_overlap"
 HAZARD_DENIAL_ALWAYS_ZERO = "denial_always_zero"
+HAZARD_COUNTER_SET_DRIFT = "counter_set_drift"
 
 # The counter whose flat zero contradicts a detected denial. REPORTED FLAG ONLY:
 # no branch of span resolution, sample selection or figure computation reads it,
@@ -443,6 +445,46 @@ def _hazard_denial_always_zero(
     )
 
 
+def _hazard_counter_set_drift(samples: list[Event]) -> PerfmonHazard | None:
+    """In-span samples whose counter set drifted from the header (D-15).
+
+    Reads the ``_DRIFT_ATTR`` marker plan 13-03 writes at ingest and NOTHING
+    else. Row widths, cell counts and counter-key set differences are
+    deliberately not re-derived here: ingest already knew, and a second detector
+    could disagree with the adapter about what drifted. The marker is also inside
+    the adapter's ``_RESERVED_ATTRS``, so a crafted counter name cannot forge or
+    suppress it (T-13-DRIFTTRUST) — a width recount would have no such guarantee.
+
+    ``stats.notes`` is explicitly NOT the source: WR-02 caps notes at ten per
+    category, so a file with more than ten drifted rows silently stops noting.
+    The per-event marker has no such ceiling, and an Event carries an
+    ``event_id`` a note never could.
+    """
+    # Explicit sort with an event_id tie-breaker rather than input order, so the
+    # citation tuple is identical across runs even if two samples share a ts.
+    drifted = sorted(
+        (s for s in samples if _DRIFT_ATTR in s.attrs),
+        key=lambda s: (s.ts, s.event_id),  # pyright: ignore[reportArgumentType] — _in_span guarantees ts is not None
+    )
+    if not drifted:
+        return None
+
+    cited, total = _cited([s.event_id for s in drifted])
+    return PerfmonHazard(
+        dimension=HAZARD_COUNTER_SET_DRIFT,
+        severity="warn",
+        message=(
+            f"{total} in-span sample(s) carry a counter set that drifted from "
+            "the file's header, so their counters are aligned by position "
+            "against a header that no longer describes them and the trend "
+            f"figures over this span may be incomplete. Citing {len(cited)} of "
+            f"{total} drifted event(s)."
+        ),
+        event_ids=cited,
+        value=float(total),
+    )
+
+
 def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
     """Correlate perfmon samples with every MCM episode (PERF-04).
 
@@ -503,9 +545,15 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
             # not an absence of data.
             hazards.append(_hazard_non_overlap(span.start, span.end, all_samples))
         else:
-            zero = _hazard_denial_always_zero(ea.episode.denial_event_id, samples)
-            if zero is not None:
-                hazards.append(zero)
+            # Fixed sequence: always-zero denial, then counter-set drift. Order
+            # is set here in code, never by severity sort or set iteration, so
+            # two equal-severity hazards cannot swap between runs (D-21).
+            for builder in (
+                _hazard_denial_always_zero(ea.episode.denial_event_id, samples),
+                _hazard_counter_set_drift(samples),
+            ):
+                if builder is not None:
+                    hazards.append(builder)
 
         groups.append(
             TrendGroup(

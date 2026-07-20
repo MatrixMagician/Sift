@@ -52,6 +52,7 @@ from sift.pipeline.perfmon import (
     CounterTrend,
     PerfmonAnalysis,
     PerfmonHazard,
+    _cited,  # pyright: ignore[reportPrivateUsage] — the order-preserving citation builder D-21 turns on
     _find_counter_key,  # pyright: ignore[reportPrivateUsage] — the qualification-proof lookup T-13-EVADE turns on
     _numeric,  # pyright: ignore[reportPrivateUsage] — the finite-only gate D-11 turns on
     analyse_perfmon,
@@ -714,6 +715,13 @@ def test_hazards_deterministic_order(tmp_path: Path) -> None:
     start = log_boundary_event("s" * 16, events[0].ts)
     denial = log_boundary_event("d" * 16, events[-1].ts)
 
+    # Re-running in ONE process cannot catch set iteration — hash order is fixed
+    # for a process lifetime, so both runs would agree on the same wrong order.
+    # The order-preservation contract is therefore asserted directly: dict
+    # .fromkeys keeps first-seen order and deduplicates; set() does neither.
+    ids = ["c" * 16, "a" * 16, "b" * 16, "a" * 16, "d" * 16, "e" * 16]
+    assert _cited(ids) == (("c" * 16, "a" * 16, "b" * 16, "d" * 16, "e" * 16), 5)
+
     first = _correlate(events, start, denial)
     hazards = first.groups[0].hazards
     assert [h.severity for h in hazards] == ["warn", "warn"]
@@ -721,4 +729,6 @@ def test_hazards_deterministic_order(tmp_path: Path) -> None:
         HAZARD_DENIAL_ALWAYS_ZERO,
         HAZARD_COUNTER_SET_DRIFT,
     }
-    assert first.model_dump_json() == _correlate(events, start, denial).model_dump_json()
+    assert (
+        first.model_dump_json() == _correlate(events, start, denial).model_dump_json()
+    )
