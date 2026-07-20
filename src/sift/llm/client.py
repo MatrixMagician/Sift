@@ -170,6 +170,41 @@ def _embed_reject_message(data: dict[str, object], max_input_chars: int) -> str:
     )
 
 
+def _chat_reject_message(data: dict[str, object]) -> str | None:
+    """The server's real cause when a 200 chat body carries an ``error``.
+
+    llama.cpp/Lemonade answer a rejected chat (most commonly an over-context
+    prompt) with HTTP 200 and an ``{"error": ...}`` object and no ``choices`` —
+    the same 200-with-error quirk as ``/embeddings``. The useful detail is often
+    nested (``error.details.response.error.message``: 'request (4867 tokens)
+    exceeds the available context size (4096 tokens)…') beneath a generic
+    top-level 'llama-server request failed', so collect every string ``message``
+    under ``error`` and prefer the most specific (longest) one. Returns ``None``
+    when there is no error object to report.
+    """
+    err = data.get("error")
+    if isinstance(err, str) and err:
+        return err
+    if not isinstance(err, dict):
+        return None
+    messages: list[str] = []
+
+    def _walk(obj: object) -> None:
+        if isinstance(obj, dict):
+            obj_d = cast(dict[str, object], obj)
+            message = obj_d.get("message")
+            if isinstance(message, str) and message:
+                messages.append(message)
+            for value in obj_d.values():
+                _walk(value)
+        elif isinstance(obj, list):
+            for value in cast(list[object], obj):
+                _walk(value)
+
+    _walk(cast(dict[str, object], err))
+    return max(messages, key=len) if messages else None
+
+
 class InferenceClient:
     """The only HTTP client in Sift; hits both inference roles.
 
@@ -328,6 +363,13 @@ class InferenceClient:
         data = _json_object(response)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices:
+            # Lemonade/llama.cpp reject an over-context (or otherwise refused)
+            # prompt with HTTP 200 + an {"error": ...} body and no choices;
+            # surface the server's real cause so the caller (and CLI) can name a
+            # context overflow instead of a bogus 'transport error'.
+            detail = _chat_reject_message(data)
+            if detail is not None:
+                raise ValueError(f"chat completion rejected by server: {detail}")
             raise ValueError("chat response has no choices")
         first = cast(list[object], choices)[0]
         if not isinstance(first, dict):

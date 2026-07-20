@@ -345,3 +345,35 @@ def test_props_exposes_keys_absent_safe() -> None:
     assert props.get("n_ctx") == 4096
     assert props.get("n_parallel") is None  # absent-key-safe
     assert c.has_props is True
+
+
+def test_chat_surfaces_server_error_body() -> None:
+    """A 200 body carrying an ``error`` and no ``choices`` surfaces the real cause.
+
+    llama.cpp/Lemonade answer an over-context chat with HTTP 200 + a nested
+    ``{"error": ...}`` object (no ``choices``). The raised ValueError must carry
+    the server's specific message, not the cryptic 'no choices' — otherwise the
+    CLI mislabels a context overflow as a 'transport error'.
+    """
+    overflow = {
+        "error": {
+            "details": {
+                "response": {
+                    "error": {
+                        "message": (
+                            "request (4867 tokens) exceeds the available "
+                            "context size (4096 tokens), try increasing it"
+                        ),
+                        "type": "exceed_context_size_error",
+                    }
+                }
+            },
+            "message": "llama-server request failed",
+        }
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=overflow)
+
+    with pytest.raises(ValueError, match="exceeds the available context size"):
+        _client(handler).chat([{"role": "user", "content": "hi"}])

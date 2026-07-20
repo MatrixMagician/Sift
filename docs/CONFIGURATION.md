@@ -55,6 +55,7 @@ flag glob always wins the first-match detection order.
 | `generation.timeout` | `SIFT_GENERATION_TIMEOUT` | — | float | `60.0` | Per-request HTTP timeout, in seconds. |
 | `generation.retries` | `SIFT_GENERATION_RETRIES` | — | int | `2` | Extra attempts after the first, on connect error, timeout or HTTP 5xx. |
 | `generation.backoff_base` | — | — | float | `0.5` | Exponential backoff base in seconds: attempt *n* sleeps `base * 2**n`. TOML-only. |
+| `generation.context` | `SIFT_GENERATION_CONTEXT` | — | int \| null | `null` | Fallback generation context window (tokens) used only when the server does not expose llama.cpp's `/props` (e.g. Lemonade). Set it to the model's actual loaded context so the prompt budget trims to fit; otherwise an over-context prompt is rejected. `/props`-reported `n_ctx` always wins. |
 
 ### `[embeddings]` — the embeddings endpoint
 
@@ -116,10 +117,10 @@ Omitting the `[mcm.thresholds]` table yields exactly the defaults above.
 | `--hint`, `--kb`, `--since`, `--until` | `sift analyze` flags | unset | Per-run scoping and prompt context. |
 | `--suite`, `--thresholds` | `sift eval` flags | `eval/cases`, `eval/thresholds.toml` | Golden-case suite and the regression gate's floors. The thresholds file is a separate TOML, unrelated to `~/.config/sift/config.toml`. |
 
-The prompt token budget is derived, not configured: `sift analyze` reads `n_ctx` from
-the generation server's `/props` and falls back to 8192 tokens when the endpoint or key
-is absent, reserving 1024 tokens for output. Cluster labelling uses a fixed 4096-token
-budget.
+The prompt token budget is mostly derived: `sift analyze` reads `n_ctx` from the
+generation server's `/props` and falls back to `generation.context` (else 8192 tokens)
+when the endpoint or key is absent, reserving 1024 tokens for output. Cluster labelling
+uses a fixed 4096-token budget.
 
 The MCM and DSSPerformanceMonitor fact blocks that `sift analyze` folds into the prompt
 have no config surface either. Their caps — the number of MCM episodes and the number of

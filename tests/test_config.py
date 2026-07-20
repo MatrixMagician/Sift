@@ -196,3 +196,11 @@ def test_mcm_thresholds_override_and_typo() -> None:
     )
     with pytest.raises(ValidationError, match="working_set_pct_virtal"):
         load_config()
+
+
+def test_env_generation_context_coerced_to_int(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("SIFT_GENERATION_CONTEXT", "4096")
+    config = load_config({})
+    assert config.generation.context == 4096

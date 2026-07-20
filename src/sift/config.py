@@ -31,6 +31,14 @@ class GenerationConfig(BaseModel):
     timeout: float = 60.0
     retries: int = 2
     backoff_base: float = 0.5
+    # Fallback generation context window (tokens), used ONLY when the server does
+    # not expose llama.cpp's /props — e.g. Lemonade Server, which serves a web UI
+    # at the server root, so Sift cannot read the real n_ctx. llama-server does
+    # report n_ctx via /props and that always wins. Set this to your model's
+    # ACTUAL loaded context so the prompt budget trims to fit; otherwise Sift
+    # falls back to a built-in default that may exceed a small loaded context and
+    # the server rejects the over-context prompt. None keeps the built-in default.
+    context: int | None = None
 
 
 class EmbeddingsConfig(BaseModel):
@@ -138,6 +146,7 @@ _ENV_SCALARS: dict[str, tuple[str, str]] = {
     "SIFT_GENERATION_MODEL": ("generation", "model"),
     "SIFT_GENERATION_TIMEOUT": ("generation", "timeout"),
     "SIFT_GENERATION_RETRIES": ("generation", "retries"),
+    "SIFT_GENERATION_CONTEXT": ("generation", "context"),
     "SIFT_EMBEDDINGS_BASE_URL": ("embeddings", "base_url"),
     "SIFT_EMBEDDINGS_MODEL": ("embeddings", "model"),
     "SIFT_EMBEDDINGS_TIMEOUT": ("embeddings", "timeout"),

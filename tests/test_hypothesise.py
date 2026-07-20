@@ -353,6 +353,39 @@ def test_malformed_generation_empty_content(tmp_path: Path) -> None:
         store.close()
 
 
+def test_failed_run_surfaces_reason_in_outcome(tmp_path: Path) -> None:
+    # A 200 over-context body (no choices, nested error) must map to a failed
+    # run whose Outcome carries the server's real cause — so the CLI reports the
+    # context overflow instead of a bogus 'transport error'.
+    overflow: dict[str, object] = {
+        "error": {
+            "details": {
+                "response": {
+                    "error": {
+                        "message": (
+                            "request (4867 tokens) exceeds the available "
+                            "context size (4096 tokens), try increasing it"
+                        )
+                    }
+                }
+            },
+            "message": "llama-server request failed",
+        }
+    }
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_clustered(store)
+        client = _client(_handler([], raw_body=overflow))
+        outcome = hypothesise.hypothesise(
+            store, client, top_clusters=10, incident_time=None
+        )
+        assert outcome.failed is True
+        assert outcome.error is not None
+        assert "context size" in outcome.error
+    finally:
+        store.close()
+
+
 # --- Task 3: citation gate (cited ⊆ prompted) + atomic persist ------------
 
 

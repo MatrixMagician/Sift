@@ -857,7 +857,7 @@ def analyze(
                 hint=hint,
                 kb_context=kb_context,
                 mcm_thresholds=config.mcm.thresholds,
-                ctx_fallback=_TRIAGE_CTX_FALLBACK,
+                ctx_fallback=config.generation.context or _TRIAGE_CTX_FALLBACK,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
         finally:
@@ -871,9 +871,15 @@ def analyze(
         # CLI-04 exit-code contract: failed -> 1, degraded -> 3, success -> 0.
         # (Typer/Click usage errors stay 2; never reused here.)
         if outcome.failed:
+            # Surface the real cause (a transport failure, OR a server-rejected
+            # 200 body such as a context overflow — 'request (N tokens) exceeds
+            # the available context size') instead of always blaming transport.
+            # A context overflow is fixed by loading the model with a larger
+            # context, lowering --top-clusters, or setting generation.context.
+            reason = outcome.error or "the inference endpoint returned no output"
             print(
-                "Error: hypothesis generation failed; the inference endpoint "
-                "returned a transport error and no hypotheses were persisted"
+                f"Error: hypothesis generation failed ({_sanitise(reason)}); "
+                "no hypotheses were persisted"
             )
             raise typer.Exit(1)
         count = len(outcome.hypotheses.hypotheses) if outcome.hypotheses else 0

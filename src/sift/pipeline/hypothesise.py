@@ -171,6 +171,10 @@ class Outcome:
     failed: bool
     citations_valid: bool
     prompt_hash: str
+    # The real cause of a ``failed`` run (transport failure, or a server-rejected
+    # 200 body such as a context overflow) so the CLI reports it verbatim instead
+    # of guessing 'transport error'. ``None`` on any non-failed run.
+    error: str | None = None
 
 
 def _load_triage_template() -> str:
@@ -450,16 +454,18 @@ def hypothesise(
             outcome = _citation_gate(
                 client, hset, chat_messages, rf, prompted_ids, prompt_hash
             )
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError) as exc:
         # A transport failure OR a malformed/empty 200 body (no/absent choices,
-        # absent content, empty/whitespace content — a ValueError from
-        # client.chat) produced no inspectable output: nothing is persisted
-        # (CLI-04 exit 1), distinct from a degraded-but-produced run (exit 3).
-        # Never a raw traceback (RAG-03 never-crash invariant; gap G1).
-        # The only ValueError source inside this try is client.chat on a
-        # malformed response: _validate swallows its own ValueError and
-        # _assemble's zip(strict=True) runs before the try, so nothing legitimate
-        # is masked.
+        # absent content, empty/whitespace content, or a server-rejected
+        # over-context body — a ValueError from client.chat) produced no
+        # inspectable output: nothing is persisted (CLI-04 exit 1), distinct from
+        # a degraded-but-produced run (exit 3). Never a raw traceback (RAG-03
+        # never-crash invariant; gap G1). The only ValueError source inside this
+        # try is client.chat on a malformed response: _validate swallows its own
+        # ValueError and _assemble's zip(strict=True) runs before the try, so
+        # nothing legitimate is masked. Carry the exception text so the CLI can
+        # name the real cause (e.g. a context overflow) instead of 'transport
+        # error'; a transport failure has no message body, so fall back to type.
         return Outcome(
             hypotheses=None,
             raw=None,
@@ -467,6 +473,7 @@ def hypothesise(
             failed=True,
             citations_valid=False,
             prompt_hash=prompt_hash,
+            error=str(exc) or exc.__class__.__name__,
         )
 
     _persist(store, outcome, prompted_ids, prompt_hash, client.embedding_model)
