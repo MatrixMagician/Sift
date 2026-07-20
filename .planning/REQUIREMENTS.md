@@ -24,7 +24,7 @@ Requirements for the DSSPerformanceMonitor Correlation milestone. Each maps to e
 
 ### Analysis Integration
 
-- [ ] **PERF-07**: Engineer sees perfmon figures injected into `sift analyze` as **cited** evidence — figures computed before generation so the model cannot alter or invent them, `cited ⊆ prompted ⊆ store` preserved, and the prompt byte-identical to today's when no perfmon data is present
+- [x] **PERF-07**: Engineer sees perfmon figures injected into `sift analyze` as **cited** evidence — figures computed before generation so the model cannot alter or invent them, `cited ⊆ prompted ⊆ store` preserved, and the prompt byte-identical to today's when no perfmon data is present
 - [ ] **PERF-08**: Engineer is protected by a regression-gated golden perfmon eval case, so `sift eval` exits non-zero if correlation output degrades
 
 ## Future Requirements
@@ -60,7 +60,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PERF-04 | Phase 13 | Complete |
 | PERF-05 | Phase 13 | Complete |
 | PERF-06 | Phase 13 | Complete |
-| PERF-07 | Phase 14 | Pending |
+| PERF-07 | Phase 14 | Complete |
 | PERF-08 | Phase 14 | Pending |
 
 **Coverage:**
