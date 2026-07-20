@@ -47,13 +47,13 @@ _VECTORS: dict[str, list[float]] = {
 _SYNONYM_CORPUS = [_ALPHA_A, _ALPHA_B, _BETA_A, _BETA_B, _GAMMA]
 
 
-def _ev(offset: int, message: str) -> Event:
+def _ev(offset: int, message: str, source: str = "genericlog") -> Event:
     return Event(
         event_id=event_id("case.log", offset),
         case_id="demo",
         ts=_BASE,
         ts_confidence="exact",
-        source="genericlog",
+        source=source,
         source_file="case.log",
         line_start=offset + 1,
         line_end=offset + 1,
@@ -135,6 +135,41 @@ def test_cluster_merges_synonyms_and_singletons_noise(tmp_path: Path) -> None:
         by_id = {c.cluster_id: c for c in store.query_clusters()}
         assert by_id[gamma_id].count == 1  # gamma stands alone
         assert by_id[gamma_id].template_ids == [_template_id(_GAMMA)]
+    finally:
+        store.close()
+
+
+def test_exemplars_exclude_perfmon(tmp_path: Path) -> None:
+    """PERF-03 belt-and-braces: no perfmon message reaches a cluster exemplar.
+
+    Strictly weaker than test_template_groups_exclude_perfmon in
+    tests/test_store.py — exemplars derive from template groups, so identical
+    template groups make this identical by construction. Kept because it
+    exercises the assertion through the real clustering path.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        # Perfmon samples inserted AFTER the log corpus, at non-colliding
+        # offsets (event_id = sha256(source_file, byte_offset)).
+        samples = [
+            _ev(1000 + i, f"Total MCM Denial = {i}", "dssperfmon") for i in range(5)
+        ]
+        with store.transaction():
+            store.insert_events(samples)
+        dedup.rebuild_template_groups(store)
+
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        exemplars = {
+            row[0]
+            for row in store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+                "SELECT text FROM chunks"
+            )
+        }
+        assert exemplars, "no exemplars persisted — assertion would be vacuous"
+        assert not [t for t in exemplars if "MCM Denial" in t]
     finally:
         store.close()
 
