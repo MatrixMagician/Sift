@@ -9,6 +9,7 @@ from pathlib import Path
 
 from sift.adapters.base import Adapter
 from sift.adapters.dsserrors import DsserrorsAdapter
+from sift.adapters.dssperfmon import DssperfmonAdapter
 from sift.adapters.eustack import EustackAdapter
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.adapters.journald import JournaldAdapter
@@ -20,6 +21,7 @@ REGISTRY: dict[str, Adapter] = {
     "journald": JournaldAdapter(),
     "dsserrors": DsserrorsAdapter(),
     "eustack": EustackAdapter(),
+    "dssperfmon": DssperfmonAdapter(),
 }
 
 

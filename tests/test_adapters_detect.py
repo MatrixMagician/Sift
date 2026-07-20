@@ -11,8 +11,11 @@ from sift.models import Event
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-# The three Phase-5 domain adapters and a representative fixture for each:
+# The registered domain adapters and a representative fixture for each:
 # (registered adapter name, fixture path, its case-relative path).
+# Phase 12 appended dssperfmon as the fourth — registering a fifth adapter must
+# leave the four existing routings untouched, which the parametrised cases below
+# assert as a regression gate.
 _PHASE5_CASES = [
     ("journald", FIXTURES / "journald" / "basic.json", "basic.json"),
     (
@@ -21,8 +24,13 @@ _PHASE5_CASES = [
         "node1/DSSErrors.log",
     ),
     ("eustack", FIXTURES / "eustack" / "threaddump.txt", "threaddump.txt"),
+    (
+        "dssperfmon",
+        FIXTURES / "dssperfmon" / "hartford_deny_slice.csv",
+        "hartford_deny_slice.csv",
+    ),
 ]
-_DOMAIN_ADAPTERS = ("journald", "dsserrors", "eustack")
+_DOMAIN_ADAPTERS = ("journald", "dsserrors", "eustack", "dssperfmon")
 
 
 class DummyAdapter:
