@@ -1,0 +1,34 @@
+# Frozen ground truth (D-07 / PERF-08): authored BEFORE any prompt tuning. Do not
+# edit this file to make a run pass — a regression must fail, not be silently
+# accommodated.
+#
+# PERFMON-sensitivity note (T-14-10, mirrors the MCM-07 guard): run_case matches
+# `required_evidence` against the CLUSTER EXEMPLARS (the raw log text fed to the
+# model), NOT against the injected perfmon fact block — so those regexes are
+# insensitive to whether perfmon correlation injection runs. The perfmon-sensitive
+# metric for this case is therefore `citation_validity_rate`: a hypothesis may cite
+# a perfmon counter `event_id` ONLY because `render_perfmon_facts` unions it into
+# `prompted_ids`; strip the perfmon injection and that same citation is FLAGGED,
+# dropping citation_validity_rate below its 1.0 floor and turning the case red. See
+# README.md and the sensitivity test
+# `test_perfmon_denial_citation_validity_is_perfmon_sensitive` in
+# tests/test_eval_cases.py, which proves the gate is not vacuous.
+root_cause: >
+  The Intelligence Server entered an MCM (Memory Contract Manager) denial state as
+  the working set climbed into an over-committed window: AvailableMCM fell to zero
+  while the perfmon counters (working-set cache RAM, RAM used, MSTRSvr process size)
+  rose steadily into the denial, so a memory contract request was rejected. The
+  working-set-driven memory exhaustion is the true cause; the repeated "Contract
+  Request Failed" errors are the loud symptom, and the correlated counter trend is
+  the corroborating evidence.
+required_evidence:            # regexes, matched case-insensitively vs the clusters fed to the model
+  - "Contract Request Failed"
+  - "MCM denial state"
+  - "memory is running low"
+acceptable_keywords:          # any-of, case-insensitive, vs hypothesis title + narrative
+  - memory
+  - MCM
+  - working set
+  - denial
+  - counter
+expect_no_incident: false
