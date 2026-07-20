@@ -17,6 +17,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
+from sift.adapters.dssperfmon import (
+    _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the adapter owns these keys; importing the single source of truth stops the exclusion set drifting
+)
+
 if TYPE_CHECKING:
     from sift.models import Event
     from sift.pipeline.mcm import EpisodeAnalysis, McmAnalysis
@@ -29,9 +33,7 @@ SLOPE_DP = 4
 _VALUE_DP = 3
 
 
-# pyright's reportUnusedFunction is file-scoped for underscore-private names, so
-# the test-side import does not count; _counter_trends calls this in-module.
-def _numeric(value: str) -> float | None:  # pyright: ignore[reportUnusedFunction]
+def _numeric(value: str) -> float | None:
     """Parse a counter cell, accepting only finite reals (D-11).
 
     ``dssperfmon._bad_cells`` probes each cell with a bare ``float()``, which
@@ -206,6 +208,87 @@ def _in_span(events: list[Event], start: Event, end: Event) -> list[Event]:
     ]
 
 
+def _counter_trends(samples: list[Event]) -> tuple[CounterTrend, ...]:
+    """At-denial, slope and peak for every counter in the span (D-07..D-11).
+
+    No allowlist: every key that is not adapter provenance is swept, so a counter
+    set unlike Hartford's 22 is fully covered. Names are collected with
+    ``dict.fromkeys`` over the canonically-ordered samples and then emitted sorted
+    by name, so the sequence is explicit and stable across runs (D-21).
+    """
+    if not samples:
+        return ()  # samples[0]/samples[-1] below would raise IndexError
+
+    names = dict.fromkeys(
+        key
+        for sample in samples
+        for key in sample.attrs
+        # Provenance, not a counter: a crafted counter name must not be able to
+        # surface byte_offset or host as a trend (T-13-ATTRSWEEP).
+        if key not in _RESERVED_ATTRS
+    )
+
+    trends: list[CounterTrend] = []
+    for name in sorted(names):
+        present = [s for s in samples if name in s.attrs]
+        accepted = [
+            (v, s) for s in present if (v := _numeric(s.attrs[name])) is not None
+        ]
+        excluded = len(present) - len(accepted)
+
+        if not accepted:
+            # Reported as uncomputable, never omitted — nothing disappears silently.
+            trends.append(
+                CounterTrend(
+                    counter=name,
+                    at_denial=None,
+                    at_denial_event_id=None,
+                    slope_per_second=None,
+                    peak=None,
+                    peak_event_id=None,
+                    sample_count=len(present),
+                    excluded_samples=excluded,
+                )
+            )
+            continue
+
+        # D-09: the LAST accepted in-span sample, never interpolated — an
+        # interpolated figure cites no real event and cannot be checked
+        # against the customer's CSV.
+        last_value, last_sample = accepted[-1]
+        first_value, first_sample = accepted[0]
+
+        # D-10: max() returns the FIRST maximal element, so a tie already
+        # resolves to the earliest sample. Refactoring this to sorted(...)[-1]
+        # would silently flip that to the latest.
+        peak_value, peak_sample = max(accepted, key=lambda pair: pair[0])
+
+        assert first_sample.ts is not None and last_sample.ts is not None  # noqa: S101
+        elapsed = (last_sample.ts - first_sample.ts).total_seconds()
+        # Guarded BEFORE dividing, not with an exception handler. One accepted
+        # sample (or several sharing a timestamp) is normal at a 30 s interval
+        # against a short MCM descent — no slope, and no hazard either.
+        slope = (
+            None
+            if elapsed == 0.0
+            else round((last_value - first_value) / elapsed, SLOPE_DP)
+        )
+
+        trends.append(
+            CounterTrend(
+                counter=name,
+                at_denial=round(last_value, _VALUE_DP),
+                at_denial_event_id=last_sample.event_id,
+                slope_per_second=slope,
+                peak=round(peak_value, _VALUE_DP),
+                peak_event_id=peak_sample.event_id,
+                sample_count=len(present),
+                excluded_samples=excluded,
+            )
+        )
+    return tuple(trends)
+
+
 def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
     """Correlate perfmon samples with every MCM episode (PERF-04).
 
@@ -267,7 +350,7 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
                 end_ts=span.end.ts.isoformat(),
                 boundary_event_ids=(span.start.event_id, span.end.event_id),
                 sample_count=len(samples),
-                counters=(),
+                counters=_counter_trends(samples),
                 hazards=(),
             )
         )

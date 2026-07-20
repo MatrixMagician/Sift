@@ -19,10 +19,12 @@ natural integration test for the D-06 no-samples-in-window hazard.
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from pathlib import Path
 
 import pytest
+from _perfmon_fixtures import write_non_finite_csv
 from pydantic import ValidationError
 
 from sift.adapters.dssperfmon import DssperfmonAdapter
@@ -51,17 +53,23 @@ FIXTURES = Path(__file__).parent / "fixtures" / "dssperfmon"
 SLICE = "hartford_deny_slice.csv"
 
 
-def ingest_perfmon_slice(case: str = "hartford") -> list[Event]:
-    """Ingest the shipped PDH-CSV cut into a real ``case.db``; return its events.
+def ingest_perfmon_slice(
+    case: str = "hartford", csv_path: Path | None = None
+) -> list[Event]:
+    """Ingest a PDH-CSV into a real ``case.db``; return its events.
 
+    Defaults to the shipped Hartford cut. ``csv_path`` lets a test drive the same
+    real ingest path with a synthetic fixture from ``_perfmon_fixtures`` rather
+    than hand-building Events, so the correlator is always fed adapter output.
     Mirrors the ``tests/test_cli_mcm.py`` build-a-real-case idiom but drives the
     ``dssperfmon`` adapter. Network-free: the autouse conftest guards are active.
     """
+    path = csv_path if csv_path is not None else FIXTURES / SLICE
     db_path = case_db_path(load_config().data_dir, case)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     adapter = DssperfmonAdapter()
-    adapter.input_root = FIXTURES
-    events = list(adapter.parse(FIXTURES / SLICE, case))
+    adapter.input_root = path.parent
+    events = list(adapter.parse(path, case))
     store = CaseStore(db_path)
     try:
         store.insert_events(events)
@@ -295,3 +303,117 @@ def test_span_boundaries_are_inclusive() -> None:
 
     # Both edge samples counted, so all 20 fall in the closed interval.
     assert analysis.groups[0].sample_count == len(samples) == 20
+
+
+# --------------------------------------------------- Task 3: trend figures ---
+
+
+def _correlate(samples: list[Event], start: Event, end: Event) -> PerfmonAnalysis:
+    """Run the correlator over one hand-built span (see the module docstring)."""
+    ea = _episode_analysis(end.event_id, start_event_id=start.event_id)
+    return analyse_perfmon(McmAnalysis(episodes=(ea,)), [*samples, start, end])
+
+
+def _trend(analysis: PerfmonAnalysis, counter: str) -> CounterTrend:
+    return next(c for c in analysis.groups[0].counters if c.counter == counter)
+
+
+def test_golden_trend_figures() -> None:
+    """The Hartford milestone figures, reproduced exactly from the slice (D-07/D-09)."""
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    analysis = _correlate(samples, start, denial)
+
+    expected_at_denial = {
+        "Working set cache RAM usage(MB)": 266042.0,
+        "RAM used(MB)": 463915.0,
+        "Size(MB)": 401603.0,
+        "Open Sessions": 1488.0,
+        "Total MCM Denial": 0.0,
+    }
+    for counter, value in expected_at_denial.items():
+        trend = _trend(analysis, counter)
+        assert trend.at_denial == value, counter
+        # D-09: the figure cites the sample it came from — the LAST in-span one.
+        assert trend.at_denial_event_id == samples[-1].event_id, counter
+
+    # Working set climbs monotonically over the cut, so its peak IS the last value.
+    assert _trend(analysis, "Working set cache RAM usage(MB)").peak == 266042.0
+
+    # D-08, computed by hand from the two boundary samples, NOT from the code
+    # under test. The cut is two 10-sample blocks five days apart, NOT twenty
+    # consecutive 30 s samples:
+    #   first  04/02/2026 19:21:38.236, Working set = 27
+    #   last   04/07/2026 12:39:39.397, Working set = 266042
+    #   elapsed = 5 d (432000 s) - 6h41m58.839s (24118.839 s) = 407881.161 s
+    #   (266042 - 27) / 407881.161 = 266015 / 407881.161 = 0.65218752... -> 0.6522
+    assert SLOPE_DP == 4
+    assert _trend(analysis, "Working set cache RAM usage(MB)").slope_per_second == (
+        0.6522
+    )
+    # Flat counter over the same span: zero numerator, so exactly 0.0.
+    assert _trend(analysis, "Total MCM Denial").slope_per_second == 0.0
+
+    # D-21: identical inputs, byte-identical output.
+    assert analysis.model_dump_json() == _correlate(
+        samples, start, denial
+    ).model_dump_json()
+
+
+def test_single_sample_no_zero_division() -> None:
+    """A one-sample span yields ``slope=None``, not a ``ZeroDivisionError``.
+
+    Normal at a 30 s sampling interval against a short MCM descent — a narrow
+    window is not a correlation failure, so no hazard is raised either.
+    """
+    samples = ingest_perfmon_slice()
+    edge = log_boundary_event("s" * 16, samples[3].ts)
+    denial = log_boundary_event("d" * 16, samples[3].ts)
+    analysis = _correlate(samples, edge, denial)
+
+    group = analysis.groups[0]
+    assert group.sample_count == 1
+    trend = _trend(analysis, "Working set cache RAM usage(MB)")
+    assert trend.slope_per_second is None
+    assert trend.at_denial is not None
+    assert trend.peak == trend.at_denial
+    assert group.hazards == ()
+
+
+def test_non_finite_excluded(tmp_path: Path) -> None:
+    """A ``nan`` cell excludes ONE counter for ONE sample, and is counted (D-11)."""
+    samples = ingest_perfmon_slice(
+        case="nonfinite", csv_path=write_non_finite_csv(tmp_path)
+    )
+    # Span the first two rows only: RAM used carries the nan there, Open Sessions
+    # does not — so the sibling counter on the same rows must stay untouched.
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[1].ts)
+    analysis = _correlate(samples, start, denial)
+
+    ram = _trend(analysis, "RAM used(MB)")
+    assert ram.sample_count == 2
+    assert ram.excluded_samples == 1
+    assert ram.at_denial == 463915.0  # the surviving row, never interpolated
+    assert _trend(analysis, "Open Sessions").excluded_samples == 0
+
+    for counter in analysis.groups[0].counters:
+        for figure in (counter.at_denial, counter.slope_per_second, counter.peak):
+            assert figure is None or math.isfinite(figure), counter.counter
+
+
+def test_peak_tie_takes_earliest_sample() -> None:
+    """Equal-valued samples resolve the peak to the EARLIEST one (D-10).
+
+    ``Total MCM Denial`` is 0 across the whole cut — 20 samples tied at the
+    maximum — so the citation must be the first sample, not the last.
+    """
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    analysis = _correlate(samples, start, denial)
+
+    trend = _trend(analysis, "Total MCM Denial")
+    assert trend.peak == 0.0
+    assert trend.peak_event_id == samples[0].event_id
