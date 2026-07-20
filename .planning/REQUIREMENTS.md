@@ -15,12 +15,12 @@ Requirements for the DSSPerformanceMonitor Correlation milestone. Each maps to e
 
 ### Correlation
 
-- [ ] **PERF-04**: Engineer sees each detected MCM denial episode annotated with its corroborating perfmon trend — counter values at denial time, slope across the window, and peak — computed over the **same auto-selected lead-up window MCM-04 already produces**, so the trend and the OID/Source/SID attribution describe an identical time span
-- [ ] **PERF-05**: Engineer receives deterministic, machine-independent diagnostic flags for correlation hazards, including CSV/log time-window non-overlap (wrong timezone, host, or day), an always-zero `Total MCM Denial` counter across a window containing detected denials, and counter-set drift within a file
+- [x] **PERF-04**: Engineer sees each detected MCM denial episode annotated with its corroborating perfmon trend — counter values at denial time, slope across the window, and peak — computed over the **same auto-selected lead-up window MCM-04 already produces**, so the trend and the OID/Source/SID attribution describe an identical time span
+- [x] **PERF-05**: Engineer receives deterministic, machine-independent diagnostic flags for correlation hazards, including CSV/log time-window non-overlap (wrong timezone, host, or day), an always-zero `Total MCM Denial` counter across a window containing detected denials, and counter-set drift within a file
 
 ### Reporting
 
-- [ ] **PERF-06**: Engineer can run `sift perfmon <case>` to get a standalone counter-trend report plus CSV export, working correctly when the case contains a perfmon CSV and no DSSErrors log at all
+- [x] **PERF-06**: Engineer can run `sift perfmon <case>` to get a standalone counter-trend report plus CSV export, working correctly when the case contains a perfmon CSV and no DSSErrors log at all
 
 ### Analysis Integration
 
@@ -57,9 +57,9 @@ Which phases cover which requirements. Populated during roadmap creation.
 | PERF-01 | Phase 12 | Complete |
 | PERF-02 | Phase 12 | Complete |
 | PERF-03 | Phase 12 | Complete |
-| PERF-04 | Phase 13 | Pending |
-| PERF-05 | Phase 13 | Pending |
-| PERF-06 | Phase 13 | Pending |
+| PERF-04 | Phase 13 | Complete |
+| PERF-05 | Phase 13 | Complete |
+| PERF-06 | Phase 13 | Complete |
 | PERF-07 | Phase 14 | Pending |
 | PERF-08 | Phase 14 | Pending |
 

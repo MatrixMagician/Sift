@@ -191,12 +191,12 @@ window and `analyse_mcm` orchestration — shipped)
   12:39:39.397. Golden trend figures are therefore asserted at correlator-unit level; the ingested
   pair is the natural integration test for the non-overlap hazard.
 
-**Plans**: 6 plans
+**Plans**: 1/6 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 13-01-PLAN.md — Wave 0: synthetic CSV builders (collision / drift / non-finite) and the two new test modules
+- [x] 13-01-PLAN.md — Wave 0: synthetic CSV builders (collision / drift / non-finite) and the two new test modules
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -265,7 +265,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
 | 10. Flags, Attribution, `sift mcm` | v1.1 | 4/4 | Complete | 2026-07-19 |
 | 11. MCM Facts into `sift analyze` | v1.1 | 3/3 | Complete | 2026-07-20 |
 | 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | Complete    | 2026-07-20 |
-| 13. Correlation, Flags, `sift perfmon` | v1.2 | 0/? | Not started | - |
+| 13. Correlation, Flags, `sift perfmon` | v1.2 | 0/? | In Progress|  |
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 0/? | Not started | - |
 
 ## Backlog
