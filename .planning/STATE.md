@@ -3,16 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 current_phase: 12
-status: ready
-stopped_at: Phase 12 planned (4 plans, 3 waves) — ready to execute
-last_updated: "2026-07-20T11:05:00.000Z"
+current_phase_name: dssperfmon-adapter-pipeline-exclusion
+status: executing
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-07-20T10:21:30.348Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 12 planned — 4 plans in 3 waves; ADR 0012 resolved the perfmon timestamp question
+last_activity_desc: Phase 12 execution started
 progress:
   total_phases: 3
   completed_phases: 0
   total_plans: 4
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
 ---
 
@@ -23,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-19)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 12 — `dssperfmon` adapter & pipeline exclusion (PERF-01, PERF-02, PERF-03)
+**Current focus:** Phase 12 — dssperfmon-adapter-pipeline-exclusion
 
 ## Current Position
 
-Phase: 12 of 14 — `dssperfmon` Adapter & Pipeline Exclusion (not started)
-Plan: —
-Status: Roadmap complete, ready to plan Phase 12
-Last activity: 2026-07-20 — v1.2 roadmap created (Phases 12–14, PERF-01..08 fully mapped)
+Phase: 12 (dssperfmon-adapter-pipeline-exclusion) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-20 — Phase 12 execution started
 
-Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 v1.2 phases)
+Progress: [███░░░░░░░] 25% (0/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -113,6 +114,7 @@ Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3
 | Phase 11 P01 | 6m | 2 tasks | 3 files |
 | Phase 11 P02 | ~25 min | 3 tasks | 4 files |
 | Phase 11 P03 | ~30 min | 2 tasks | 6 files |
+| Phase 12 P01 | 15m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -219,9 +221,9 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T09:33:40.550Z
-Stopped at: Phase 12 context gathered
-Resume file: .planning/phases/12-dssperfmon-adapter-pipeline-exclusion/12-CONTEXT.md
+Last session: 2026-07-20T10:21:30.341Z
+Stopped at: Completed 12-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

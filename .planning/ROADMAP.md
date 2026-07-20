@@ -120,12 +120,12 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
 
 - Reference artefacts and the 23-counter set: REQUIREMENTS.md § Reference Data.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — Fixture slice + `DssperfmonAdapter` sniff, byte-offset parse loop, ADR-0012 timestamp path (wave 1)
+- [x] 12-01-PLAN.md — Fixture slice + `DssperfmonAdapter` sniff, byte-offset parse loop, ADR-0012 timestamp path (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -240,7 +240,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
 | 9. MCM Episode Detection & Breakdown | v1.1 | 3/3 | Complete | 2026-07-19 |
 | 10. Flags, Attribution, `sift mcm` | v1.1 | 4/4 | Complete | 2026-07-19 |
 | 11. MCM Facts into `sift analyze` | v1.1 | 3/3 | Complete | 2026-07-20 |
-| 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | Not started | - |
+| 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | In Progress|  |
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 0/? | Not started | - |
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 0/? | Not started | - |
 
