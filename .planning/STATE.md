@@ -4,11 +4,11 @@ milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 current_phase: 13
 current_phase_name: episode-correlation-hazard-flags-sift-perfmon-report-csv
-status: verifying
-stopped_at: Phase 13 verified (passed) — awaiting /gsd-secure-phase 13
+status: secured
+stopped_at: Phase 13 threat-secure (27/27 closed, threats_open 0) — ready for /gsd-complete or Phase 14
 last_updated: "2026-07-20T15:12:50.728Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 13 executed (6/6 plans) and verified passed; security gate outstanding
+last_activity_desc: Phase 13 security gate confirmed passed (SECURITY.md verified, committed f216ab7)
 progress:
   total_phases: 3
   completed_phases: 2
