@@ -361,9 +361,10 @@ def test_golden_trend_figures() -> None:
     assert _trend(analysis, "Total MCM Denial").slope_per_second == 0.0
 
     # D-21: identical inputs, byte-identical output.
-    assert analysis.model_dump_json() == _correlate(
-        samples, start, denial
-    ).model_dump_json()
+    assert (
+        analysis.model_dump_json()
+        == _correlate(samples, start, denial).model_dump_json()
+    )
 
 
 def test_single_sample_no_zero_division() -> None:
@@ -526,9 +527,7 @@ def _write_denial_csv(tmp_path: Path, readings: list[str], name: str) -> Path:
         f"\\\\{host}\\MicroStrategy Server Jobs(CastorServer)\\{MCM_DENIAL_COUNTER}",
         f"\\\\{host}\\System\\RAM used(MB)",
     ]
-    rows = [
-        [stamps[i], reading, str(463900 + i)] for i, reading in enumerate(readings)
-    ]
+    rows = [[stamps[i], reading, str(463900 + i)] for i, reading in enumerate(readings)]
     path = tmp_path / name
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, quoting=csv.QUOTE_ALL, lineterminator="\n")
@@ -568,9 +567,7 @@ def test_no_episodes_no_zero_hazard() -> None:
     analysis = analyse_perfmon(McmAnalysis(episodes=()), samples)
 
     all_hazards = [h for group in analysis.groups for h in group.hazards]
-    assert [
-        h for h in all_hazards if h.dimension == HAZARD_DENIAL_ALWAYS_ZERO
-    ] == []
+    assert [h for h in all_hazards if h.dimension == HAZARD_DENIAL_ALWAYS_ZERO] == []
     # The counter still reads zero throughout — absence of the flag is the point.
     assert all(s.attrs[MCM_DENIAL_COUNTER] == "0" for s in samples)
 
@@ -582,7 +579,10 @@ def test_mcm_denial_zero_test_is_numeric_not_string(tmp_path: Path) -> None:
     is False so the real flag would be missed, and a prefix test would fire on
     ``"0.0000001"`` where the counter is demonstrably live.
     """
-    for readings, expected in ((["0.0", "0.0", "0.0"], 1), (["0.0", "0.0000001", "0.0"], 0)):
+    for readings, expected in (
+        (["0.0", "0.0", "0.0"], 1),
+        (["0.0", "0.0000001", "0.0"], 0),
+    ):
         name = f"denial_{len(readings)}_{expected}.csv"
         events = ingest_perfmon_slice(
             case=f"denialzero{expected}",

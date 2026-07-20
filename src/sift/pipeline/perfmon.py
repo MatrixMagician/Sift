@@ -36,6 +36,19 @@ _VALUE_DP = 3
 # renderer in plan 13-05 and the tests key off one spelling.
 HAZARD_SPAN = "span"
 HAZARD_NON_OVERLAP = "non_overlap"
+HAZARD_DENIAL_ALWAYS_ZERO = "denial_always_zero"
+
+# The counter whose flat zero contradicts a detected denial. REPORTED FLAG ONLY:
+# no branch of span resolution, sample selection or figure computation reads it,
+# so it can never steer a correlation (D-16). Grep confirms it appears nowhere in
+# _resolve_span, _in_span or _counter_trends.
+MCM_DENIAL_COUNTER = "Total MCM Denial"
+
+# Cited-id ceiling per hazard, with the true total stated in the message. A file
+# where every row drifted would otherwise put one event_id per row into a single
+# hazard — the unbounded-growth problem WR-02's _NOTE_CAP solved, reappearing in
+# a new location (T-13-HAZDOS).
+_CITE_CAP = 10
 
 
 def _numeric(value: str) -> float | None:
@@ -356,6 +369,80 @@ def _hazard_non_overlap(
     )
 
 
+def _cited(event_ids: list[str]) -> tuple[tuple[str, ...], int]:
+    """Deduplicate, cap and report the true total of a citation list.
+
+    ``dict.fromkeys`` rather than ``set``: insertion order is preserved, so the
+    tuple cannot vary between runs (D-21). The total is returned separately so
+    the message can state what the cap hid (T-13-HAZDOS).
+    """
+    unique = tuple(dict.fromkeys(event_ids))
+    return unique[:_CITE_CAP], len(unique)
+
+
+def _find_counter_key(attrs: dict[str, str]) -> tuple[str, ...]:
+    """Every attrs key holding ``MCM_DENIAL_COUNTER``, in sorted order.
+
+    Plan 13-03's ``_qualify_counter_names`` rewrites only COLLIDING short names
+    to their last two backslash segments, so both the bare ``Total MCM Denial``
+    and a qualified ``Object(Instance)\\Total MCM Denial`` are live spellings in
+    shipped data — the bare form is not guaranteed.
+
+    Returns a TUPLE rather than the single key the plan sketched: when a CSV
+    carries the counter under two instances, checking only one would let a
+    genuinely non-zero instance be masked by a zero one (T-13-EVADE). Sorted, so
+    the order never depends on dict insertion.
+    """
+    if MCM_DENIAL_COUNTER in attrs:
+        return (MCM_DENIAL_COUNTER,)
+    return tuple(
+        sorted(key for key in attrs if key.rsplit("\\", 1)[-1] == MCM_DENIAL_COUNTER)
+    )
+
+
+def _hazard_denial_always_zero(
+    denial_event_id: str, samples: list[Event]
+) -> PerfmonHazard | None:
+    """A flat-zero denial counter contradicted by a real denial (D-14).
+
+    Fires only against a DETECTED denial: the caller reaches this once per
+    episode, so a denial always exists here, and a case with no episodes never
+    reaches it at all. Without a denial to contradict, a zero counter is just a
+    zero counter — and a flag that fires on every healthy case trains the reader
+    to ignore the one that matters.
+
+    ``severity="warn"`` is categorical (D-13). The counter is a REPORTED FLAG
+    only and is never a correlation input (D-16).
+    """
+    readings: list[tuple[float, Event]] = []
+    for sample in samples:
+        for key in _find_counter_key(sample.attrs):
+            # Numeric, never `value == "0"`: a string test gets both directions
+            # wrong — "0.0" and "-0" ARE zero and would be missed, while a
+            # prefix test would fire on "0.0000001", which is demonstrably live.
+            value = _numeric(sample.attrs[key])
+            if value is not None:
+                readings.append((value, sample))
+
+    if not readings or any(value != 0.0 for value, _ in readings):
+        return None
+
+    cited, total = _cited([denial_event_id, *(s.event_id for _, s in readings)])
+    return PerfmonHazard(
+        dimension=HAZARD_DENIAL_ALWAYS_ZERO,
+        severity="warn",
+        message=(
+            f"{MCM_DENIAL_COUNTER} read 0 on all {len(readings)} in-span "
+            "reading(s) despite a detected MCM denial in this window, so the "
+            "counter is almost certainly not wired on this host and must not be "
+            f"read as evidence that no denial occurred. Citing {len(cited)} of "
+            f"{total} evidencing event(s)."
+        ),
+        event_ids=cited,
+        value=0.0,
+    )
+
+
 def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
     """Correlate perfmon samples with every MCM episode (PERF-04).
 
@@ -397,8 +484,7 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
                             dimension=HAZARD_SPAN,
                             severity="warn",
                             message=(
-                                "No perfmon trend could be correlated: "
-                                f"{span.reason}."
+                                f"No perfmon trend could be correlated: {span.reason}."
                             ),
                             event_ids=attempted,
                         ),
@@ -416,6 +502,10 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
             # D-06: no trend table alongside it — zero-in-span is the loud flag,
             # not an absence of data.
             hazards.append(_hazard_non_overlap(span.start, span.end, all_samples))
+        else:
+            zero = _hazard_denial_always_zero(ea.episode.denial_event_id, samples)
+            if zero is not None:
+                hazards.append(zero)
 
         groups.append(
             TrendGroup(
