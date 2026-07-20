@@ -84,28 +84,39 @@ inference by window-overlap maximisation.
 
 ### Timezone & UTC normalisation
 
-- **D-10:** Trust the PDH header's declared numeric bias verbatim. The header
-  `"(PDH-CSV 4.0) (Eastern Standard Time)(300)"` declares 300 = minutes WEST of UTC, so
-  `UTC = local + 300 min`. Apply that offset directly. Do **not** map the Windows zone name
-  (`Eastern Standard Time`) to an IANA zone — that needs a mapping table plus DST resolution, and
-  the declared offset already answers the question.
-- **D-11:** `ts_confidence = "exact"` for rows whose timestamp parses and whose header offset is
-  present — the offset is *declared by the artefact*, not inferred by Sift. If the header carries
-  no parseable offset, fall back to UTC with `ts_confidence = "inferred"` and record a
-  `ParseStats.notes` disclosure (the D-05 tz-disclosure convention `base.py` already establishes).
+- **D-10 (REVISED 2026-07-20 — supersedes the original "apply the declared bias"):**
+  **Do NOT apply the PDH header's declared numeric bias.** Parse the naive sample timestamp and
+  route it through `base.to_utc(dt, override_tz)` exactly as every shipped adapter does, so a
+  naive timestamp is stamped UTC verbatim. The declared zone/offset is **recorded, not applied** —
+  `tz_name` and `tz_offset_min` go into `attrs` as metadata for Phase 13 to reason about.
+  See `docs/decisions/0012-perfmon-naive-timestamps.md` for the full rationale and evidence.
+- **D-11 (REVISED):** `ts_confidence = "inferred"` — matching `dsserrors`/`eustack`/`genericlog`
+  for a naive timestamp with no `--tz` override. `"exact"` would be dishonest: nothing about the
+  timestamp's true zone has been established. When a `--tz` override applies, `base.to_utc`
+  returns whatever it returns; do not second-guess it.
 - **D-12:** Route through `base.to_utc` / `base.tz_override_for` so a `--tz glob=Zone` override
   still wins, consistent with every other adapter. Timestamp format is
   `MM/DD/YYYY HH:MM:SS.fff` (US, from the observed reference file).
-- **D-13:** ⚠ **VERIFY DURING PLANNING — 1-hour DST risk.** PDH's declared bias is the
-  *standard-time* bias (300), but the reference file spans 2026-04-02 → 04-07, which is Eastern
-  *Daylight* Time (actual offset 240). If PDH writes local wall-clock timestamps while declaring
-  the standard bias, every sample lands 1 hour off, which would silently break Phase 13's
-  correlation. The roadmap's own claim that "the CSV ends 6 s before the denial banner" implies
-  the current interpretation aligns — the researcher must confirm this against the real CSV/log
-  pair before the parser freezes. **Resolution rule if it does not hold:** disclose in
-  `ParseStats.notes` and flag loudly (Phase 13's non-overlap flag) — never silently DST-correct,
-  because inferring an alignment that isn't declared is exactly what REQUIREMENTS.md § Out of
-  Scope forbids.
+- **D-13 (RESOLVED 2026-07-20 — was a flagged risk, now closed by measurement):** The original
+  concern was a 1-hour DST skew. Research measured the real artefacts and found the actual failure
+  would have been a **5-hour skew**, and that applying the bias — not DST — was its cause:
+
+  | Artefact | Naive timestamp | Under D-10 original (+300) | Under D-10 revised |
+  |---|---|---|---|
+  | CSV last sample | `04/07/2026 12:39:39.397` | `17:39:39Z` | `12:39:39Z` |
+  | Log denial activity | `2026-04-07 12:39:40.005` | `12:39:40Z` | `12:39:40Z` |
+
+  The DSSErrors log carries naive local wall-clock timestamps with no zone token, and
+  `dsserrors.py:116` → `base.to_utc(dt, None)` → `base.py:97-102` stamps them UTC verbatim.
+  Applying an offset to one member of a matched pair while the other gets none is what breaks the
+  join. Both artefacts come from the same host (`env-325602laio1use1`, PID 16234), so
+  **consistency across the pair matters more than absolute correctness** — Phase 13 correlates a
+  CSV against a log, never against wall-clock truth. The roadmap's "ends 6 s before the denial
+  banner" claim holds exactly, and only under the revised reading. The EST-vs-EDT question is
+  now moot: no offset is applied either way.
+
+  **Standing rule (unchanged):** never silently DST-correct or infer an alignment — misalignment
+  is flagged loudly by Phase 13, per REQUIREMENTS.md § Out of Scope.
 
 ### Nothing-disappears fallback (PERF-02 / criterion 3)
 
@@ -163,6 +174,9 @@ by it.
 - `.planning/STATE.md` § Blockers/Concerns — the Phase 12 cross-cutting-regression entry
 
 ### Architecture decisions
+- `docs/decisions/0012-perfmon-naive-timestamps.md` — **MUST READ before writing any timestamp code.**
+  Locks D-10/D-11 as revised: the PDH declared bias is recorded in `attrs`, never applied. Carries the
+  measured evidence and supersedes the original "apply the bias" decision
 - `docs/decisions/0006-configurable-adapter.md` — the `ConfigurableAdapter` pattern every adapter subclasses
 - `docs/decisions/0003-hand-rolled-masking-over-drain3.md` — dedup masking the exclusion bypasses
 

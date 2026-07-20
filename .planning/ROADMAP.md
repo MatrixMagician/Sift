@@ -88,9 +88,12 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
   1. Engineer runs `sift ingest` on a case containing the Hartford deny CSV and gets one event per
      sample row, each with `event_id = sha256(source_file, byte_offset)[:16]`; a second `sift ingest`
      adds zero new events
-  2. Sniffing recognises the `(PDH-CSV 4.0)` header without an `--adapter` override, and the header's
-     declared zone/offset (e.g. `(Eastern Standard Time)(300)`) yields UTC timestamps via `base.to_utc`
-     with `ts_confidence` recorded
+  2. Sniffing recognises the `(PDH-CSV 4.0)` header without an `--adapter` override, and sample
+     timestamps are normalised through `base.to_utc` with `ts_confidence` recorded — with the header's
+     declared zone/offset (e.g. `(Eastern Standard Time)(300)`) **recorded in `attrs` as evidence, not
+     applied as a shift**, so a perfmon CSV and its paired DSSErrors log share one timeline
+     (ADR 0012; amended 2026-07-20 after measurement showed applying the bias put the CSV 5 h after
+     the denial it precedes by 6 s)
   3. Blank, malformed, or non-numeric counter values become `severity="unknown"` events rather than
      vanishing, and per-file parse coverage reflects them — nothing disappears silently
   4. Ingesting the same case with and without the perfmon CSV produces byte-identical cluster output
