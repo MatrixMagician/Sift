@@ -32,6 +32,11 @@ SLOPE_DP = 4
 # Value decimal places for at-denial and peak, same round-at-source discipline.
 _VALUE_DP = 3
 
+# Hazard dimension names (D-12). Constants rather than inline literals so the
+# renderer in plan 13-05 and the tests key off one spelling.
+HAZARD_SPAN = "span"
+HAZARD_NON_OVERLAP = "non_overlap"
+
 
 def _numeric(value: str) -> float | None:
     """Parse a counter cell, accepting only finite reals (D-11).
@@ -289,6 +294,68 @@ def _counter_trends(samples: list[Event]) -> tuple[CounterTrend, ...]:
     return tuple(trends)
 
 
+def _placeable_samples(events: list[Event]) -> list[Event]:
+    """Every timestamped perfmon sample in the case, in explicit stable order.
+
+    Sorted here rather than trusting input order: ``analyse_perfmon`` accepts a
+    plain list, which a caller may have assembled in any order, and the
+    non-overlap message names this list's first and last entries (D-21).
+    """
+    return sorted(
+        (e for e in events if e.source == "dssperfmon" and e.ts is not None),
+        key=lambda e: (e.ts, e.event_id),  # pyright: ignore[reportReturnType] — ts is filtered non-None above
+    )
+
+
+def _hazard_non_overlap(
+    start: Event, end: Event, all_samples: list[Event]
+) -> PerfmonHazard:
+    """Zero in-span samples: a CRITICAL hazard, never an empty trend table (D-06).
+
+    Zero-in-span IS the wrong-timezone, wrong-day or wrong-host symptom, so it is
+    the loud flag rather than an absence of data. Presenting figures computed
+    from whatever samples happen to be nearby would be a fabricated alignment
+    (T-13-FALSEJOIN); emitting an empty table would be a silent one.
+
+    ``severity="critical"`` is a categorical literal fixed in code (D-13):
+    nothing here is a ratio against two cut-points, so ``mcm._grade`` has nothing
+    to compare and is deliberately not called. ``value`` is ``None`` for the same
+    reason — the absence of a figure is precisely why ``mcm.DiagnosticFlag`` was
+    not reused (D-12).
+    """
+    assert start.ts is not None and end.ts is not None  # noqa: S101 — _Span invariant
+    span_text = f"{start.ts.isoformat()} to {end.ts.isoformat()}"
+    cited = [start.event_id, end.event_id]
+
+    if all_samples:
+        first, last = all_samples[0], all_samples[-1]
+        assert first.ts is not None and last.ts is not None  # noqa: S101 — filtered
+        coverage = (
+            f"the case's perfmon samples cover "
+            f"{first.ts.isoformat()} to {last.ts.isoformat()}"
+        )
+        cited += [first.event_id, last.event_id]
+    else:
+        # Guarded BEFORE indexing: with no perfmon events at all there is no
+        # first or last sample to name, and all_samples[0] would raise.
+        coverage = "the case carries no perfmon samples at all"
+
+    return PerfmonHazard(
+        dimension=HAZARD_NON_OVERLAP,
+        severity="critical",
+        message=(
+            f"No perfmon samples fall inside the correlated span {span_text}; "
+            f"{coverage}. The two artefacts do not overlap in time, so no trend "
+            "is reported rather than one computed from unrelated samples. This "
+            "hazard covers time non-overlap only, not host identity: a sample "
+            "from the wrong host whose clock overlaps will not trip it "
+            "(multi-host correlation is deferred to PERFV2-02)."
+        ),
+        event_ids=tuple(dict.fromkeys(cited)),
+        value=None,
+    )
+
+
 def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalysis:
     """Correlate perfmon samples with every MCM episode (PERF-04).
 
@@ -303,6 +370,7 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
     then ``PerfmonAnalysis.hazards`` stays empty.
     """
     by_id = {e.event_id: e for e in events}  # mirrors the attribute_window precedent
+    all_samples = _placeable_samples(events)  # once, for the non-overlap message
     groups: list[TrendGroup] = []
     for ea in analysis.episodes:
         span = _resolve_span(ea, by_id)
@@ -326,7 +394,7 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
                     counters=(),
                     hazards=(
                         PerfmonHazard(
-                            dimension="span",
+                            dimension=HAZARD_SPAN,
                             severity="warn",
                             message=(
                                 "No perfmon trend could be correlated: "
@@ -341,6 +409,14 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
 
         samples = _in_span(events, span.start, span.end)
         assert span.start.ts is not None and span.end.ts is not None  # noqa: S101
+
+        # Fixed code order, so two runs produce identical hazard tuples (D-21).
+        hazards: list[PerfmonHazard] = []
+        if not samples:
+            # D-06: no trend table alongside it — zero-in-span is the loud flag,
+            # not an absence of data.
+            hazards.append(_hazard_non_overlap(span.start, span.end, all_samples))
+
         groups.append(
             TrendGroup(
                 scope="episode",
@@ -351,7 +427,7 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
                 boundary_event_ids=(span.start.event_id, span.end.event_id),
                 sample_count=len(samples),
                 counters=_counter_trends(samples),
-                hazards=(),
+                hazards=tuple(hazards),
             )
         )
     return PerfmonAnalysis(groups=tuple(groups), hazards=())
