@@ -19,6 +19,7 @@ import pytest
 from test_perfmon import FIXTURES, SLICE
 from typer.testing import CliRunner
 
+from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.adapters.dssperfmon import DssperfmonAdapter
 from sift.cli import app
 from sift.config import load_config
@@ -27,6 +28,7 @@ from sift.pipeline.mcm import McmAnalysis
 from sift.pipeline.perfmon import (
     FULL_RANGE_LABEL,
     HAZARD_DENIAL_ALWAYS_ZERO,
+    HAZARD_NON_OVERLAP,
     analyse_perfmon,
 )
 from sift.store import CaseStore, case_db_path
@@ -228,3 +230,80 @@ def test_write_failure_exit_one(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.exit_code == 1
     assert "Traceback" not in result.output
     assert "cannot write perfmon bundle" in result.output
+
+
+# --- Task 3: criterion 5 end-to-end and criterion 2 byte-identity ----------
+
+
+def test_no_dsserrors_log() -> None:
+    """Criterion 5 and the phase's named blocker: a perfmon CSV with NO
+    DSSErrors log at all still yields a counter story, exit 0, no traceback.
+
+    The report must state plainly that the figures came from the full sample
+    range rather than a denial window, so a reader cannot mistake it for a
+    correlation that was never performed (D-20).
+    """
+    case_dir = _build_perfmon_case()
+    result = runner.invoke(app, ["perfmon", "perfonly"])
+    assert result.exit_code == 0, result.output
+    assert "Traceback" not in result.output
+
+    report = case_dir / "perfmon" / "perfmon_report.md"
+    assert report.exists()
+    assert (case_dir / "perfmon" / "perfmon_trend.csv").exists()
+
+    text = report.read_text(encoding="utf-8")
+    assert FULL_RANGE_LABEL in text
+    # The engineer still gets the milestone figure with no log present.
+    assert "266042" in text
+
+
+def test_byte_identical_rerun() -> None:
+    """Criterion 2: two runs produce byte-identical report and CSV."""
+    case_dir = _build_perfmon_case()
+    runner.invoke(app, ["perfmon", "perfonly"])
+    report = (case_dir / "perfmon" / "perfmon_report.md").read_bytes()
+    trend = (case_dir / "perfmon" / "perfmon_trend.csv").read_bytes()
+    runner.invoke(app, ["perfmon", "perfonly"])
+    assert (case_dir / "perfmon" / "perfmon_report.md").read_bytes() == report
+    assert (case_dir / "perfmon" / "perfmon_trend.csv").read_bytes() == trend
+
+
+def test_byte_identical_rerun_json() -> None:
+    """Criterion 2 holds for the JSON report as well as the Markdown one."""
+    case_dir = _build_perfmon_case()
+    runner.invoke(app, ["perfmon", "perfonly", "--format", "json"])
+    report = (case_dir / "perfmon" / "perfmon_report.json").read_bytes()
+    trend = (case_dir / "perfmon" / "perfmon_trend.csv").read_bytes()
+    runner.invoke(app, ["perfmon", "perfonly", "--format", "json"])
+    assert (case_dir / "perfmon" / "perfmon_report.json").read_bytes() == report
+    assert (case_dir / "perfmon" / "perfmon_trend.csv").read_bytes() == trend
+
+
+def test_non_overlap_end_to_end() -> None:
+    """Both shipped fixtures in one case exits 0 and raises the CRITICAL
+    non-overlap hazard — which is the honest expectation, not a defect.
+
+    The MCM log slice spans 12:39:47.142 to 12:39:47.356 while the perfmon
+    CSV's last sample is 12:39:39.397, 7.7 s earlier, so no sample falls inside
+    any window the log can define. Golden trend figures are therefore asserted
+    at correlator-unit level in tests/test_perfmon.py with hand-built boundary
+    events; this test must NOT be weakened into a golden-figure assertion.
+    """
+    case_dir = _build_perfmon_case("both")
+    log_fixtures = Path(__file__).parent / "fixtures" / "mcm"
+    adapter = DsserrorsAdapter()
+    adapter.input_root = log_fixtures
+    store = CaseStore(case_dir / "case.db")
+    try:
+        store.insert_events(
+            list(adapter.parse(log_fixtures / "hartford_deny_slice.log", "both"))
+        )
+    finally:
+        store.close()
+
+    result = runner.invoke(app, ["perfmon", "both"])
+    assert result.exit_code == 0, result.output
+    text = (case_dir / "perfmon" / "perfmon_report.md").read_text(encoding="utf-8")
+    # _field Markdown-escapes the underscore in the dimension string.
+    assert HAZARD_NON_OVERLAP.replace("_", r"\_") in text
