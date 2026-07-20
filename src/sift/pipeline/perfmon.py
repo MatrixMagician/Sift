@@ -39,6 +39,10 @@ HAZARD_SPAN = "span"
 HAZARD_NON_OVERLAP = "non_overlap"
 HAZARD_DENIAL_ALWAYS_ZERO = "denial_always_zero"
 HAZARD_COUNTER_SET_DRIFT = "counter_set_drift"
+# WR-03: info-severity disclosure that some perfmon samples carried no placeable
+# timestamp, so they fell outside the sample range and every figure over it. They
+# are counted and cited, never silently dropped ("nothing disappears silently").
+HAZARD_UNPLACEABLE_SAMPLES = "unplaceable_samples"
 
 # The counter whose flat zero contradicts a detected denial. REPORTED FLAG ONLY:
 # no branch of span resolution, sample selection or figure computation reads it,
@@ -53,6 +57,16 @@ MCM_DENIAL_COUNTER = "Total MCM Denial"
 FULL_RANGE_LABEL = (
     "Full sample range (no MCM denial episode detected, so no correlation "
     "window was resolved)"
+)
+
+# D-20/WR-03: the label for a file whose every sample lost its timestamp. It
+# still gets a group — a boundless disclosure carrying only the unplaceable-
+# samples hazard — rather than vanishing, because the report must never drop a
+# file the adapter went to trouble to retain. Free of Markdown metacharacters.
+NO_PLACEABLE_LABEL = (
+    "No perfmon sample in this file carried a placeable timestamp, so no sample "
+    "range could be resolved and no trend was computed (samples disclosed as a "
+    "hazard, not dropped)"
 )
 
 # Cited-id ceiling per hazard, with the true total stated in the message. A file
@@ -506,6 +520,40 @@ def _hazard_counter_set_drift(samples: list[Event]) -> PerfmonHazard | None:
     )
 
 
+def _hazard_unplaceable_samples(unplaceable: list[Event]) -> PerfmonHazard | None:
+    """Perfmon samples that carried no placeable timestamp (WR-03).
+
+    ``_in_span`` and ``_file_scope_groups`` both require ``Event.ts is not None``,
+    so a degraded ``severity="unknown"`` sample with a broken stamp is excluded
+    from ``sample_count``, from the trends and from every other hazard. The
+    adapter went to real trouble to keep those rows (``_fallback_event``, coverage
+    accounting); discarding them without a word violates "nothing disappears
+    silently". This is that disclosure channel — count and cite, never drop.
+
+    ``severity="info"`` is categorical (D-13): an unplaceable sample is a data-
+    completeness note, not a correlation failure. Returns ``None`` when the list
+    is empty so the caller can append it unconditionally. Sorted on ``event_id``
+    before capping, so the cited tuple is identical across runs even when the
+    samples arrived in any order (D-21), mirroring ``_hazard_counter_set_drift``.
+    """
+    if not unplaceable:
+        return None
+    ordered = sorted(unplaceable, key=lambda e: e.event_id)
+    cited, total = _cited([e.event_id for e in ordered])
+    return PerfmonHazard(
+        dimension=HAZARD_UNPLACEABLE_SAMPLES,
+        severity="info",
+        message=(
+            f"{total} perfmon sample(s) for this file carry no placeable "
+            "timestamp, so they fall outside the sample range and every trend "
+            "figure computed over it; they are disclosed here rather than "
+            f"dropped silently. Citing {len(cited)} of {total} sample(s)."
+        ),
+        event_ids=cited,
+        value=float(total),
+    )
+
+
 def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
     """One full-sample-range TrendGroup per source file (D-20).
 
@@ -523,6 +571,13 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
     a file are sorted on ``(ts, event_id)`` (WR-02): ``analyse_perfmon`` accepts
     a plain list a caller may have assembled in any order, and ``_counter_trends``
     reads the first and last sample positionally.
+
+    Samples that lost their timestamp are disclosed, never dropped (WR-03). A
+    file that still has placeable samples gets its usual trend group PLUS an
+    ``unplaceable_samples`` info hazard counting the untimestamped remainder; a
+    file whose EVERY sample lost its timestamp gets a boundless disclosure group
+    (``sample_count=0``, no counters, no boundary, ``start_ts=None``) carrying
+    only that hazard — never the silent ``continue`` this replaced.
     """
     by_file: dict[str, list[Event]] = {}
     for event in perfmon_events:
@@ -534,10 +589,33 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
             (s for s in samples if s.ts is not None),
             key=lambda s: (s.ts, s.event_id),  # pyright: ignore[reportReturnType] — ts filtered non-None above
         )
+        unplaceable_hazard = _hazard_unplaceable_samples(
+            [s for s in samples if s.ts is None]
+        )
         if not placeable:
-            # Guarded BEFORE indexing: a file whose every sample lost its
-            # timestamp has no first or last sample to bound a range with, and
-            # placeable[0] would raise IndexError.
+            # Case B (WR-03): every sample lost its timestamp, so there is no
+            # first or last sample to bound a range with — placeable[0] would
+            # raise IndexError, and this branch must NOT index it (the guard is
+            # load-bearing). Instead of the old silent `continue`, emit a
+            # boundless disclosure group so the file still appears in the report,
+            # carrying only the unplaceable-samples hazard (never None here: an
+            # empty `placeable` with a non-empty file means samples are all
+            # untimestamped).
+            groups.append(
+                TrendGroup(
+                    scope="file",
+                    key=source_file,
+                    label=NO_PLACEABLE_LABEL,
+                    start_ts=None,
+                    end_ts=None,
+                    boundary_event_ids=(),
+                    sample_count=0,
+                    counters=(),
+                    hazards=()
+                    if unplaceable_hazard is None
+                    else (unplaceable_hazard,),
+                )
+            )
             continue
         first, last = placeable[0], placeable[-1]
         assert first.ts is not None and last.ts is not None  # noqa: S101 — filtered
