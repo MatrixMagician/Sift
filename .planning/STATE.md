@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
-current_phase: 13
-current_phase_name: episode-correlation-hazard-flags-sift-perfmon-report-csv
-status: secured
-stopped_at: Phase 14 context gathered
+current_phase: 14
+current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
+status: discussing
+stopped_at: Phase 14 context gathered — ready for /gsd-plan-phase 14 --research
 last_updated: "2026-07-20T17:19:34.385Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 13 execution started
+last_activity_desc: Phase 14 CONTEXT.md gathered via discuss-phase (8 decisions D-01..D-08)
 progress:
   total_phases: 3
   completed_phases: 2
