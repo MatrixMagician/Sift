@@ -226,19 +226,27 @@ def _in_span(events: list[Event], start: Event, end: Event) -> list[Event]:
 
     Closed deliberately: Hartford's last sample before the denial can land
     exactly on a bound, and excluding it would drop the very reading the report
-    is about. Input order is the store's canonical
-    ``ORDER BY ts IS NULL, ts, source_file, line_start`` and is preserved rather
-    than re-sorted.
+    is about. Sorted on ``(ts, event_id)`` here (WR-02): ``analyse_perfmon``
+    accepts a plain list a caller may have assembled in any order, and the
+    at-denial (``accepted[-1]``), slope-origin (``accepted[0]``) and peak
+    tie-break all read positionally — so the figures must depend on the timeline,
+    not the argument order, and a scrambled list must never yield a negative
+    ``elapsed`` that inverts the slope. This mirrors ``_placeable_samples``.
 
     ``EXCLUDED_FROM_RANKING`` is deliberately not imported: it means "held out of
     ranking", which is a different concept from "is a perfmon sample".
     """
     assert start.ts is not None and end.ts is not None  # noqa: S101 — _Span invariant
-    return [
-        e
-        for e in events
-        if e.source == "dssperfmon" and e.ts is not None and start.ts <= e.ts <= end.ts
-    ]
+    return sorted(
+        (
+            e
+            for e in events
+            if e.source == "dssperfmon"
+            and e.ts is not None
+            and start.ts <= e.ts <= end.ts
+        ),
+        key=lambda e: (e.ts, e.event_id),  # pyright: ignore[reportReturnType] — ts filtered non-None above
+    )
 
 
 def _counter_trends(samples: list[Event]) -> tuple[CounterTrend, ...]:
@@ -512,7 +520,9 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
     Grouping is by ``Event.source_file`` via ``dict.fromkeys`` over the
     canonically-ordered event list, so first-appearance order is preserved and
     no ``set`` iteration can vary the output between runs (D-21). Samples within
-    a file are already canonically ordered and are deliberately not re-sorted.
+    a file are sorted on ``(ts, event_id)`` (WR-02): ``analyse_perfmon`` accepts
+    a plain list a caller may have assembled in any order, and ``_counter_trends``
+    reads the first and last sample positionally.
     """
     by_file: dict[str, list[Event]] = {}
     for event in perfmon_events:
@@ -520,7 +530,10 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
 
     groups: list[TrendGroup] = []
     for source_file, samples in by_file.items():
-        placeable = [s for s in samples if s.ts is not None]
+        placeable = sorted(
+            (s for s in samples if s.ts is not None),
+            key=lambda s: (s.ts, s.event_id),  # pyright: ignore[reportReturnType] — ts filtered non-None above
+        )
         if not placeable:
             # Guarded BEFORE indexing: a file whose every sample lost its
             # timestamp has no first or last sample to bound a range with, and
