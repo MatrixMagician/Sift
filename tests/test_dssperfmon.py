@@ -317,3 +317,57 @@ def test_header_zone_recorded_not_applied() -> None:
         assert e.attrs["tz_offset_min"] == "300"
     # The declared bias is disclosed once per file, never used in arithmetic.
     assert any("ADR 0012" in note for note in stats.notes)
+
+
+# ------------------------------------------- csv-tokenise + key-collision ---
+
+
+def test_cr_only_line_endings_degrade_not_crash(tmp_path: Path) -> None:
+    """A row csv cannot tokenise degrades; it never kills the whole parse.
+
+    ``byte_lines`` splits on b"\\n" only, so a CR-only PDH export arrives as
+    one very long "line". stdlib csv then raises ``csv.Error`` — which is NOT
+    a ValueError, so it slips past the strptime guard and, before this test,
+    propagated out of parse() entirely: the file recorded coverage 0.0 and
+    event_count 0. Every row vanished, silently, which is precisely what
+    PERF-02's never-drop guarantee forbids.
+    """
+    body = b'"04/07/2026 12:39:39.397","266042","1"\r' * 3
+    path = write(tmp_path, "cr.csv", SYN_HEADER.replace(b"\n", b"\r") + body)
+    adapter = DssperfmonAdapter()
+    adapter.input_root = tmp_path
+    events = list(adapter.parse(path, "case1"))
+    stats = adapter.last_stats
+    assert stats is not None
+    # The bytes are accounted for rather than abandoned.
+    assert events, "parse yielded nothing — the never-drop guarantee failed"
+    assert all(e.severity == "unknown" for e in events)
+    assert stats.event_count == len(events)
+    assert stats.unknown_fallback_bytes > 0
+
+
+def test_counter_named_like_reserved_attr_cannot_clobber_provenance(
+    tmp_path: Path,
+) -> None:
+    """A counter named ``byte_offset`` must not overwrite the real offset.
+
+    Counter names come from the customer's CSV header and are therefore
+    attacker-influenceable. ``event_id`` is derived from the byte offset, so a
+    counter that overwrote ``attrs["byte_offset"]`` would corrupt the
+    provenance the evidence appendix renders — while still looking clean.
+    The colliding counter is preserved under a prefix, not dropped: nothing
+    disappears silently in either direction.
+    """
+    header = (
+        b'"(PDH-CSV 4.0) (Eastern Standard Time)(300)",'
+        b'"\\\\host1\\MSTR Server\\byte_offset",'
+        b'"\\\\host1\\MSTR Server\\Total MCM Denial"\n'
+    )
+    events, _, header_bytes = run_syn(tmp_path, GOOD_ROW, header=header)
+    assert len(events) == 1
+    event = events[0]
+    # Provenance survives: the offset is the row's true byte position.
+    assert event.attrs["byte_offset"] == str(header_bytes)
+    assert event.event_id == event_id("syn.csv", header_bytes)
+    # The counter's own value is still retrievable, just namespaced.
+    assert event.attrs["counter.byte_offset"] == "266042"
