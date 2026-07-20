@@ -176,6 +176,59 @@ For a rootless Podman deployment, ready-to-adapt Quadlet units ship in
 [`deploy/`](deploy/); the design and its interaction with Sift's SSRF guard are
 recorded in [ADR 0011](docs/decisions/0011-quadlet-loopback-guard.md).
 
+## Supported artefact types
+
+Ingestion is adapter-driven. Each adapter sniffs a file and reports a
+confidence; the best match wins, and anything unrecognised falls back to the
+generic log parser rather than being dropped. Four adapters ship today:
+
+| Adapter | Handles |
+| --- | --- |
+| `dsserrors` | MicroStrategy Intelligence Server `DSSErrors` logs, including multi-line MCM memory-contract blocks |
+| `eustack` | EU-stack thread dumps (one dump block = one event) |
+| `journald` | systemd journal exports |
+| `genericlog` | Any other plain-text application log — the fallback |
+
+Override the automatic choice per file pattern when you need to:
+
+```bash
+sift new my-incident --input /path/to/artefacts --adapter '*.log=dsserrors'
+```
+
+`--adapter` is repeatable, and takes `glob=adapter-name`.
+
+## MCM memory-pressure forensics
+
+For MicroStrategy cases, `sift mcm` produces a deterministic memory-contract
+analysis alongside the LLM triage. It is computed entirely from the log text —
+no model authors any figure, and no network call is made:
+
+```bash
+sift mcm my-incident
+```
+
+It always writes both `<case>/mcm/mcm_report.md` (or `mcm_report.json` with
+`--format json`) and `<case>/mcm/mcm_attribution.csv`, then prints a short
+summary. Thresholds and the lead-up window are configuration-only, so the same
+case and configuration always yield the same bundle.
+
+## Requirements
+
+- Python 3.12 or newer.
+- Fedora is the reference platform; nothing in Sift is Fedora-specific, but the
+  system-package instructions above assume `dnf`.
+- A local OpenAI-compatible inference backend you run yourself (see step 2).
+
+## Further documentation
+
+- [Getting started](docs/GETTING-STARTED.md) — a longer walkthrough than this quickstart.
+- [Architecture](docs/ARCHITECTURE.md) — the ingest → cluster → retrieve → hypothesise → render pipeline.
+- [Configuration](docs/CONFIGURATION.md) — every `SIFT_*` variable and `config.toml` key.
+- [Development](docs/DEVELOPMENT.md) — working on Sift itself.
+- [Testing](docs/TESTING.md) — the test suite and the `sift eval` golden-case harness.
+- [Contributing](CONTRIBUTING.md) — how to propose changes.
+- [Architecture decision records](docs/decisions/) — why things are the way they are.
+
 ## Licence
 
 Apache-2.0.
