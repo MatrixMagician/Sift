@@ -19,6 +19,7 @@ from sift.adapters.dssperfmon import (
     _DRIFT_ATTR,  # pyright: ignore[reportPrivateUsage] — the per-event drift evidence key under test
     _NOTE_CAP,  # pyright: ignore[reportPrivateUsage] — the bound the cap tests are written against
     _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the key set the collision/shadowing guards assert against
+    _qualify_counter_names,  # pyright: ignore[reportPrivateUsage] — the collision-resolution under test (CR-01)
     DssperfmonAdapter,
 )
 from sift.models import Event, event_id
@@ -377,7 +378,18 @@ def test_collision_qualified_keys_retain_both_counters(tmp_path: Path) -> None:
     assert any("Size(MB)" in note for note in stats.notes)
 
 
-def test_hartford_keys_byte_identical() -> None:
+def test_three_identical_paths_stay_unique() -> None:
+    r"""Three columns with an IDENTICAL full counter path keep three distinct keys.
+
+    The last-resort full-path fallback used to be resolved positionally against a
+    list it was mutating, so ``[p, p, p]`` collapsed to two keys and
+    ``dict(zip(...))`` then dropped a whole column — the very ``dict(zip)`` drop
+    ``_qualify_counter_names`` exists to prevent (CR-01, T-13-DROP).
+    """
+    p = "\\\\hostA\\Process(MSTRSvr)\\Size(MB)"
+    keys, notes = _qualify_counter_names([p, p, p])
+    assert len(set(keys)) == len(keys) == 3, keys
+    assert notes  # the collision must be disclosed, not silent
     """Phase 12's shipped key spelling is unchanged by the collision fix.
 
     Asserted against an explicit literal, not a recomputed value: a recomputed
