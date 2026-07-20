@@ -120,7 +120,7 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
 
 - Reference artefacts and the 23-counter set: REQUIREMENTS.md § Reference Data.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -134,7 +134,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-04-PLAN.md — `EXCLUDED_FROM_RANKING` store seam, criterion-4 byte-identity gate, citation guards (wave 3)
+- [x] 12-04-PLAN.md — `EXCLUDED_FROM_RANKING` store seam, criterion-4 byte-identity gate, citation guards (wave 3)
 
 ---
 

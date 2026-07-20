@@ -11,7 +11,7 @@ Requirements for the DSSPerformanceMonitor Correlation milestone. Each maps to e
 
 - [x] **PERF-01**: Engineer can ingest a DSSPerformanceMonitor PDH-CSV through a `dssperfmon` adapter that sniffs the `(PDH-CSV 4.0)` header, turns every sample row into a canonical `Event` with deterministic `event_id = sha256(source_file, byte_offset)[:16]`, and re-ingests idempotently
 - [x] **PERF-02**: Engineer gets UTC-normalised sample timestamps derived from the PDH header's declared zone and offset (e.g. `(Eastern Standard Time)(300)`) with `ts_confidence` recorded, and no sample is silently dropped — blank, malformed, or non-numeric counter values are preserved as `severity="unknown"` and reflected in per-file parse coverage
-- [ ] **PERF-03**: Engineer sees perfmon events excluded from template dedup, embedding, clustering, and salience by source kind — a case's cluster output is byte-identical whether or not a perfmon CSV was ingested, while every perfmon sample remains individually citable by `event_id`
+- [x] **PERF-03**: Engineer sees perfmon events excluded from template dedup, embedding, clustering, and salience by source kind — a case's cluster output is byte-identical whether or not a perfmon CSV was ingested, while every perfmon sample remains individually citable by `event_id`
 
 ### Correlation
 
@@ -56,7 +56,7 @@ Which phases cover which requirements. Populated during roadmap creation.
 |-------------|-------|--------|
 | PERF-01 | Phase 12 | Complete |
 | PERF-02 | Phase 12 | Complete |
-| PERF-03 | Phase 12 | Pending |
+| PERF-03 | Phase 12 | Complete |
 | PERF-04 | Phase 13 | Pending |
 | PERF-05 | Phase 13 | Pending |
 | PERF-06 | Phase 13 | Pending |
