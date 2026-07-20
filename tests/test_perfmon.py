@@ -183,7 +183,7 @@ def test_hazard_model_frozen_and_strict() -> None:
 
 def test_empty_analysis_constructs() -> None:
     """The empty case is a value, never an error — and partial counters are too."""
-    assert PerfmonAnalysis(groups=(), hazards=()).groups == ()
+    assert PerfmonAnalysis(groups=()).groups == ()
     partial = CounterTrend(
         counter="Size(MB)",
         at_denial=None,

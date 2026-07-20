@@ -157,13 +157,13 @@ class PerfmonAnalysis(BaseModel):
     — never a crash. Pure and deterministic: ``model_dump_json`` is byte-identical
     on re-run (no ``set`` iteration anywhere on the path).
 
-    ``hazards`` carries case-level hazards not attributable to any one group.
+    Every hazard is attributable to exactly one span, so hazards live on
+    ``TrendGroup``; there is deliberately no case-level hazard collection.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     groups: tuple[TrendGroup, ...]
-    hazards: tuple[PerfmonHazard, ...]
 
 
 class _Span(NamedTuple):
@@ -561,10 +561,7 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
     """
     if not analysis.episodes:
         return PerfmonAnalysis(
-            groups=_file_scope_groups(
-                [e for e in events if e.source == "dssperfmon"]
-            ),
-            hazards=(),
+            groups=_file_scope_groups([e for e in events if e.source == "dssperfmon"]),
         )
 
     by_id = {e.event_id: e for e in events}  # mirrors the attribute_window precedent
@@ -637,4 +634,4 @@ def analyse_perfmon(analysis: McmAnalysis, events: list[Event]) -> PerfmonAnalys
                 hazards=tuple(hazards),
             )
         )
-    return PerfmonAnalysis(groups=tuple(groups), hazards=())
+    return PerfmonAnalysis(groups=tuple(groups))

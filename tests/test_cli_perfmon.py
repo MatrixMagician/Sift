@@ -148,10 +148,7 @@ def test_no_episodes_no_denial_hazard() -> None:
     contradict, so the always-zero denial hazard must not fire (D-14)."""
     events = _case_events(_build_perfmon_case())
     result = analyse_perfmon(_NO_EPISODES, events)
-    dimensions = [
-        h.dimension
-        for h in (*result.hazards, *(h for g in result.groups for h in g.hazards))
-    ]
+    dimensions = [h.dimension for g in result.groups for h in g.hazards]
     assert HAZARD_DENIAL_ALWAYS_ZERO not in dimensions
 
 

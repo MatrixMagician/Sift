@@ -167,10 +167,6 @@ def _group_section(group: TrendGroup) -> list[str]:
 def render_perfmon_markdown(analysis: PerfmonAnalysis) -> str:
     """Render the deterministic perfmon correlation report (D-19/D-20, PERF-06)."""
     out: list[str] = ["# Perfmon Correlation", ""]
-    if analysis.hazards:
-        out.extend(
-            _hazard_table(analysis.hazards, "## Case-level correlation hazards")
-        )
     if not analysis.groups:
         out.append(_NO_EPISODES)
         out.append("")

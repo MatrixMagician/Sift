@@ -105,7 +105,7 @@ def test_markdown_renders_group_sections() -> None:
         ),
     )
     analysis = PerfmonAnalysis(
-        groups=(_group(counters=counters, hazards=(_hazard(),)),), hazards=()
+        groups=(_group(counters=counters, hazards=(_hazard(),)),)
     )
     out = render_perfmon_markdown(analysis)
 
@@ -133,8 +133,7 @@ def test_markdown_none_figures_render_as_dash() -> None:
                 ),
                 hazards=(_hazard(value=None),),
             ),
-        ),
-        hazards=(),
+        )
     )
     out = render_perfmon_markdown(analysis)
 
@@ -145,7 +144,7 @@ def test_markdown_none_figures_render_as_dash() -> None:
 
 def test_markdown_empty_analysis_states_full_range() -> None:
     """D-20: no episodes must never imply a correlation that was not performed."""
-    out = render_perfmon_markdown(PerfmonAnalysis(groups=(), hazards=()))
+    out = render_perfmon_markdown(PerfmonAnalysis(groups=()))
 
     assert "full sample range" in out
     assert "no mcm denial episodes were detected" in out.lower()
@@ -154,9 +153,7 @@ def test_markdown_empty_analysis_states_full_range() -> None:
 
 def test_markdown_empty_hazards_line() -> None:
     """An empty hazard set gets an explicit line, never a bare heading."""
-    analysis = PerfmonAnalysis(
-        groups=(_group(counters=(_trend(),), hazards=()),), hazards=()
-    )
+    analysis = PerfmonAnalysis(groups=(_group(counters=(_trend(),), hazards=()),))
     out = render_perfmon_markdown(analysis)
 
     assert "_No correlation hazards raised._" in out
@@ -165,9 +162,7 @@ def test_markdown_empty_hazards_line() -> None:
 def test_markdown_cells_pass_through_field() -> None:
     """T-13-MDESC: a hostile counter name cannot reach the operator's terminal."""
     hostile = f"Memory{_BIDI_OVERRIDE}\\Hostile"
-    analysis = PerfmonAnalysis(
-        groups=(_group(counters=(_trend(hostile),)),), hazards=()
-    )
+    analysis = PerfmonAnalysis(groups=(_group(counters=(_trend(hostile),)),))
     out = render_perfmon_markdown(analysis)
 
     assert _BIDI_OVERRIDE not in out
@@ -181,8 +176,12 @@ def test_markdown_cells_pass_through_field() -> None:
 
 def _json_analysis(counter: str = "Memory\\Available MBytes") -> PerfmonAnalysis:
     return PerfmonAnalysis(
-        groups=(_group(counters=(_trend(counter),), hazards=(_hazard(),)),),
-        hazards=(_hazard(value=None),),
+        groups=(
+            _group(
+                counters=(_trend(counter),),
+                hazards=(_hazard(), _hazard(value=None)),
+            ),
+        ),
     )
 
 
@@ -239,8 +238,7 @@ def test_csv_row_per_counter_per_group(tmp_path: Path) -> None:
         groups=(
             _group(key="denial00", counters=(_trend("A"), _trend("B"))),
             _group(scope="file", key="perf.csv", counters=(_trend("C"),)),
-        ),
-        hazards=(),
+        )
     )
     first = tmp_path / "one.csv"
     second = tmp_path / "two.csv"
@@ -256,7 +254,7 @@ def test_csv_row_per_counter_per_group(tmp_path: Path) -> None:
 def test_csv_header_only_when_no_groups(tmp_path: Path) -> None:
     """The header is written before any iteration, so an empty case still parses."""
     path = tmp_path / "empty.csv"
-    write_perfmon_trend_csv(PerfmonAnalysis(groups=(), hazards=()), path)
+    write_perfmon_trend_csv(PerfmonAnalysis(groups=()), path)
 
     assert _read_csv(path) == [list(PERFMON_CSV_HEADER)]
 
@@ -267,7 +265,7 @@ def test_csv_formula_guard(tmp_path: Path) -> None:
         name = f"{trigger}cmd|'/c calc'!A0"
         path = tmp_path / "guard.csv"
         write_perfmon_trend_csv(
-            PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),), hazards=()),
+            PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),)),
             path,
         )
         counter_cell = _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")]
@@ -279,7 +277,7 @@ def test_csv_formula_guard_leaves_ordinary_names_unchanged(tmp_path: Path) -> No
     name = "Process(MSTRSvr)\\Working Set"
     path = tmp_path / "ordinary.csv"
     write_perfmon_trend_csv(
-        PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),), hazards=()), path
+        PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),)), path
     )
 
     assert _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")] == name
@@ -296,8 +294,7 @@ def test_csv_none_figures_are_empty_cells(tmp_path: Path) -> None:
                         _trend(slope_per_second=None, peak=None, peak_event_id=None),
                     )
                 ),
-            ),
-            hazards=(),
+            )
         ),
         path,
     )
@@ -312,7 +309,7 @@ def test_csv_event_ids_semicolon_joined(tmp_path: Path) -> None:
     """A multi-id cell uses ';' so csv.writer adds no comma-quoting."""
     path = tmp_path / "ids.csv"
     write_perfmon_trend_csv(
-        PerfmonAnalysis(groups=(_group(counters=(_trend(),)),), hazards=()), path
+        PerfmonAnalysis(groups=(_group(counters=(_trend(),)),)), path
     )
 
     cell = _read_csv(path)[1][PERFMON_CSV_HEADER.index("boundary_event_ids")]
