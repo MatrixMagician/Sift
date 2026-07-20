@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from typing import Literal
 
 from sift.pipeline.perfmon import (
     CounterTrend,
@@ -60,7 +61,7 @@ def _trend(
 
 def _group(
     *,
-    scope: str = "episode",
+    scope: Literal["episode", "file"] = "episode",
     key: str = "denial00",
     label: str = "60 minutes before the denial",
     counters: tuple[CounterTrend, ...] = (),
