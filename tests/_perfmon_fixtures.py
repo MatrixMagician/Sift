@@ -25,9 +25,115 @@ import csv
 import math
 from pathlib import Path
 
-from sift.adapters.dssperfmon import _short_counter_name
+from sift.adapters.dssperfmon import (
+    _short_counter_name,  # pyright: ignore[reportPrivateUsage] — the exact mapping the collision guard must prove
+)
 
 PDH_HEADER_PREFIX = "(PDH-CSV 4.0) (Eastern Standard Time)(300)"
+
+_HOST = "env-325602laio1use1"
+# Naive PDH wall-clock stamps, 30 s apart, dated to match the reference case.
+_STAMPS = [
+    "04/07/2026 12:39:09.397",
+    "04/07/2026 12:39:39.397",
+    "04/07/2026 12:40:09.397",
+    "04/07/2026 12:40:39.397",
+]
+
+
+def _counter(obj: str, counter: str) -> str:
+    r"""``\\host\Object(Instance)\Counter`` — the fully-qualified PDH form."""
+    return f"\\\\{_HOST}\\{obj}\\{counter}"
+
+
+def _write(tmp_path: Path, name: str, header: list[str], rows: list[list[str]]) -> Path:
+    """Write one QUOTE_ALL, LF-terminated PDH-CSV strictly beneath ``tmp_path``.
+
+    ``tmp_path`` is pytest-supplied and the filename is fixed by the caller-side
+    builder, so no fixture can be aimed at a repo or user file (T-13-FIXPATH).
+    The shipped Hartford artefact is LF-terminated, so these imitate that.
+    """
+    path = tmp_path / name
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, quoting=csv.QUOTE_ALL, lineterminator="\n")
+        writer.writerow(header)
+        writer.writerows(rows)
+    return path
+
+
+def _read(path: Path) -> list[list[str]]:
+    """Tokenise a written fixture back into rows (header first)."""
+    with path.open(encoding="utf-8", newline="") as handle:
+        return [row for row in csv.reader(handle) if row]
+
+
+# ---------------------------------------------------------------- builders ---
+
+
+def write_collision_csv(tmp_path: Path) -> Path:
+    r"""Two INSTANCES of one object carrying the same counter (WR-03).
+
+    ``Process(MSTRSvr)\Size(MB)`` and ``Process(other)\Size(MB)`` are distinct
+    columns whose ``_short_counter_name`` is identically ``Size(MB)``. Two
+    different counters of one object (Hartford has ``Size(MB)`` and ``RSS(MB)``)
+    do NOT collide, which is why the instance axis is the one varied here.
+    """
+    header = [
+        PDH_HEADER_PREFIX,
+        _counter("Process(MSTRSvr)", "Size(MB)"),
+        _counter("Process(other)", "Size(MB)"),
+        _counter("System", "RAM used(MB)"),
+    ]
+    rows = [
+        [stamp, str(401600 + i), str(1200 + i), str(463900 + i)]
+        for i, stamp in enumerate(_STAMPS[:3])
+    ]
+    return _write(tmp_path, "collision.csv", header, rows)
+
+
+def write_drift_csv(tmp_path: Path) -> Path:
+    """A mid-file row narrower than the header, well-formed rows either side (WR-05).
+
+    Hartford is uniformly width 23 across all 13,596 rows, so drift detection has
+    no other way to be exercised. The defect is placed strictly between good rows
+    because an edge-only drift would not distinguish mid-file detection from a
+    truncated-file heuristic.
+    """
+    header = [
+        PDH_HEADER_PREFIX,
+        _counter("System", "Total CPU"),
+        _counter("System", "RAM used(MB)"),
+        _counter("Process(MSTRSvr)", "Size(MB)"),
+    ]
+    rows: list[list[str]] = [
+        [_STAMPS[0], "19", "463915", "401603"],
+        [_STAMPS[1], "20", "463920", "401610"],
+        [_STAMPS[2], "21", "463925"],  # drifted: one cell short, mid-file
+        [_STAMPS[3], "22", "463930", "401620"],
+    ]
+    return _write(tmp_path, "drift.csv", header, rows)
+
+
+def write_non_finite_csv(tmp_path: Path) -> Path:
+    """A ``nan`` and an ``inf`` cell on otherwise healthy, correctly-sized rows (D-11).
+
+    Hartford has zero non-numeric cells, and these two are not non-numeric
+    anyway: the adapter's ``_bad_cells`` probe is a bare ``float()``, which
+    accepts both. They therefore pass as healthy readings today — that is the
+    exact gap D-11 closes.
+    """
+    header = [
+        PDH_HEADER_PREFIX,
+        _counter("System", "RAM used(MB)"),
+        _counter("MicroStrategy Server Users(CastorServer)", "Open Sessions"),
+    ]
+    rows = [
+        [_STAMPS[0], "463915", "1488"],
+        [_STAMPS[1], "nan", "1490"],
+        [_STAMPS[2], "463925", "inf"],
+        [_STAMPS[3], "463930", "1495"],
+    ]
+    return _write(tmp_path, "non_finite.csv", header, rows)
 
 
 # ------------------------------------------------------------------ guards ---
