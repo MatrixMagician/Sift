@@ -191,7 +191,7 @@ window and `analyse_mcm` orchestration — shipped)
   12:39:39.397. Golden trend figures are therefore asserted at correlator-unit level; the ingested
   pair is the natural integration test for the non-overlap hazard.
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans executed
 
 Plans:
 **Wave 1**
@@ -210,7 +210,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 13-06-PLAN.md — `sift perfmon` command, the D-20 full-sample-range path, criteria 2 and 5 (PERF-06)
+- [x] 13-06-PLAN.md — `sift perfmon` command, the D-20 full-sample-range path, criteria 2 and 5 (PERF-06)
 
 ---
 
