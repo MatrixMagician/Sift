@@ -1071,6 +1071,100 @@ def mcm(
         store.close()
 
 
+class PerfmonFormat(StrEnum):
+    """Report format for ``sift perfmon`` (an unknown value is a Typer usage
+    error, exit 2 — mirrors ``McmFormat``; ADR 0007). The CSV is always
+    written."""
+
+    md = "md"
+    json = "json"
+
+
+@app.command()
+def perfmon(
+    case: str,
+    fmt: Annotated[
+        PerfmonFormat,
+        typer.Option("--format", help="Report format: md (default) or json"),
+    ] = PerfmonFormat.md,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Write the perfmon correlation bundle for a case (PERF-06, D-17).
+
+    Correlates the stored DSSPerformanceMonitor samples with the MCM denial
+    episodes ``analyse_mcm`` detects (no LLM, no network — the figures are
+    computed from counter readings, never model-authored) and ALWAYS writes
+    ``<case>/perfmon/perfmon_report.md`` (or ``perfmon_report.json`` with
+    ``--format json``) AND ``<case>/perfmon/perfmon_trend.csv``, then prints a
+    short stdout summary. With no DSSErrors log, and therefore no episodes,
+    there is no window: the same figures are computed over each file's full
+    sample range and the report says so plainly (D-20). Exit-code contract
+    (ADR 0007): 0 = bundle written (including an empty case), 1 = missing case
+    / write failure, 2 = Typer usage (bad ``--format``).
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        from sift.pipeline.mcm import analyse_mcm
+        from sift.pipeline.perfmon import analyse_perfmon
+        from sift.render.perfmon_report import (
+            render_perfmon_json,
+            render_perfmon_markdown,
+            write_perfmon_trend_csv,
+        )
+
+        # T-13-PATH: the bundle dir is derived from the SAME resolved case path
+        # _case_store validated (case_db_path asserts containment) — only
+        # <case>/perfmon/ beneath it is ever created, never a user-supplied path.
+        perfmon_dir = case_db_path(config.data_dir, case).parent / "perfmon"
+        # ONCE (T-13-DOUBLEREAD): the call hydrates and zstd-decompresses every
+        # row in the case, so the same list feeds both analyses rather than
+        # doubling an already-accepted cost. config.mcm.thresholds is threaded
+        # in only because obtaining the episodes needs it — the perfmon hazards
+        # themselves take no config knob.
+        events = store.query_events()
+        analysis = analyse_perfmon(analyse_mcm(events, config.mcm.thresholds), events)
+        if fmt is PerfmonFormat.json:
+            report_name = "perfmon_report.json"
+            report_text = render_perfmon_json(analysis)
+        else:
+            report_name = "perfmon_report.md"
+            report_text = render_perfmon_markdown(analysis)
+        try:
+            perfmon_dir.mkdir(parents=True, exist_ok=True)
+            (perfmon_dir / report_name).write_text(report_text, encoding="utf-8")
+            write_perfmon_trend_csv(analysis, perfmon_dir / "perfmon_trend.csv")
+        except OSError as exc:
+            # T-13-ERRLEAK: exit 1 with a sanitised message; `from None`
+            # suppresses the traceback chain so no stack frame or internal path
+            # reaches the operator.
+            print(
+                f"Error: cannot write perfmon bundle to {perfmon_dir}: "
+                f"{_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+
+        n = len(analysis.groups)
+        plural = "span" if n == 1 else "spans"
+        print(
+            f"Correlated {n} {plural}; wrote {report_name} + "
+            f"perfmon_trend.csv to {perfmon_dir}"
+        )
+        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
+        for i, group in enumerate(analysis.groups, start=1):
+            hazards = sorted(group.hazards, key=lambda h: _sev_rank.get(h.severity, 3))
+            if hazards:
+                top = hazards[0]
+                # T-13-STDOUTESC: counter names originate in the customer's CSV
+                # header, so hazard text goes through _sanitise before echo.
+                print(f"  Span {i}: {top.severity} — {_sanitise(top.message)}")
+            else:
+                print(f"  Span {i}: no correlation hazards raised")
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring mcm.
+        store.close()
+
+
 @app.command("eval")
 def eval_(
     suite: Annotated[
