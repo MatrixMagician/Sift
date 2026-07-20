@@ -161,6 +161,44 @@ def test_no_episodes_untimestamped_file_yields_disclosure_group() -> None:
     assert "undated0000000001" in hazards[0].event_ids
 
 
+def test_no_episodes_mixed_file_group_discloses_unplaceable() -> None:
+    """A no-episodes file with BOTH placeable and untimestamped samples still
+    yields its normal full-range group, but that group ALSO carries the
+    ``unplaceable_samples`` hazard so the samples that fell outside the range are
+    counted and cited rather than silently absent from ``sample_count`` (WR-03).
+    """
+    events = _case_events(_build_perfmon_case())
+    undated = Event(
+        event_id="undated0000000002",
+        case_id="perfonly",
+        ts=None,
+        ts_confidence="missing",
+        source="dssperfmon",
+        source_file=SLICE,  # same file as the 20 placeable samples
+        line_start=99,
+        line_end=99,
+        severity="info",
+        component=None,
+        thread=None,
+        session=None,
+        message="untimestamped sample in an otherwise placeable file",
+        attrs={_WORKING_SET: "1.0"},
+        raw="untimestamped sample in an otherwise placeable file",
+    )
+    result = analyse_perfmon(_NO_EPISODES, [*events, undated])
+
+    assert len(result.groups) == 1
+    group = result.groups[0]
+    # The undated sample is NOT counted into the range — it is disclosed instead.
+    assert group.sample_count == 20
+    assert group.start_ts is not None
+    hazards = [h for h in group.hazards if h.dimension == HAZARD_UNPLACEABLE_SAMPLES]
+    assert len(hazards) == 1
+    assert hazards[0].severity == "info"
+    assert hazards[0].value == 1.0
+    assert "undated0000000002" in hazards[0].event_ids
+
+
 def test_no_episodes_no_denial_hazard() -> None:
     """With no detected denial there is nothing for a zero counter to
     contradict, so the always-zero denial hazard must not fire (D-14)."""
