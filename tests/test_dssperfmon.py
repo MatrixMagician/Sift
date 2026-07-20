@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from _perfmon_fixtures import write_collision_csv
+
 from sift.adapters.base import ParseStats
 from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.adapters.dssperfmon import (

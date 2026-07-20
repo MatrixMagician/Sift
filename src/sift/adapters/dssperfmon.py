@@ -62,6 +62,11 @@ _DRIFT_NOTE = (
     "line {line}: {seen} columns, expected {expected}; row degraded to "
     "severity='unknown' without realignment (D-16)."
 )
+_COLLISION_NOTE = (
+    "counter short name(s) {names} are claimed by more than one column; those "
+    "columns are keyed by their qualified paths ({keys}) so none is dropped "
+    "(WR-03). Non-colliding names are unchanged."
+)
 _CSV_ERROR_NOTE = (
     "line {line}: stdlib csv could not tokenise the row ({detail}); degraded to "
     "severity='unknown' with its bytes preserved verbatim (PERF-02)."
@@ -96,6 +101,48 @@ def _short_counter_name(path: str) -> str:
     ``\\\\host\\Object(Instance)\\Counter(unit)`` -> ``Counter(unit)``.
     """
     return path.rsplit("\\", 1)[-1]
+
+
+def _qualify_counter_names(counter_paths: list[str]) -> tuple[list[str], list[str]]:
+    r"""Resolve counter paths to attrs keys, keeping every colliding column.
+
+    ``dict(zip(names, cells))`` silently discards all but the last column
+    sharing a short name — two instances of one object (``Process(MSTRSvr)``
+    and ``Process(other)`` both reporting ``Size(MB)``) would leave the
+    correlator's figures quietly incomplete with no disclosure anywhere
+    (WR-03). Colliding columns are therefore qualified: the key becomes the
+    last TWO backslash segments of the path, e.g.
+    ``Process(MSTRSvr)\Size(MB)``, falling back to the full counter path only
+    if two segments still collide.
+
+    Qualification is applied ONLY to colliding names, precisely so that
+    non-colliding keys stay byte-identical and Phase 12's shipped golden
+    assertions remain valid. This ordering is load-bearing: plan 13-04's
+    counter lookup (``Total MCM Denial``) is written against this key format,
+    so the spelling is decided here, before that lookup exists.
+    """
+    shorts = [_short_counter_name(path) for path in counter_paths]
+    colliding = {name for name in shorts if shorts.count(name) > 1}
+    if not colliding:
+        return shorts, []
+    two_segment = ["\\".join(path.rsplit("\\", 2)[-2:]) for path in counter_paths]
+    keys = [
+        two_segment[i] if short in colliding else short
+        for i, short in enumerate(shorts)
+    ]
+    # Two segments may themselves collide (identical object+counter under
+    # different hosts); the full path is the last resort that cannot.
+    for i, key in enumerate(keys):
+        if shorts[i] in colliding and keys.count(key) > 1:
+            keys[i] = counter_paths[i]
+    return keys, [
+        _COLLISION_NOTE.format(
+            names=", ".join(sorted(colliding)),
+            keys=", ".join(
+                keys[i] for i, short in enumerate(shorts) if short in colliding
+            ),
+        )
+    ]
 
 
 def _fallback_event(
@@ -162,7 +209,7 @@ def _parse_header(columns: list[str]) -> tuple[str, str, str, list[str], list[st
     travelling in.
     """
     counters = columns[1:]
-    names = [_short_counter_name(c) for c in counters]
+    names, collision_notes = _qualify_counter_names(counters)
     host = ""
     for column in counters:
         segments = [s for s in column.split("\\") if s]
@@ -180,7 +227,7 @@ def _parse_header(columns: list[str]) -> tuple[str, str, str, list[str], list[st
         if tz_name and tz_offset_min
         else _NO_TZ_NOTE
     )
-    return host, tz_name, tz_offset_min, names, [note]
+    return host, tz_name, tz_offset_min, names, [note, *collision_notes]
 
 
 class DssperfmonAdapter(ConfigurableAdapter):
