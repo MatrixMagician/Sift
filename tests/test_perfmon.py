@@ -22,9 +22,19 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from sift.adapters.dssperfmon import DssperfmonAdapter
 from sift.config import load_config
 from sift.models import Event
+from sift.pipeline.perfmon import (
+    SLOPE_DP,
+    CounterTrend,
+    PerfmonAnalysis,
+    PerfmonHazard,
+    _numeric,  # pyright: ignore[reportPrivateUsage] — the finite-only gate D-11 turns on
+)
 from sift.store import CaseStore, case_db_path
 
 FIXTURES = Path(__file__).parent / "fixtures" / "dssperfmon"
@@ -110,3 +120,50 @@ def test_slice_carries_milestone_figures() -> None:
     # Zero denials inside this window: the denial itself lands 7.7 s later, in
     # the MCM log fixtures this CSV does not overlap (see the module docstring).
     assert last["Total MCM Denial"] == "0"
+
+
+# ------------------------------------------------- Task 1: models + _numeric ---
+
+
+def test_numeric_rejects_non_finite() -> None:
+    """``_numeric`` accepts only finite reals; everything else is ``None`` (D-11).
+
+    ``float("nan")``/``float("inf")`` both succeed, so the adapter's bare-``float``
+    ``_bad_cells`` probe lets such a cell reach the store on a clean row. This is
+    the gate that stops it reaching slope, peak and at-denial.
+    """
+    assert _numeric("266042") == 266042.0
+    for token in ("nan", "NAN", "inf", "-Infinity", "N/A", ""):
+        assert _numeric(token) is None, token
+
+
+def test_hazard_model_frozen_and_strict() -> None:
+    """``PerfmonHazard`` forbids unknown fields and rejects mutation (D-12/D-21)."""
+    with pytest.raises(ValidationError):
+        PerfmonHazard(
+            dimension="x",
+            severity="warn",
+            message="m",
+            event_ids=(),
+            extra_field=1,  # pyright: ignore[reportCallIssue] — extra="forbid" is the assertion
+        )
+    hazard = PerfmonHazard(dimension="x", severity="warn", message="m", event_ids=())
+    with pytest.raises(ValidationError):
+        hazard.severity = "critical"  # pyright: ignore[reportAttributeAccessIssue]
+    assert SLOPE_DP == 4
+
+
+def test_empty_analysis_constructs() -> None:
+    """The empty case is a value, never an error — and partial counters are too."""
+    assert PerfmonAnalysis(groups=(), hazards=()).groups == ()
+    partial = CounterTrend(
+        counter="Size(MB)",
+        at_denial=None,
+        at_denial_event_id=None,
+        slope_per_second=None,
+        peak=None,
+        peak_event_id=None,
+        sample_count=0,
+        excluded_samples=0,
+    )
+    assert partial.at_denial is None
