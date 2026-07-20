@@ -322,6 +322,30 @@ def test_csv_formula_guard_leaves_ordinary_names_unchanged(tmp_path: Path) -> No
     assert _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")] == name
 
 
+def test_csv_counterless_group_still_emits_a_row(tmp_path: Path) -> None:
+    """WR-01/D-06: a span with no counters is still present in the export.
+
+    A ``TrendGroup`` with ``counters=()`` is exactly what an unresolved span and
+    the CRITICAL zero-in-span non-overlap hazard produce. The writer used to
+    contribute nothing for such a span, so a consumer reading only the CSV saw
+    no evidence the episode was analysed. One figure-less row keeps it visible.
+    """
+    analysis = PerfmonAnalysis(
+        groups=(_group(key="denial00", counters=(), hazards=(_hazard(),)),)
+    )
+    path = tmp_path / "counterless.csv"
+    write_perfmon_trend_csv(analysis, path)
+
+    rows = _read_csv(path)
+    assert len(rows) == 2, rows  # header + one figure-less row
+    row = rows[1]
+    assert row[PERFMON_CSV_HEADER.index("group_key")] == "denial00"
+    assert row[PERFMON_CSV_HEADER.index("counter")] == ""
+    assert row[PERFMON_CSV_HEADER.index("at_denial")] == ""
+    assert row[PERFMON_CSV_HEADER.index("sample_count")] == "120"
+    assert row[PERFMON_CSV_HEADER.index("boundary_event_ids")] == "bnd11111;bnd22222"
+
+
 def test_csv_none_figures_are_empty_cells(tmp_path: Path) -> None:
     """An uncomputable figure is an empty cell, never the string ``None``."""
     path = tmp_path / "none.csv"
