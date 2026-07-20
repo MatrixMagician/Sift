@@ -72,6 +72,14 @@ _CSV_ERROR_NOTE = (
     "severity='unknown' with its bytes preserved verbatim (PERF-02)."
 )
 
+# Per-event drift evidence (WR-05). The file-level _DRIFT_NOTE is a disclosure
+# and is capped; this marker is the evidence, and it is what the counter-set
+# drift hazard in plan 13-04 cites, because an Event carries an event_id and a
+# note does not. Drift is detected once, here at ingest, and never re-detected
+# at correlation time — a second detector could disagree with this one (D-15).
+_DRIFT_ATTR = "counter_set_drift"
+_DRIFT_MARKER = "{seen} columns, expected {expected}"
+
 # Attrs keys this adapter owns. Counter names come from the customer's CSV
 # header, so they are attacker-influenceable (see module docstring); a counter
 # named "byte_offset" must not be able to overwrite the provenance event_id is
@@ -86,6 +94,7 @@ _RESERVED_ATTRS = frozenset(
         "tz_name",
         "tz_offset_min",
         "unparsed_columns",
+        _DRIFT_ATTR,
     }
 )
 _COUNTER_PREFIX = "counter."
@@ -337,6 +346,15 @@ class DssperfmonAdapter(ConfigurableAdapter):
                     "host": host,
                     "pdh_version": "4.0",
                 }
+                # D-16: column drift is disclosed, never realigned, padded or
+                # truncated. Recorded per event BEFORE the counter loop, so the
+                # reserved-key logic below protects the marker with no second,
+                # parallel guard (WR-05, T-13-ATTRKEY).
+                drifted = len(row) != header_width
+                if drifted:
+                    attrs[_DRIFT_ATTR] = _DRIFT_MARKER.format(
+                        seen=len(row), expected=header_width
+                    )
                 # Omitted rather than invented when the header declares neither.
                 if tz_name:
                     attrs["tz_name"] = tz_name
@@ -355,10 +373,6 @@ class DssperfmonAdapter(ConfigurableAdapter):
                     )
                     attrs[key] = counter_value
 
-                # D-16: column drift is disclosed, never realigned, padded or
-                # truncated. Surviving drift is this phase's job; diagnosing it
-                # is PERF-05's, in Phase 13.
-                drifted = len(row) != header_width
                 if drifted:
                     stats.notes.append(
                         _DRIFT_NOTE.format(
