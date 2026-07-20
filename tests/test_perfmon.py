@@ -22,7 +22,7 @@ from __future__ import annotations
 import csv
 import math
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -392,6 +392,53 @@ def test_golden_trend_figures() -> None:
         analysis.model_dump_json()
         == _correlate(samples, start, denial).model_dump_json()
     )
+
+
+def _perf_sample(event_id: str, ts: datetime, working_set: str) -> Event:
+    """A minimal timestamped dssperfmon sample carrying one counter."""
+    return Event(
+        event_id=event_id,
+        case_id="hartford",
+        ts=ts,
+        ts_confidence="exact",
+        source="dssperfmon",
+        source_file="perf.csv",
+        line_start=1,
+        line_end=1,
+        severity="info",
+        component=None,
+        thread=None,
+        session=None,
+        message="sample",
+        attrs={"Working Set(MB)": working_set},
+        raw="sample",
+    )
+
+
+def test_in_span_figures_independent_of_input_order() -> None:
+    """WR-02: at-denial/slope/peak must not depend on caller-supplied order.
+
+    ``analyse_perfmon`` takes a plain list a caller may have assembled in any
+    order. ``_in_span`` used to PRESERVE that order, so a scrambled list gave a
+    wrong at-denial reading (``accepted[-1]``) and a negative ``elapsed`` that
+    inverted the slope. Sorting inside ``_in_span`` makes the headline figures
+    depend on the timeline, not the argument order.
+    """
+    base = datetime(2026, 4, 7, 12, 0, 0, tzinfo=UTC)
+    early = _perf_sample("e" * 16, base, "100")
+    mid = _perf_sample("m" * 16, base + timedelta(seconds=30), "200")
+    late = _perf_sample("l" * 16, base + timedelta(seconds=60), "300")
+    start = log_boundary_event("s" * 16, early.ts)
+    end = log_boundary_event("d" * 16, late.ts)
+    # Chronological order is early < mid < late; feed it deliberately scrambled.
+    analysis = _correlate([mid, late, early], start, end)
+
+    trend = _trend(analysis, "Working Set(MB)")
+    assert trend.at_denial == 300.0  # chronologically last, never input-last
+    assert trend.at_denial_event_id == late.event_id
+    assert trend.peak == 300.0
+    assert trend.slope_per_second is not None
+    assert trend.slope_per_second > 0  # elapsed is positive, so slope is not inverted
 
 
 def test_single_sample_no_zero_division() -> None:
