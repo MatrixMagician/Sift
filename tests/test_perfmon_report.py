@@ -110,7 +110,10 @@ def test_markdown_renders_group_sections() -> None:
         assert t.peak_event_id is not None
         assert t.at_denial_event_id in out
         assert t.peak_event_id in out
-    assert "non_overlap" in out
+    # The dimension reaches the cell Markdown-escaped (``non\_overlap``) — proof
+    # it went through ``_field`` rather than being interpolated raw.
+    assert "does not overlap the denial window" in out
+    assert "haz11111" in out
 
 
 def test_markdown_none_figures_render_as_dash() -> None:
@@ -138,7 +141,7 @@ def test_markdown_empty_analysis_states_full_range() -> None:
     out = render_perfmon_markdown(PerfmonAnalysis(groups=(), hazards=()))
 
     assert "full sample range" in out
-    assert "no MCM denial episodes were detected" in out.lower()
+    assert "no mcm denial episodes were detected" in out.lower()
     assert "| --- |" not in out
 
 
