@@ -259,14 +259,14 @@ model can cite but cannot author — and a regression gate stops that from quiet
   case would be vacuous. An overlapping re-timed/synthetic pair + a self-verifying overlap guard are
   built first (Wave 1, plan 14-01) — within D-07's sanctioned discretion, not a reversal.
 
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 14-01-PLAN.md — Overlapping golden CSV+log fixture + self-verifying overlap guard (the PERF-07/08 blocker) (wave 1)
 - [x] 14-02-PLAN.md — D-08 folded WR-03: case-level unattributed-samples disclosure on the episodes-present branch (wave 1)
-- [ ] 14-03-PLAN.md — `render_perfmon_facts` + zero-digit `perfmon_facts.md` fragment + independent PERFMON sentinel in `triage.md` (D-03/D-04/D-05/D-06) (wave 1)
+- [x] 14-03-PLAN.md — `render_perfmon_facts` + zero-digit `perfmon_facts.md` fragment + independent PERFMON sentinel in `triage.md` (D-03/D-04/D-05/D-06) (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
