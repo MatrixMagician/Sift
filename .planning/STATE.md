@@ -5,8 +5,8 @@ milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministi
 current_phase: 13
 current_phase_name: Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
 status: planning
-stopped_at: Completed 12-04-PLAN.md
-last_updated: "2026-07-20T12:08:17.404Z"
+stopped_at: Phase 13 context gathered
+last_updated: "2026-07-20T12:24:17.240Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 12 complete, transitioned to Phase 13
 progress:
@@ -232,9 +232,9 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T11:45:28.810Z
-Stopped at: Completed 12-04-PLAN.md
-Resume file: None
+Last session: 2026-07-20T12:24:17.230Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-episode-correlation-hazard-flags-sift-perfmon-report-csv/13-CONTEXT.md
 
 ## Operator Next Steps
 
