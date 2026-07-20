@@ -63,6 +63,117 @@ def write(root: Path, relname: str, data: bytes) -> Path:
     return path
 
 
+# Synthetic two-counter PDH file: the real artefact has no malformed cells
+# (D-17), so every fallback case below is authored inline where the defect
+# under test is visible in the test body rather than hidden in a fixture.
+SYN_HEADER = (
+    b'"(PDH-CSV 4.0) (Eastern Standard Time)(300)",'
+    b'"\\\\host1\\MSTR Server\\Working set cache RAM usage(MB)",'
+    b'"\\\\host1\\MSTR Server\\Total MCM Denial"\n'
+)
+SYN_NO_ZONE = b'"(PDH-CSV 4.0)",' + SYN_HEADER.split(b",", 1)[1]
+GOOD_ROW = b'"04/07/2026 12:39:39.397","266042","1"\n'
+CACHE = "Working set cache RAM usage(MB)"
+
+
+def syn(root: Path, *rows: bytes, header: bytes = SYN_HEADER) -> tuple[Path, int]:
+    """Write a synthetic PDH file; return (path, header byte length)."""
+    return write(root, "syn.csv", header + b"".join(rows)), len(header)
+
+
+def run_syn(
+    root: Path, *rows: bytes, header: bytes = SYN_HEADER
+) -> tuple[list[Event], ParseStats, int]:
+    _, header_bytes = syn(root, *rows, header=header)
+    events, stats = run_parse(root, "syn.csv")
+    assert_span_partition(events, stats.total_bytes, start=header_bytes)
+    return events, stats, header_bytes
+
+
+# --------------------------------------------------- unknown-row fallbacks ---
+
+
+def test_blank_cell_unknown_fallback(tmp_path: Path) -> None:
+    """A blank counter cell degrades the row, it does not drop it (D-14)."""
+    row = b'"04/07/2026 12:39:39.397","","1"\n'
+    events, _, _ = run_syn(tmp_path, row)
+    assert len(events) == 1
+    assert events[0].severity == "unknown"
+    assert events[0].attrs["unparsed_columns"] == CACHE
+    assert events[0].raw == row.decode().rstrip("\n")
+    # A bad cell never costs the row its timestamp.
+    assert events[0].ts is not None
+
+
+def test_non_numeric_cell_unknown_fallback(tmp_path: Path) -> None:
+    """A non-numeric counter cell takes the same path as a blank one (D-14)."""
+    row = b'"04/07/2026 12:39:39.397","N/A","1"\n'
+    events, _, _ = run_syn(tmp_path, row)
+    assert len(events) == 1
+    assert events[0].severity == "unknown"
+    assert events[0].attrs["unparsed_columns"] == CACHE
+    # The float() attempt is a validity probe only: attrs keep the raw string.
+    assert events[0].attrs[CACHE] == "N/A"
+
+
+def test_bad_timestamp_survives(tmp_path: Path) -> None:
+    """An unparseable stamp yields ts None / 'missing', never an exception (D-15)."""
+    row = b'"not a timestamp","266042","1"\n'
+    events, _, _ = run_syn(tmp_path, row)
+    assert len(events) == 1
+    assert events[0].severity == "unknown"
+    assert events[0].ts is None
+    assert events[0].ts_confidence == "missing"
+    assert events[0].raw == row.decode().rstrip("\n")
+    # Columns that did parse still populate attrs.
+    assert events[0].attrs[CACHE] == "266042"
+
+
+def test_column_drift_unknown(tmp_path: Path) -> None:
+    """Column drift is disclosed, not realigned — and keeps a good ts (D-16)."""
+    row = b'"04/07/2026 12:39:39.397","266042"\n'
+    events, stats, _ = run_syn(tmp_path, row)
+    assert len(events) == 1
+    assert events[0].severity == "unknown"
+    # D-16 asks for the unknown severity, not for the loss of a recoverable ts:
+    # Phase 13 still needs somewhere to place this evidence on the timeline.
+    assert events[0].ts == datetime(2026, 4, 7, 12, 39, 39, 397000, tzinfo=UTC)
+    assert any("expected 3" in note and "2" in note for note in stats.notes)
+
+
+def test_embedded_newline_two_unknown_events(tmp_path: Path) -> None:
+    """A quoted embedded newline splits into two unknown rows, offsets intact.
+
+    Reassembly is deliberately NOT implemented: it would require buffering
+    across byte_lines and so compromise the byte-offset contract that
+    event_id depends on, for a case the PDH writer cannot actually emit.
+    """
+    row = b'"04/07/2026 12:39:39.397","2660\n42","1"\n'
+    events, _, _ = run_syn(tmp_path, row)
+    assert len(events) == 2
+    assert [e.severity for e in events] == ["unknown", "unknown"]
+
+
+def test_header_without_bias_still_parses(tmp_path: Path) -> None:
+    """A header declaring no zone/bias omits the attrs rather than inventing them."""
+    events, stats, _ = run_syn(tmp_path, GOOD_ROW, header=SYN_NO_ZONE)
+    assert len(events) == 1
+    assert events[0].severity == "info"
+    assert events[0].ts_confidence == "inferred"
+    assert "tz_name" not in events[0].attrs
+    assert "tz_offset_min" not in events[0].attrs
+    assert any("no timezone" in note for note in stats.notes)
+
+
+def test_parse_coverage(tmp_path: Path) -> None:
+    """Unknown-row bytes reach ParseStats, so coverage reflects the loss (PERF-02)."""
+    bad = b'"04/07/2026 12:39:40.397","","1"\n'
+    events, stats, _ = run_syn(tmp_path, GOOD_ROW, GOOD_ROW, bad)
+    assert len(events) == 3
+    assert stats.unknown_fallback_bytes == len(bad)
+    assert stats.coverage < 1.0
+
+
 # ------------------------------------------------------------------- sniff ---
 
 
