@@ -1321,3 +1321,69 @@ def test_phase5_show_sanitises_domain_adapter_escape_bytes(tmp_path: Path) -> No
     assert shown.exit_code == 0, shown.output
     assert "\x1b" not in shown.output
     assert "RED ALERT" in shown.output
+
+
+# --- plan 12-03: dssperfmon end-to-end ingest (PERF-01, criterion 1) ------
+# The CSV routes by sniff alone — no --adapter override is passed anywhere
+# below, so these also prove registration wired detection end to end.
+
+# 21 lines in the fixture: 1 PDH header (metadata, never an Event per D-01)
+# plus 20 sample rows, one Event each. Perfmon samples are never downsampled
+# or capped — a series is only useful whole.
+_PERFMON_CSV = "hartford_deny_slice.csv"
+_PERFMON_ROWS = 20
+
+
+def _read_event_ids(case: str) -> set[str]:
+    store = CaseStore(case_db_path(load_config().data_dir, case))
+    try:
+        return {e.event_id for e in store.query_events()}
+    finally:
+        store.close()
+
+
+def test_ingest_perfmon_full_coverage(tmp_path: Path) -> None:
+    """One Event per sample row, at 100% parse coverage.
+
+    The fixture has no malformed cells, so nothing degrades to the
+    severity='unknown' fallback and coverage is a real — not fabricated —
+    1.0 (the 05-01 non-vacuous-coverage contract).
+    """
+    input_dir = _copy_fixture(tmp_path, "dssperfmon")
+    assert runner.invoke(app, ["new", "perf", "--input", str(input_dir)]).exit_code == 0
+
+    result = runner.invoke(app, ["ingest", "perf"])
+    assert result.exit_code == 0, result.output
+
+    entry = _read_coverage_meta("perf")[_PERFMON_CSV]
+    assert entry["event_count"] == _PERFMON_ROWS, (
+        f"expected one Event per sample row, got {entry['event_count']}"
+    )
+    assert entry["coverage"] == 1.0, (
+        f"fixture has no malformed cells; expected full coverage, got "
+        f"{entry['coverage']}"
+    )
+    assert len(_read_event_ids("perf")) == _PERFMON_ROWS
+
+
+def test_ingest_perfmon_idempotent(tmp_path: Path) -> None:
+    """Re-ingest adds zero events AND regenerates no ids (INGST-02).
+
+    Asserting the event_id SET rather than the count is deliberate: a
+    count-only check still passes if ids were regenerated on the second run.
+    Stable ids under re-ingest are the actual determinism contract, since
+    event_id = sha256(source_file, byte_offset)[:16].
+    """
+    input_dir = _copy_fixture(tmp_path, "dssperfmon")
+    assert runner.invoke(app, ["new", "perf", "--input", str(input_dir)]).exit_code == 0
+
+    first = runner.invoke(app, ["ingest", "perf"])
+    assert first.exit_code == 0, first.output
+    first_ids = _read_event_ids("perf")
+    assert len(first_ids) == _PERFMON_ROWS
+
+    second = runner.invoke(app, ["ingest", "perf"])
+    assert second.exit_code == 0, second.output
+    assert "0 new" in second.output
+
+    assert _read_event_ids("perf") == first_ids, "event ids changed on re-ingest"
