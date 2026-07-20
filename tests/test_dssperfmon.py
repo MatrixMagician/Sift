@@ -19,8 +19,8 @@ from sift.adapters.dssperfmon import (
     _DRIFT_ATTR,  # pyright: ignore[reportPrivateUsage] — the per-event drift evidence key under test
     _NOTE_CAP,  # pyright: ignore[reportPrivateUsage] — the bound the cap tests are written against
     _RESERVED_ATTRS,  # pyright: ignore[reportPrivateUsage] — the key set the collision/shadowing guards assert against
-    _qualify_counter_names,  # pyright: ignore[reportPrivateUsage] — the collision-resolution under test (CR-01)
     DssperfmonAdapter,
+    _qualify_counter_names,  # pyright: ignore[reportPrivateUsage] — the collision-resolution under test (CR-01)
 )
 from sift.models import Event, event_id
 

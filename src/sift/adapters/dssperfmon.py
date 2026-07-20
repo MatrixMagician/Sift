@@ -151,10 +151,20 @@ def _qualify_counter_names(counter_paths: list[str]) -> tuple[list[str], list[st
         for i, short in enumerate(shorts)
     ]
     # Two segments may themselves collide (identical object+counter under
-    # different hosts); the full path is the last resort that cannot.
-    for i, key in enumerate(keys):
-        if shorts[i] in colliding and keys.count(key) > 1:
-            keys[i] = counter_paths[i]
+    # different hosts); promote EVERY member of a still-ambiguous group to its
+    # full path, not just the ones a mutating ``count()`` happens to catch — the
+    # old positional pass rewrote siblings while testing against the list it was
+    # editing, so ``[p, p, p]`` collapsed to two keys (CR-01, IN-04).
+    ambiguous = {k for k in keys if keys.count(k) > 1}
+    keys = [counter_paths[i] if k in ambiguous else k for i, k in enumerate(keys)]
+    # Exact-duplicate header columns share even their full path and no spelling
+    # can tell them apart; index them so the column survives with a disclosed
+    # ``#n`` suffix rather than vanishing under ``dict(zip(...))`` (CR-01).
+    seen: dict[str, int] = {}
+    for i, k in enumerate(keys):
+        seen[k] = seen.get(k, 0) + 1
+        if seen[k] > 1:
+            keys[i] = f"{k}#{seen[k]}"
     return keys, [
         _COLLISION_NOTE.format(
             names=", ".join(sorted(colliding)),
