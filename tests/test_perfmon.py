@@ -20,7 +20,7 @@ natural integration test for the D-06 no-samples-in-window hazard.
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -39,6 +39,7 @@ from sift.pipeline.mcm import (
     MemoryBreakdown,
 )
 from sift.pipeline.perfmon import (
+    HAZARD_NON_OVERLAP,
     SLOPE_DP,
     CounterTrend,
     PerfmonAnalysis,
@@ -417,3 +418,71 @@ def test_peak_tie_takes_earliest_sample() -> None:
     trend = _trend(analysis, "Total MCM Denial")
     assert trend.peak == 0.0
     assert trend.peak_event_id == samples[0].event_id
+
+
+# ------------------------------------------- Task 1 (13-04): non-overlap ---
+
+
+def _non_overlap(analysis: PerfmonAnalysis) -> list[PerfmonHazard]:
+    """Every non-overlap hazard anywhere in the analysis."""
+    return [
+        hazard
+        for group in analysis.groups
+        for hazard in group.hazards
+        if hazard.dimension == HAZARD_NON_OVERLAP
+    ]
+
+
+def test_non_overlap_hazard() -> None:
+    """A span containing zero samples is a CRITICAL flag, never an empty table.
+
+    D-06: zero-in-span IS the wrong-timezone / wrong-host / wrong-day symptom,
+    so it is the loud hazard rather than a silently empty trend table. The two
+    shipped fixtures genuinely do not overlap (see the module docstring); the
+    span here is pushed a decade out to make the mismatch unambiguous.
+    """
+    samples = ingest_perfmon_slice()
+    assert samples[-1].ts is not None
+    far = samples[-1].ts + timedelta(days=3650)
+    start = log_boundary_event("s" * 16, far)
+    denial = log_boundary_event("d" * 16, far + timedelta(hours=1))
+    analysis = _correlate(samples, start, denial)
+
+    group = analysis.groups[0]
+    assert group.counters == ()
+    assert len(group.hazards) == 1
+    hazard = group.hazards[0]
+    assert hazard.severity == "critical"
+    assert hazard.dimension == HAZARD_NON_OVERLAP
+    # Both ranges named side by side, so the reader can diagnose WHICH mismatch
+    # it is — a message reading only "no overlap" is not actionable.
+    assert samples[0].ts is not None
+    for moment in (start.ts, denial.ts, samples[0].ts, samples[-1].ts):
+        assert moment is not None
+        assert moment.isoformat() in hazard.message
+    # Time non-overlap only: a wrong host whose clock overlaps will not trip it.
+    assert "host" in hazard.message
+    # The two span boundaries plus the first and last perfmon sample.
+    assert len(hazard.event_ids) >= 4
+
+    # An OVERLAPPING span raises no hazard of this dimension at all.
+    ok_start = log_boundary_event("s" * 16, samples[0].ts)
+    ok_denial = log_boundary_event("d" * 16, samples[-1].ts)
+    assert _non_overlap(_correlate(samples, ok_start, ok_denial)) == []
+
+
+def test_non_overlap_hazard_with_no_perfmon_events() -> None:
+    """Zero perfmon events in the case: no ``samples[0]``, so no ``IndexError``.
+
+    The message must name the ABSENCE of samples rather than an empty range —
+    indexing a bare list to build the message is the failure this guards.
+    """
+    start = log_boundary_event("s" * 16, datetime.fromisoformat("2026-04-07T12:00:00"))
+    denial = log_boundary_event("d" * 16, datetime.fromisoformat("2026-04-07T13:00:00"))
+    analysis = _correlate([], start, denial)
+
+    hazards = _non_overlap(analysis)
+    assert len(hazards) == 1
+    assert hazards[0].severity == "critical"
+    assert "no perfmon samples" in hazards[0].message
+    assert hazards[0].event_ids == (start.event_id, denial.event_id)
