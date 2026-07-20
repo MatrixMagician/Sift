@@ -4,3 +4,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 dist/
+
+# Local working documents — deliberately not published.
+# Root-anchored: .claude/CLAUDE.md is tracked and must stay so.
+/CLAUDE.md
+/SPEC.md
