@@ -2,38 +2,36 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
-current_phase: 14
-current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
-status: complete
-stopped_at: Phase 14 complete (5/5 plans, VERIFICATION 11/11) — v1.2 milestone complete (3/3 phases). Run security/code-review gates, then /gsd-complete-milestone
-last_updated: "2026-07-20T19:21:44.457Z"
+status: Awaiting next milestone
+stopped_at: Completed 14-05-PLAN.md
+last_updated: "2026-07-20T21:13:52.529Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 14 complete; v1.2 milestone complete (all 3 phases)
+last_activity_desc: Milestone v1.2 completed and archived
 progress:
   total_phases: 3
   completed_phases: 3
   total_plans: 15
   completed_plans: 15
   percent: 100
+current_phase: 14
+current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-07-19)
+See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 14 — perfmon-facts-into-sift-analyze-golden-eval-case
+**Current focus:** Planning next milestone (`/gsd-new-milestone`) — v1.2 shipped 2026-07-20
 
 ## Current Position
 
-Phase: 13 — Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-20 — Phase 14 complete, transitioned to Phase 13
-
-Progress: [██████████] 100% (1/3 v1.2 phases)
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-20 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -254,8 +252,17 @@ Items acknowledged and carried forward:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Analysis | PERF-01: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation (SEED-001) | Resumed — now v1.2, Phases 12–14 | v1.1 roadmap (2026-07-19) |
+| Analysis | PERF-01: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation (SEED-001) | Delivered — v1.2, Phases 12–14 | v1.1 roadmap (2026-07-19) |
 | Correlation | PERFV2-01 recovery trend / PERFV2-02 multi-host / PERFV2-03 perfmon-only anomalies | Deferred beyond v1.2 | v1.2 roadmap (2026-07-20) |
+
+Acknowledged and deferred at v1.2 milestone close (2026-07-20) — non-blocking tech debt from the
+passed audit:
+
+| Category | Item | Status |
+|----------|------|--------|
+| code-review | dssperfmon: three deferred review warnings WR-02/WR-03/WR-05 (2026-07-20-dssperfmon-review-warnings) | non-blocking; WR-03 core fix folded into 14-02 |
+| correctness | perfmon: unplaceable samples on the episodes-present branch (2026-07-20-perfmon-unplaceable-samples-episode-scope) | non-blocking; addressed via synthetic hazard TrendGroup in 14-02 |
+| code-review | Phase-11 code-review INFO follow-ups (2026-07-20-phase11-code-review-info) | cosmetic; IN-01/IN-03 low priority |
 
 ## Session Continuity
 
@@ -265,4 +272,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first v1.2 phase with /gsd-plan-phase 12
+- Start the next milestone with /gsd-new-milestone

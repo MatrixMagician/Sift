@@ -3,7 +3,11 @@ seed_id: SEED-001
 idea: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation
 planted_during: v1.1 (MCM Memory-Pressure Analysis)
 trigger_when: A milestone extends DSSErrors/MCM analysis, adds time-series correlation, or adds a new CSV/perfmon input type
+status: delivered
+delivered_in: v1.2 (Phases 12–14, PERF-01..08, shipped 2026-07-20)
 ---
+
+> **Delivered in v1.2** (2026-07-20) as Phases 12–14. Kept for provenance; no longer an open seed.
 
 # SEED-001: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation
 
