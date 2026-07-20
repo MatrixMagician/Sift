@@ -1,3 +1,13 @@
+---
+created: 2026-07-20
+title: Phase 11 code-review INFO follow-ups (non-blocking)
+area: pipeline
+resolves_phase: 14
+files:
+  - src/sift/pipeline/mcm_facts.py
+  - src/sift/pipeline/hypothesise.py
+---
+
 # Phase 11 code-review INFO follow-ups (non-blocking)
 
 **Filed:** 2026-07-20
