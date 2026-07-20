@@ -8,10 +8,11 @@ and last 10 samples); the real file contains no blank or non-numeric cells, so
 malformed cases are authored inline via ``write`` rather than checked in (D-17).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sift.adapters.base import ParseStats
+from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.adapters.dssperfmon import DssperfmonAdapter
 from sift.models import Event, event_id
 
@@ -172,6 +173,52 @@ def test_parse_coverage(tmp_path: Path) -> None:
     assert len(events) == 3
     assert stats.unknown_fallback_bytes == len(bad)
     assert stats.coverage < 1.0
+
+
+# ------------------------------------------------ paired-artefact alignment ---
+
+MCM_FIXTURES = Path(__file__).parent / "fixtures" / "mcm"
+MCM_LOG = "hartford_deny_slice.log"
+DENIAL_MARKER = "Contract Request Failed"
+
+
+def test_csv_aligns_with_paired_log() -> None:
+    """ADR 0012: a perfmon CSV and its paired DSSErrors log share one timeline.
+
+    See docs/decisions/0012-perfmon-naive-timestamps.md. The two fixtures are a
+    matched pair from the same incident: the CSV's final sample is taken seconds
+    before the log's MCM denial. Applying the header's declared 300-minute bias
+    would land the CSV roughly five hours *after* the denial.
+
+    A failure here means a timestamp shift has been reintroduced on one side of
+    the pair. That defect is invisible to every single-adapter test — they would
+    all still pass — and would make Phase 13's episode correlation silently
+    return nothing. This is the only test in the phase that reads both artefacts
+    together, so it is the only one that can catch it.
+
+    Both adapters run with no tz override, so this exercises the default ingest
+    path rather than a configured one.
+    """
+    csv_events, _ = run_parse(FIXTURES, SLICE)
+
+    log_adapter = DsserrorsAdapter()
+    log_adapter.input_root = MCM_FIXTURES
+    log_events = list(log_adapter.parse(MCM_FIXTURES / MCM_LOG, "case1"))
+
+    csv_last = max(e.ts for e in csv_events if e.ts is not None)
+    # Matched on the denial marker text, not an index, so a re-sliced fixture
+    # fails loudly rather than drifting onto the wrong record.
+    denials = [
+        e.ts for e in log_events if e.ts is not None and DENIAL_MARKER in e.raw
+    ]
+    assert denials, f"no {DENIAL_MARKER!r} record in {MCM_LOG}"
+
+    lead_in = min(denials) - csv_last
+    assert timedelta(0) < lead_in < timedelta(seconds=10), (
+        f"CSV/log alignment broke: final sample {csv_last} vs denial "
+        f"{min(denials)} (lead-in {lead_in}). A bias shift has been "
+        f"reintroduced — see docs/decisions/0012-perfmon-naive-timestamps.md."
+    )
 
 
 # ------------------------------------------------------------------- sniff ---
