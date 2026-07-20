@@ -54,19 +54,22 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PERF-01 | TBD | Pending |
-| PERF-02 | TBD | Pending |
-| PERF-03 | TBD | Pending |
-| PERF-04 | TBD | Pending |
-| PERF-05 | TBD | Pending |
-| PERF-06 | TBD | Pending |
-| PERF-07 | TBD | Pending |
-| PERF-08 | TBD | Pending |
+| PERF-01 | Phase 12 | Pending |
+| PERF-02 | Phase 12 | Pending |
+| PERF-03 | Phase 12 | Pending |
+| PERF-04 | Phase 13 | Pending |
+| PERF-05 | Phase 13 | Pending |
+| PERF-06 | Phase 13 | Pending |
+| PERF-07 | Phase 14 | Pending |
+| PERF-08 | Phase 14 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 8 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 8 ⚠️
+- Mapped to phases: 8 ✓
+- Unmapped: 0 ✓
+
+Phase numbering continues from v1.1 (which ended at Phase 11). Every requirement maps to exactly
+one phase; no requirement appears in two phases.
 
 ## Reference Data
 
@@ -89,4 +92,4 @@ Which phases cover which requirements. Populated during roadmap creation.
 
 ---
 *Requirements defined: 2026-07-20*
-*Last updated: 2026-07-20 after initial definition*
+*Last updated: 2026-07-20 — traceability populated by roadmap creation (Phases 12–14)*

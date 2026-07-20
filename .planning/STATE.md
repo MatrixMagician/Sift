@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: DSSPerformanceMonitor Correlation
-status: planning
-last_updated: "2026-07-20T09:08:07.427Z"
+status: ready
+last_updated: "2026-07-20T09:40:00.000Z"
 last_activity: 2026-07-20
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +20,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-19)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 11 — mcm-facts-into-sift-analyze-golden-eval-case
+**Current focus:** Phase 12 — `dssperfmon` adapter & pipeline exclusion (PERF-01, PERF-02, PERF-03)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 12 of 14 — `dssperfmon` Adapter & Pipeline Exclusion (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-20 — Milestone v1.2 started
+Status: Roadmap complete, ready to plan Phase 12
+Last activity: 2026-07-20 — v1.2 roadmap created (Phases 12–14, PERF-01..08 fully mapped)
+
+Progress: [░░░░░░░░░░░░░░░░░░░░] 0% (0/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -116,6 +118,11 @@ Last activity: 2026-07-20 — Milestone v1.2 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Roadmap v1.2]: v1.2 is 3 phases (12→13→14), numbering continued from Phase 11; PERF-01..08 mapped one requirement to exactly one phase (12: PERF-01/02/03, 13: PERF-04/05/06, 14: PERF-07/08)
+- [Roadmap v1.2]: v1.2 deliberately mirrors v1.1's shape one layer out — adapter → deterministic analyser/correlator → report → LLM facts → eval; the deterministic-core-vs-LLM boundary is preserved (figures COMPUTED, never model-authored)
+- [Roadmap v1.2]: PERF-04 REUSES the auto-selected lead-up window MCM-04 already computes (v1.1, Phase 10) — a dependency on existing code, not new window logic
+- [Roadmap v1.2]: `Total MCM Denial` reads 0 across all 13,596 Hartford deny samples despite confirmed denials → it is a REPORTED FLAG (PERF-05), never a correlation input; correlation keys off the memory counters
+- [Roadmap v1.2]: Recovery-trend analysis is explicitly out of scope (PERFV2-01) — the Hartford CSV ends 6 s before the denial banner, so no post-recovery evidence exists
 - [Roadmap v1.1]: v1.1 (MCM Memory-Pressure Analysis) is 3 phases (9→10→11), numbering continued from Phase 8; MCM-01..07 mapped one requirement to exactly one phase (9: MCM-01/02, 10: MCM-03/04/05, 11: MCM-06/07)
 - [Roadmap v1.1]: Phase split follows the deterministic-core-vs-LLM boundary — Phases 9–10 are the pure numeric analyser (`sift mcm`), Phase 11 is the additive LLM-facts integration; the numeric figures are computed, never authored by the model (citation-integrity invariant, load-bearing)
 - [Roadmap v1.1]: v1.1 integrates/extends the reference script `analyze_dss8.py`; the quantitative logic is a NEW pipeline/analyser stage over the existing dsserrors adapter (Phase 5), which may gain a few structured attrs but is not otherwise rewritten
@@ -188,6 +195,10 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
+- [Phase 12]: PERF-03 (exclude perfmon events from dedup/embed/cluster/salience by source kind) touches EXISTING shipped pipeline stages — `pipeline/dedup.py`, `pipeline/cluster.py`, `pipeline/salience.py` — not just the new adapter module. Cross-cutting regression risk to v1.0/v1.1 cluster output; keep the exclusion predicate in ONE place rather than re-implementing per stage. Guard: cluster output byte-identical with and without a perfmon CSV ingested.
+- [Phase 13]: `sift perfmon` must work on a case with a perfmon CSV and NO DSSErrors log at all (PERF-06) — the episode-annotation path must degrade to a plain trend report, not an empty-episode traceback.
+- [Phase 14]: Phase 11 capped the MCM fact block at 8 episodes to bound prompt growth; perfmon facts need an equivalent bound given 13,596 samples per reference file.
+
 - [Phase 9]: The real Hartford log carries the denial-time breakdown in TWO shapes — the text `Label(UNIT): value` block the reference script parses AND a newer single-line JSON blob (`currentMemoryInfo`/`memoryBreakdown`). MCM-02 parsing must handle whichever the case log emits; decide during plan-phase 9 (parser research flag)
 - [Phase 9]: The existing dsserrors adapter extracts `SID=`/bare-GUID, but the real log uses bracket `[SID:...]`/`[OID:...]`/`[Source=...]`/`Size=` tokens — the MCM analyser reads these from event raw text (or the adapter is enriched to expose them); confirm the token contract before regexes freeze
 - [Phase 4]: Verify Pydantic `model_json_schema()` `$defs`/`$ref` output against the target llama.cpp build's schema-constrained decoding; flatten schemas if needed (research flag)
@@ -200,7 +211,8 @@ Items acknowledged and carried forward:
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| Analysis | PERF-01: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation (SEED-001) | Deferred to v2 | v1.1 roadmap (2026-07-19) |
+| Analysis | PERF-01: DSSPerformanceMonitor PDH-CSV adapter + MCM-episode correlation (SEED-001) | Resumed — now v1.2, Phases 12–14 | v1.1 roadmap (2026-07-19) |
+| Correlation | PERFV2-01 recovery trend / PERFV2-02 multi-host / PERFV2-03 perfmon-only anomalies | Deferred beyond v1.2 | v1.2 roadmap (2026-07-20) |
 
 ## Session Continuity
 
@@ -210,4 +222,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.2 phase with /gsd-plan-phase 12
