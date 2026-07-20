@@ -1387,3 +1387,58 @@ def test_ingest_perfmon_idempotent(tmp_path: Path) -> None:
     assert "0 new" in second.output
 
     assert _read_event_ids("perf") == first_ids, "event ids changed on re-ingest"
+
+
+# --- plan 12-04: PERF-03 exclusion, the phase's primary regression gate ---
+
+_MCM_LOG = _FIXTURES / "mcm" / "hartford_deny_slice.log"
+_PERFMON_FIXTURE_CSV = _FIXTURES / "dssperfmon" / _PERFMON_CSV
+
+
+def _ingest_case(tmp_path: Path, case: str, *, with_csv: bool) -> None:
+    """Create and ingest a case from the shared log, optionally plus the CSV.
+
+    No `analyze` step, so no embedding or LLM call occurs — `show clusters`
+    falls back to the template-group path, which is both the cheaper and the
+    stronger assertion (exemplars derive from template groups).
+    """
+    input_dir = tmp_path / case
+    input_dir.mkdir()
+    shutil.copy(_MCM_LOG, input_dir / _MCM_LOG.name)
+    if with_csv:
+        shutil.copy(_PERFMON_FIXTURE_CSV, input_dir / _PERFMON_CSV)
+    assert runner.invoke(app, ["new", case, "--input", str(input_dir)]).exit_code == 0
+    result = runner.invoke(app, ["ingest", case])
+    assert result.exit_code == 0, result.output
+
+
+def test_cluster_output_identical_with_and_without_perfmon(tmp_path: Path) -> None:
+    """Criterion 4: adding a perfmon CSV perturbs no cluster output at all.
+
+    Compares the DERIVED cluster output, never the two case.db files — case B
+    legitimately holds the perfmon events; the phase promises identity of
+    ranking, not of stored state.
+    """
+    _ingest_case(tmp_path, "logonly", with_csv=False)
+    _ingest_case(tmp_path, "logplus", with_csv=True)
+
+    a = runner.invoke(app, ["show", "logonly", "clusters"])
+    b = runner.invoke(app, ["show", "logplus", "clusters"])
+    assert a.exit_code == 0, a.output
+    assert b.exit_code == 0, b.output
+    assert a.output == b.output, "perfmon CSV perturbed cluster output"
+
+    # Non-vacuity: without this the equality could pass for the wrong reason
+    # — e.g. if the CSV silently failed to ingest at all.
+    n_a = len(_read_event_ids("logonly"))
+    n_b = len(_read_event_ids("logplus"))
+    assert n_b > n_a, f"CSV was not ingested: {n_a} vs {n_b} events"
+    assert n_b - n_a == _PERFMON_ROWS
+
+
+def test_show_events_includes_perfmon(tmp_path: Path) -> None:
+    """Criterion 5 at CLI level: exclusion never reached the citation path."""
+    _ingest_case(tmp_path, "logplus", with_csv=True)
+    shown = runner.invoke(app, ["show", "logplus", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert _PERFMON_CSV in shown.output, "perfmon rows vanished from show events"
