@@ -114,7 +114,13 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
   REQUIREMENTS.md § Out of Scope.
 - Reference artefacts and the 23-counter set: REQUIREMENTS.md § Reference Data.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 12-01-PLAN.md — Fixture slice + `DssperfmonAdapter` sniff, byte-offset parse loop, ADR-0012 timestamp path (wave 1)
+- [ ] 12-02-PLAN.md — Unknown-fallback branches, parse coverage, CSV/log alignment guard (wave 2)
+- [ ] 12-03-PLAN.md — Registry line, detection regression suite, CLI ingest + idempotence (wave 2)
+- [ ] 12-04-PLAN.md — `EXCLUDED_FROM_RANKING` store seam, criterion-4 byte-identity gate, citation guards (wave 3)
 
 ---
 
