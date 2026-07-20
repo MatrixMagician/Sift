@@ -19,6 +19,7 @@ natural integration test for the D-06 no-samples-in-window hazard.
 
 from __future__ import annotations
 
+import csv
 import math
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -39,11 +40,14 @@ from sift.pipeline.mcm import (
     MemoryBreakdown,
 )
 from sift.pipeline.perfmon import (
+    HAZARD_DENIAL_ALWAYS_ZERO,
     HAZARD_NON_OVERLAP,
+    MCM_DENIAL_COUNTER,
     SLOPE_DP,
     CounterTrend,
     PerfmonAnalysis,
     PerfmonHazard,
+    _find_counter_key,  # pyright: ignore[reportPrivateUsage] — the qualification-proof lookup T-13-EVADE turns on
     _numeric,  # pyright: ignore[reportPrivateUsage] — the finite-only gate D-11 turns on
     analyse_perfmon,
 )
@@ -379,7 +383,10 @@ def test_single_sample_no_zero_division() -> None:
     assert trend.slope_per_second is None
     assert trend.at_denial is not None
     assert trend.peak == trend.at_denial
-    assert group.hazards == ()
+    # A narrow window is not a correlation failure: no span or non-overlap
+    # hazard. The always-zero denial flag DOES fire here — the Hartford cut's
+    # Total MCM Denial reads 0 on every sample — and is asserted separately.
+    assert [h for h in group.hazards if h.dimension != HAZARD_DENIAL_ALWAYS_ZERO] == []
 
 
 def test_non_finite_excluded(tmp_path: Path) -> None:
@@ -486,3 +493,125 @@ def test_non_overlap_hazard_with_no_perfmon_events() -> None:
     assert hazards[0].severity == "critical"
     assert "no perfmon samples" in hazards[0].message
     assert hazards[0].event_ids == (start.event_id, denial.event_id)
+
+
+# ----------------------------- Task 2 (13-04): always-zero Total MCM Denial ---
+
+
+def _of_dimension(analysis: PerfmonAnalysis, dimension: str) -> list[PerfmonHazard]:
+    """Every hazard of one dimension anywhere in the analysis."""
+    return [
+        hazard
+        for group in analysis.groups
+        for hazard in group.hazards
+        if hazard.dimension == dimension
+    ]
+
+
+def _write_denial_csv(tmp_path: Path, readings: list[str], name: str) -> Path:
+    """A minimal PDH-CSV whose ``Total MCM Denial`` column takes ``readings``.
+
+    Hand-written rather than added to ``_perfmon_fixtures``: the numeric-vs-string
+    zero test needs cells (``0.0``, ``0.0000001``) that no other test wants, and
+    a shared builder parameterised for one caller is not a shared builder.
+    """
+    stamps = [
+        "04/07/2026 12:39:09.397",
+        "04/07/2026 12:39:39.397",
+        "04/07/2026 12:40:09.397",
+    ]
+    host = "env-325602laio1use1"
+    header = [
+        "(PDH-CSV 4.0) (Eastern Standard Time)(300)",
+        f"\\\\{host}\\MicroStrategy Server Jobs(CastorServer)\\{MCM_DENIAL_COUNTER}",
+        f"\\\\{host}\\System\\RAM used(MB)",
+    ]
+    rows = [
+        [stamps[i], reading, str(463900 + i)] for i, reading in enumerate(readings)
+    ]
+    path = tmp_path / name
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, quoting=csv.QUOTE_ALL, lineterminator="\n")
+        writer.writerow(header)
+        writer.writerows(rows)
+    return path
+
+
+def test_mcm_denial_always_zero() -> None:
+    """A real denial contradicted by a flat-zero counter is a WARN flag (D-14).
+
+    The Hartford cut reads ``0`` on all 20 samples, matching the real file's
+    single distinct value across all 13,596 rows — the counter is not wired.
+    """
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    analysis = _correlate(samples, start, denial)
+
+    hazards = _of_dimension(analysis, HAZARD_DENIAL_ALWAYS_ZERO)
+    assert len(hazards) == 1
+    assert hazards[0].severity == "warn"
+    assert hazards[0].value == 0.0
+    assert hazards[0].event_ids
+    # The denial itself is cited: the flag exists because it CONTRADICTS one.
+    assert denial.event_id in hazards[0].event_ids
+    assert MCM_DENIAL_COUNTER in hazards[0].message
+
+
+def test_no_episodes_no_zero_hazard() -> None:
+    """No episodes means no denial to contradict, so no hazard at all (D-14).
+
+    A zero counter with nothing to contradict is just a zero counter; firing on
+    every healthy case trains the reader to ignore the flag that matters.
+    """
+    samples = ingest_perfmon_slice()
+    analysis = analyse_perfmon(McmAnalysis(episodes=()), samples)
+
+    all_hazards = [h for group in analysis.groups for h in group.hazards]
+    assert [
+        h for h in all_hazards if h.dimension == HAZARD_DENIAL_ALWAYS_ZERO
+    ] == []
+    # The counter still reads zero throughout — absence of the flag is the point.
+    assert all(s.attrs[MCM_DENIAL_COUNTER] == "0" for s in samples)
+
+
+def test_mcm_denial_zero_test_is_numeric_not_string(tmp_path: Path) -> None:
+    """``"0.0"`` counts as zero; ``"0.0000001"`` does not (no ``v == "0"``).
+
+    A string shortcut gets both wrong in different directions: ``"0.0" == "0"``
+    is False so the real flag would be missed, and a prefix test would fire on
+    ``"0.0000001"`` where the counter is demonstrably live.
+    """
+    for readings, expected in ((["0.0", "0.0", "0.0"], 1), (["0.0", "0.0000001", "0.0"], 0)):
+        name = f"denial_{len(readings)}_{expected}.csv"
+        events = ingest_perfmon_slice(
+            case=f"denialzero{expected}",
+            csv_path=_write_denial_csv(tmp_path, readings, name),
+        )
+        start = log_boundary_event("s" * 16, events[0].ts)
+        denial = log_boundary_event("d" * 16, events[-1].ts)
+        analysis = _correlate(events, start, denial)
+        hazards = _of_dimension(analysis, HAZARD_DENIAL_ALWAYS_ZERO)
+        assert len(hazards) == expected, readings
+
+
+def test_find_counter_key_survives_qualification() -> None:
+    """The lookup resolves the bare name AND every collision-qualified key.
+
+    Plan 13-03 rewrites only COLLIDING short names to their last two backslash
+    segments, so both spellings are live in shipped data. Returning every match
+    is what stops a crafted duplicate counter masking a genuinely non-zero
+    instance behind a zero one (T-13-EVADE).
+    """
+    assert _find_counter_key({MCM_DENIAL_COUNTER: "0"}) == (MCM_DENIAL_COUNTER,)
+    qualified = {
+        f"Jobs(B)\\{MCM_DENIAL_COUNTER}": "1",
+        f"Jobs(A)\\{MCM_DENIAL_COUNTER}": "0",
+        "RAM used(MB)": "463915",
+    }
+    # Sorted, so the order cannot vary with dict insertion order (D-21).
+    assert _find_counter_key(qualified) == (
+        f"Jobs(A)\\{MCM_DENIAL_COUNTER}",
+        f"Jobs(B)\\{MCM_DENIAL_COUNTER}",
+    )
+    assert _find_counter_key({"RAM used(MB)": "463915"}) == ()
