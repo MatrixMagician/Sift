@@ -53,6 +53,19 @@ _TZ_NOTE = (
     "in Event.attrs as tz_name/tz_offset_min and NOT applied as a shift "
     "(ADR 0012)."
 )
+_NO_TZ_NOTE = (
+    "PDH header declares no timezone or bias; tz_name/tz_offset_min omitted "
+    "from Event.attrs rather than invented. Timestamps are unaffected — the "
+    "declaration is inert metadata either way (ADR 0012)."
+)
+_DRIFT_NOTE = (
+    "line {line}: {seen} columns, expected {expected}; row degraded to "
+    "severity='unknown' without realignment (D-16)."
+)
+
+# Stable join for attrs["unparsed_columns"] — counter names may contain spaces
+# and parentheses but never a semicolon.
+UNPARSED_SEP = ";"
 
 
 def _short_counter_name(path: str) -> str:
@@ -63,11 +76,69 @@ def _short_counter_name(path: str) -> str:
     return path.rsplit("\\", 1)[-1]
 
 
-def _parse_header(columns: list[str]) -> tuple[str, str, str, list[str]]:
-    """Return (host, tz_name, tz_offset_min, short_counter_names).
+def _fallback_event(
+    *,
+    relpath: str,
+    case_id: str,
+    line_offset: int,
+    byte_len: int,
+    line_no: int,
+    host: str,
+    ts: datetime | None,
+    ts_confidence: str,
+    attrs: dict[str, str],
+    text: str,
+) -> Event:
+    """Build the ``severity="unknown"`` Event every malformed row degrades to.
+
+    Single funnel for the never-drop guarantee: no caller returns, raises or
+    continues past emission, so a malformed row still costs exactly one Event
+    with its bytes preserved verbatim and its offset untouched (PERF-02).
+    """
+    return Event(
+        event_id=event_id(relpath, line_offset),
+        case_id=case_id,
+        ts=ts,
+        ts_confidence=ts_confidence,
+        source="dssperfmon",
+        source_file=relpath,
+        line_start=line_no,
+        line_end=line_no,
+        severity="unknown",
+        component=host,
+        thread=None,
+        session=None,
+        message=text,
+        attrs=attrs,
+        raw=text,
+    )
+
+
+def _bad_cells(names: list[str], values: list[str]) -> list[str]:
+    """Short counter names whose cell is blank or not a number (D-14).
+
+    ``float()`` is a validity *probe* only — its result is discarded and the
+    cell stays an unconverted string in ``attrs``, so a crafted numeric
+    literal cannot alter stored state (D-03, T-12-07).
+    """
+    bad: list[str] = []
+    for name, value in zip(names, values, strict=False):
+        try:
+            float(value)
+        except ValueError:
+            bad.append(name)
+    return bad
+
+
+def _parse_header(columns: list[str]) -> tuple[str, str, str, list[str], list[str]]:
+    """Return (host, tz_name, tz_offset_min, short_counter_names, notes).
 
     The zone name and bias are pulled out of ``columns[0]``'s parenthesised
-    groups by string partitioning — deliberately not a regex.
+    groups by string partitioning — deliberately not a regex. When either is
+    absent the empty string is returned and the caller omits the attr rather
+    than inventing a value; ``notes`` carries the disclosure either way. The
+    caller owns ``ParseStats``, so the notes travel back rather than the stats
+    travelling in.
     """
     counters = columns[1:]
     names = [_short_counter_name(c) for c in counters]
@@ -82,7 +153,13 @@ def _parse_header(columns: list[str]) -> tuple[str, str, str, list[str]]:
     _, _, after_version = columns[0].partition(")")
     tz_name, _, after_zone = after_version.partition("(")[2].partition(")")
     tz_offset_min = after_zone.partition("(")[2].partition(")")[0]
-    return host, tz_name.strip(), tz_offset_min.strip(), names
+    tz_name, tz_offset_min = tz_name.strip(), tz_offset_min.strip()
+    note = (
+        _TZ_NOTE.format(name=tz_name, bias=tz_offset_min)
+        if tz_name and tz_offset_min
+        else _NO_TZ_NOTE
+    )
+    return host, tz_name, tz_offset_min, names, [note]
 
 
 class DssperfmonAdapter(ConfigurableAdapter):
@@ -108,7 +185,8 @@ class DssperfmonAdapter(ConfigurableAdapter):
         stats = ParseStats(path=relpath)
         offset = 0
         line_no = 0
-        header: tuple[str, str, str, list[str]] | None = None
+        header: tuple[str, str, str, list[str], list[str]] | None = None
+        header_width = 0
 
         with open_bytes(path) as stream:
             for bline in byte_lines(stream, b"\n", b"", unit=1):
@@ -125,26 +203,76 @@ class DssperfmonAdapter(ConfigurableAdapter):
                 row = next(csv.reader([text]))
                 if header is None:
                     header = _parse_header(row)
-                    stats.notes.append(_TZ_NOTE.format(name=header[1], bias=header[2]))
+                    header_width = len(row)
+                    stats.notes.extend(header[4])
                     continue
-                host, tz_name, tz_offset_min, counter_names = header
+                host, tz_name, tz_offset_min, counter_names, _ = header
+                # Step 0: attempt the stamp BEFORE any fallback branch. A
+                # malformed row can still carry a good timestamp, and that is
+                # what lets Phase 13 place the surviving evidence on a
+                # timeline; D-16 asks for severity="unknown", not for the loss
+                # of a ts that parsed cleanly.
+                #
                 # Naive wall clock -> the shared UTC seam, unshifted (ADR 0012).
                 # DTZ007 is suppressed deliberately: a PDH sample stamp carries
                 # no zone, and attaching one here would bypass to_utc and the
                 # --tz override, which is exactly what ADR 0012 forbids.
-                naive = datetime.strptime(row[0], TS_FORMAT)  # noqa: DTZ007
-                ts, ts_confidence = to_utc(naive, override_tz)
+                ts: datetime | None
+                try:
+                    naive = datetime.strptime(row[0], TS_FORMAT)  # noqa: DTZ007
+                except ValueError:
+                    # D-15, mirroring dsserrors._match_ts's ValueError guard.
+                    ts, ts_confidence = None, "missing"
+                else:
+                    ts, ts_confidence = to_utc(naive, override_tz)
                 values = dict(zip(counter_names, row[1:], strict=False))
                 attrs: dict[str, str] = {
                     "byte_offset": str(line_offset),
                     "byte_len": str(len(bline)),
                     "host": host,
                     "pdh_version": "4.0",
-                    "tz_name": tz_name,
-                    "tz_offset_min": tz_offset_min,
                 }
+                # Omitted rather than invented when the header declares neither.
+                if tz_name:
+                    attrs["tz_name"] = tz_name
+                if tz_offset_min:
+                    attrs["tz_offset_min"] = tz_offset_min
                 attrs.update(values)
+
+                # D-16: column drift is disclosed, never realigned, padded or
+                # truncated. Surviving drift is this phase's job; diagnosing it
+                # is PERF-05's, in Phase 13.
+                drifted = len(row) != header_width
+                if drifted:
+                    stats.notes.append(
+                        _DRIFT_NOTE.format(
+                            line=line_no, seen=len(row), expected=header_width
+                        )
+                    )
+                # D-14: blank or non-numeric cells name themselves and degrade
+                # the row; only checked when the columns line up at all.
+                bad = [] if drifted else _bad_cells(counter_names, row[1:])
+                if bad:
+                    attrs["unparsed_columns"] = UNPARSED_SEP.join(bad)
+
                 stats.event_count += 1
+                if drifted or bad or ts is None:
+                    # The row's bytes count against coverage — silent loss is
+                    # observable rather than deniable (PERF-02, T-12-08).
+                    stats.unknown_fallback_bytes += len(bline)
+                    yield _fallback_event(
+                        relpath=relpath,
+                        case_id=case_id,
+                        line_offset=line_offset,
+                        byte_len=len(bline),
+                        line_no=line_no,
+                        host=host,
+                        ts=ts,
+                        ts_confidence=ts_confidence,
+                        attrs=attrs,
+                        text=text,
+                    )
+                    continue
                 yield Event(
                     event_id=event_id(relpath, line_offset),
                     case_id=case_id,
