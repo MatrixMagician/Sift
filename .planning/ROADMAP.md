@@ -254,7 +254,27 @@ model can cite but cannot author — and a regression gate stops that from quiet
 - Note the Phase 11 precedent that the fact block is capped (8 episodes) to bound prompt growth;
   perfmon facts need an equivalent bound given 13,596 samples per file.
 
-**Plans**: TBD
+- **Fixture blocker (RESEARCH Pitfall 1):** the shipped Hartford deny CSV+log pair does NOT overlap
+  in time (CSV ends ~12:39:39, denial ~12:39:47 → zero in-span perfmon samples), so a raw-pair golden
+  case would be vacuous. An overlapping re-timed/synthetic pair + a self-verifying overlap guard are
+  built first (Wave 1, plan 14-01) — within D-07's sanctioned discretion, not a reversal.
+
+**Plans**: 5 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 14-01-PLAN.md — Overlapping golden CSV+log fixture + self-verifying overlap guard (the PERF-07/08 blocker) (wave 1)
+- [ ] 14-02-PLAN.md — D-08 folded WR-03: case-level unattributed-samples disclosure on the episodes-present branch (wave 1)
+- [ ] 14-03-PLAN.md — `render_perfmon_facts` + zero-digit `perfmon_facts.md` fragment + independent PERFMON sentinel in `triage.md` (D-03/D-04/D-05/D-06) (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 14-04-PLAN.md — Splice into `hypothesise._assemble`, union perfmon ids into `prompted_ids`, 4-combo byte-identity + anti-hallucination tests (D-01/D-02/D-05, PERF-07) (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 14-05-PLAN.md — `perfmon-denial` golden eval case (frozen truth.yaml) + citation-sensitivity regression gate (D-07, PERF-08) (wave 3)
 
 ## Progress
 
@@ -266,7 +286,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
 | 11. MCM Facts into `sift analyze` | v1.1 | 3/3 | Complete | 2026-07-20 |
 | 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | Complete    | 2026-07-20 |
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 0/? | In Progress|  |
-| 14. Perfmon Facts into `sift analyze` | v1.2 | 0/? | Not started | - |
+| 14. Perfmon Facts into `sift analyze` | v1.2 | 0/5 | Planned | - |
 
 ## Backlog
 
