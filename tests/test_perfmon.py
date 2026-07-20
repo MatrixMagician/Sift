@@ -44,11 +44,14 @@ from sift.pipeline.mcm import (
     MemoryBreakdown,
 )
 from sift.pipeline.perfmon import (
+    _CITE_CAP,  # pyright: ignore[reportPrivateUsage] — the citation ceiling D-08 reuses verbatim
     HAZARD_COUNTER_SET_DRIFT,
     HAZARD_DENIAL_ALWAYS_ZERO,
     HAZARD_NON_OVERLAP,
+    HAZARD_UNPLACEABLE_SAMPLES,
     MCM_DENIAL_COUNTER,
     SLOPE_DP,
+    UNATTRIBUTED_LABEL,
     CounterTrend,
     PerfmonAnalysis,
     PerfmonHazard,
@@ -800,3 +803,107 @@ def test_hazards_deterministic_order(tmp_path: Path) -> None:
     assert (
         first.model_dump_json() == _correlate(events, start, denial).model_dump_json()
     )
+
+
+# --------------- Task (14-02): episodes-present unattributed-sample disclosure ---
+
+
+def _untimed_perfmon(event_id: str) -> Event:
+    """A ``dssperfmon`` sample whose timestamp was unparseable (``ts=None``).
+
+    Mirrors the degraded ``severity="unknown"`` row the adapter keeps via
+    ``_fallback_event`` when a PDH timestamp cell cannot be parsed (WR-03): the
+    row survives ingest but carries no placeable timestamp, so on the
+    episodes-present branch it falls in no ``[start, end]`` span.
+    """
+    return Event(
+        event_id=event_id,
+        case_id="hartford",
+        ts=None,
+        ts_confidence="missing",
+        source="dssperfmon",
+        source_file="hartford_deny_slice.csv",
+        line_start=1,
+        line_end=1,
+        severity="unknown",
+        component=None,
+        thread=None,
+        session=None,
+        message="perfmon sample with unparseable timestamp",
+        attrs={"RAM used(MB)": "463915"},
+        raw="bad,row",
+    )
+
+
+def test_unattributed_samples_disclosed_when_episodes_present() -> None:
+    """Episodes present + untimestamped samples -> one info disclosure (D-08).
+
+    On the episodes branch a ``ts=None`` sample falls in no ``[start, end]`` span
+    and is caught by no per-episode hazard — the silent drop WR-03 closed only on
+    the no-episodes branch. The disclosure reuses ``_hazard_unplaceable_samples``,
+    so its citations are ``event_id``-sorted and capped at ``_CITE_CAP`` with the
+    true total in the message. A ``ts=None`` dsserrors boundary event must NOT be
+    miscited as a perfmon sample (the source filter is load-bearing).
+    """
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    noise = log_boundary_event("n" * 16, None)  # untimestamped, but NOT perfmon
+    # More than _CITE_CAP, built in DESCENDING id order, to prove both the cap and
+    # the event_id sort in one assertion.
+    total = _CITE_CAP + 2
+    untimed = [_untimed_perfmon(f"z{i:015d}") for i in range(total, 0, -1)]
+    ea = _episode_analysis(denial.event_id, start_event_id=start.event_id)
+    analysis = analyse_perfmon(
+        McmAnalysis(episodes=(ea,)), [*samples, start, denial, noise, *untimed]
+    )
+
+    disclosures = _of_dimension(analysis, HAZARD_UNPLACEABLE_SAMPLES)
+    assert len(disclosures) == 1
+    hazard = disclosures[0]
+    assert hazard.severity == "info"
+
+    # Exactly one synthetic group carries it, labelled a disclosure not a window.
+    carriers = [g for g in analysis.groups if hazard in g.hazards]
+    assert len(carriers) == 1
+    group = carriers[0]
+    assert group.label == UNATTRIBUTED_LABEL
+    assert group.sample_count == 0
+    assert group.counters == ()
+    assert group.start_ts is None and group.end_ts is None
+
+    # Citations: event_id-sorted, then capped at _CITE_CAP; true total in message.
+    expected = tuple(sorted(e.event_id for e in untimed))[:_CITE_CAP]
+    assert hazard.event_ids == expected
+    assert len(hazard.event_ids) == _CITE_CAP
+    # The message states the true PERFMON total — proof the dsserrors `noise`
+    # event was excluded by the source filter (else the total would be total+1).
+    assert f"{total} perfmon sample(s)" in hazard.message
+    assert noise.event_id not in hazard.event_ids
+
+
+def test_unattributed_disclosure_is_deterministic_and_hartford_clean() -> None:
+    """Two runs are byte-identical; the all-timestamped Hartford path stays clean.
+
+    The disclosure is appended in a FIXED code position after the episode loop,
+    so re-running yields an identical ``model_dump_json`` (D-21). The Hartford
+    reference's samples are all timestamped, so no unattributed group appears and
+    the reference goldens are provably untouched.
+    """
+    samples = ingest_perfmon_slice()
+    start = log_boundary_event("s" * 16, samples[0].ts)
+    denial = log_boundary_event("d" * 16, samples[-1].ts)
+    untimed = [_untimed_perfmon(f"z{i:015d}") for i in range(3, 0, -1)]
+    events = [*samples, start, denial, *untimed]
+    ea = _episode_analysis(denial.event_id, start_event_id=start.event_id)
+
+    first = analyse_perfmon(McmAnalysis(episodes=(ea,)), events)
+    second = analyse_perfmon(McmAnalysis(episodes=(ea,)), events)
+    assert first.model_dump_json() == second.model_dump_json()
+    # Appended last, after the episode group(s).
+    assert first.groups[-1].label == UNATTRIBUTED_LABEL
+
+    # Hartford reference: episodes present, every sample timestamped -> no group.
+    clean = analyse_perfmon(McmAnalysis(episodes=(ea,)), [*samples, start, denial])
+    assert _of_dimension(clean, HAZARD_UNPLACEABLE_SAMPLES) == []
+    assert all(g.label != UNATTRIBUTED_LABEL for g in clean.groups)
