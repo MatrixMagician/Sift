@@ -1,10 +1,13 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.2
-milestone_name: DSSPerformanceMonitor Correlation
+milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
+current_phase: 12
 status: ready
-last_updated: "2026-07-20T09:40:00.000Z"
+stopped_at: Phase 12 context gathered
+last_updated: "2026-07-20T09:33:40.560Z"
 last_activity: 2026-07-20
+last_activity_desc: v1.2 roadmap created (Phases 12–14, PERF-01..08 fully mapped)
 progress:
   total_phases: 3
   completed_phases: 0
@@ -216,9 +219,9 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-19T22:59:55.719Z
-Stopped at: Completed 11-03-PLAN.md
-Resume file: None
+Last session: 2026-07-20T09:33:40.550Z
+Stopped at: Phase 12 context gathered
+Resume file: .planning/phases/12-dssperfmon-adapter-pipeline-exclusion/12-CONTEXT.md
 
 ## Operator Next Steps
 
