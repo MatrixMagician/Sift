@@ -36,10 +36,17 @@ def run_parse(
     return events, adapter.last_stats
 
 
-def assert_span_partition(events: list[Event], total_bytes: int) -> None:
-    """Event byte spans must partition the file: contiguous from 0,
-    non-overlapping, summing to the total decompressed byte count."""
-    pos = 0
+def assert_span_partition(
+    events: list[Event], total_bytes: int, start: int = 0
+) -> None:
+    """Event byte spans must partition the file: contiguous from ``start``,
+    non-overlapping, reaching the total decompressed byte count.
+
+    ``start`` is non-zero for PDH-CSV because the header line is metadata, not
+    an Event (D-01), so its bytes precede the first span. Every byte after it
+    is still accounted for — nothing disappears silently.
+    """
+    pos = start
     for e in events:
         assert int(e.attrs["byte_offset"]) == pos, (
             f"gap/overlap at {e.event_id}: span starts at "
@@ -109,7 +116,8 @@ def test_counter_attrs_and_message() -> None:
 def test_span_partition_and_coverage() -> None:
     events, stats = run_parse(FIXTURES, SLICE)
     assert stats.total_bytes == (FIXTURES / SLICE).stat().st_size
-    assert_span_partition(events, stats.total_bytes)
+    header_bytes = len((FIXTURES / SLICE).read_bytes().split(b"\n", 1)[0]) + 1
+    assert_span_partition(events, stats.total_bytes, start=header_bytes)
     assert stats.coverage == 1.0
 
 
