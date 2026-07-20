@@ -260,16 +260,35 @@ def test_csv_header_only_when_no_groups(tmp_path: Path) -> None:
 
 
 def test_csv_formula_guard(tmp_path: Path) -> None:
-    """T-13-CSVINJ: every formula trigger is neutralised with a leading quote."""
-    for trigger in ("=", "+", "-", "@", "\t", "\r"):
-        name = f"{trigger}cmd|'/c calc'!A0"
+    """T-13-CSVINJ + WR-05: a trigger is neutralised even behind leading whitespace.
+
+    A spreadsheet strips leading whitespace before deciding a cell is a formula,
+    so the guard must test the first SIGNIFICANT character, not literally the
+    first character. ``" =cmd"`` and ``"\\t=cmd"`` are therefore just as
+    dangerous as a bare leading ``=``.
+    """
+    triggers = ("=", "+", "-", "@")
+    names = [f"{t}cmd|'/c calc'!A0" for t in triggers]
+    names += [f" {t}cmd" for t in triggers]  # leading space
+    names += [f"\t{t}cmd" for t in triggers]  # leading tab
+    for name in names:
         path = tmp_path / "guard.csv"
         write_perfmon_trend_csv(
             PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),)),
             path,
         )
         counter_cell = _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")]
-        assert counter_cell == f"'{name}", f"trigger {trigger!r} not neutralised"
+        assert counter_cell == f"'{name}", f"{name!r} not neutralised"
+
+
+def test_csv_leading_whitespace_then_ordinary_is_not_quoted(tmp_path: Path) -> None:
+    """WR-05: whitespace before an ORDINARY character is not a formula, left as-is."""
+    name = "\tData(MB)"
+    path = tmp_path / "ws.csv"
+    write_perfmon_trend_csv(
+        PerfmonAnalysis(groups=(_group(counters=(_trend(name),)),)), path
+    )
+    assert _read_csv(path)[1][PERFMON_CSV_HEADER.index("counter")] == name
 
 
 def test_csv_formula_guard_leaves_ordinary_names_unchanged(tmp_path: Path) -> None:
