@@ -52,6 +52,7 @@ from sift.pipeline.perfmon import (
     CounterTrend,
     PerfmonAnalysis,
     PerfmonHazard,
+    TrendGroup,
     _cited,  # pyright: ignore[reportPrivateUsage] — the order-preserving citation builder D-21 turns on
     _find_counter_key,  # pyright: ignore[reportPrivateUsage] — the qualification-proof lookup T-13-EVADE turns on
     _numeric,  # pyright: ignore[reportPrivateUsage] — the finite-only gate D-11 turns on
@@ -179,6 +180,26 @@ def test_hazard_model_frozen_and_strict() -> None:
     with pytest.raises(ValidationError):
         hazard.severity = "critical"  # pyright: ignore[reportAttributeAccessIssue]
     assert SLOPE_DP == 4
+
+
+def test_hazard_severity_and_group_scope_are_constrained() -> None:
+    """WR-04: severity and scope are Literals, so a typo is rejected at
+    construction rather than silently ranked below info in the stdout summary.
+
+    Built via ``model_validate`` so the invalid vocabulary is data, not a static
+    literal pyright would reject before Pydantic ever sees it.
+    """
+    with pytest.raises(ValidationError):
+        PerfmonHazard.model_validate(
+            {"dimension": "span", "severity": "criticla", "message": "m",
+             "event_ids": []}
+        )
+    with pytest.raises(ValidationError):
+        TrendGroup.model_validate(
+            {"scope": "epsiode", "key": "k", "label": "l", "start_ts": None,
+             "end_ts": None, "boundary_event_ids": [], "sample_count": 0,
+             "counters": [], "hazards": []}
+        )
 
 
 def test_empty_analysis_constructs() -> None:
