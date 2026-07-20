@@ -324,6 +324,16 @@ _HYP_COLUMNS = (
     "citations_valid"
 )
 
+# Sources held out of every ranking stage (PERF-03). Perfmon samples are
+# periodic observations, not diagnostics: they carry no incident signal to
+# dedup, cluster, salience or hypothesis excerpts, and thousands of near-
+# identical rows would dominate template counts. They stay FULLY retrievable
+# by identifier, so citation and `show events` are unaffected — see the
+# paired comments on iter_event_summaries / iter_event_rows below.
+# Owned here, never caller-supplied: exclusion is a property of the source
+# kind, not of the caller (D-07).
+EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon"})
+
 # Allowlisted filter key -> fixed WHERE snippet (T-02-08). Filter VALUES are
 # only ever bound via ?; keys never reach SQL text — an unknown key raises
 # ValueError before any query is built. Substring keys use instr, not LIKE,
@@ -633,10 +643,28 @@ class CaseStore:
 
         Streams rows from the cursor — never fetchall — and never selects
         raw, so nothing is decompressed during dedup.
+
+        EXCLUDES ``EXCLUDED_FROM_RANKING`` sources by source kind (PERF-03).
+        This is the single seam every ranking stage reads: dedup, cluster
+        exemplars, hypothesis excerpts and the eval runner all inherit the
+        filter from here, so no stage re-implements it. The near-identical
+        ``iter_event_rows`` below deliberately does NOT filter — see its
+        docstring before merging these two into a shared helper.
+        Pinned by test_iter_event_summaries_excludes_perfmon and
+        test_template_groups_exclude_perfmon.
         """
+        # sorted() fixes parameter order: frozenset iteration order is not
+        # guaranteed stable across builds and this query feeds a
+        # determinism-critical pipeline.
+        excluded = sorted(EXCLUDED_FROM_RANKING)
+        placeholders = ",".join("?" for _ in excluded)
         cursor = self._conn.execute(
-            "SELECT event_id, ts, severity, message FROM events "
-            "ORDER BY ts IS NULL, ts, source_file, line_start"
+            # S608: only the placeholder COUNT is interpolated; every source
+            # value is ?-bound from a module constant (get_events_by_ids idiom).
+            "SELECT event_id, ts, severity, message FROM events "  # noqa: S608
+            f"WHERE source NOT IN ({placeholders}) "
+            "ORDER BY ts IS NULL, ts, source_file, line_start",
+            tuple(excluded),
         )
         for row in cursor:
             yield (row[0], row[1], row[2], row[3])
@@ -651,6 +679,14 @@ class CaseStore:
         1M-event case renders without hydrating Events or decompressing zstd
         (T-02-10, STORE-04). Filters are allowlisted keys mapped to fixed
         ?-bound WHERE snippets (T-02-08).
+
+        Deliberately does NOT apply ``EXCLUDED_FROM_RANKING``, unlike the
+        near-identical ``iter_event_summaries`` above. PERF-03 holds perfmon
+        out of RANKING only; citation and evidence display must never be
+        filtered, or evidence silently vanishes from a triage report. The
+        asymmetry is the point, not an oversight — do not unify these two
+        methods into a shared helper. Pinned by test_iter_event_rows_unfiltered
+        and test_show_events_includes_perfmon.
         """
         where_sql, limit_sql, params = _build_filter_clauses(
             filters, _EVENT_FILTER_SQL

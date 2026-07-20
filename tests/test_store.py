@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from sift.models import Event, event_id
+from sift.pipeline import dedup
 from sift.store import (
     CaseStore,
     StoredHypothesis,
@@ -27,13 +28,14 @@ def _ev(
     raw: str = "raw",
     severity: str | None = None,
     message: str = "msg",
+    source: str = "genericlog",
 ) -> Event:
     return Event(
         event_id=event_id(source_file, offset),
         case_id="demo",
         ts=ts,
         ts_confidence="exact" if ts is not None else "missing",
-        source="genericlog",
+        source=source,
         source_file=source_file,
         line_start=line_start,
         line_end=line_start,
@@ -555,6 +557,100 @@ def test_query_hypotheses_non_list_json_coerced(tmp_path: Path) -> None:
         assert all(isinstance(x, str) for x in h.supporting_event_ids)
         assert all(isinstance(x, str) for x in h.suggested_next_steps)
     store.close()
+
+
+# --- PERF-03: perfmon held out of ranking, never out of citation ---------
+#
+# These four sit as a deliberate pair of pairs. The first two pin the
+# exclusion seam; the last two pin the citation paths that must NOT inherit
+# it. Read them together — half of PERF-03 is what is filtered, the other
+# half is what must never be.
+
+
+def _seed_mixed_sources(store: CaseStore) -> tuple[str, str]:
+    """Insert one dsserrors and one dssperfmon event; return their ids."""
+    diag = _ev(
+        source_file="DSSErrors.log",
+        offset=0,
+        message="MCM denial on cube load",
+        source="dsserrors",
+    )
+    sample = _ev(
+        source_file="perf.csv",
+        offset=100,
+        line_start=2,
+        message="Total MCM Denial = 3",
+        source="dssperfmon",
+    )
+    with store.transaction():
+        store.insert_events([diag, sample])
+    return diag.event_id, sample.event_id
+
+
+def test_iter_event_summaries_excludes_perfmon(tmp_path: Path) -> None:
+    """The one ranking seam: perfmon samples never reach dedup (PERF-03)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        diag_id, sample_id = _seed_mixed_sources(store)
+        ids = [row[0] for row in store.iter_event_summaries()]
+        assert diag_id in ids
+        assert sample_id not in ids
+    finally:
+        store.close()
+
+
+def test_iter_event_rows_unfiltered(tmp_path: Path) -> None:
+    """`show events` must keep rendering perfmon rows (criterion 5)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        diag_id, sample_id = _seed_mixed_sources(store)
+        ids = [row[0] for row in store.iter_event_rows()]
+        assert diag_id in ids
+        assert sample_id in ids
+    finally:
+        store.close()
+
+
+def test_get_events_returns_perfmon(tmp_path: Path) -> None:
+    """Citation by identifier must resolve perfmon events (criterion 5)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _, sample_id = _seed_mixed_sources(store)
+        got = store.get_events_by_ids([sample_id])
+        assert sample_id in got
+        assert got[sample_id].source == "dssperfmon"
+    finally:
+        store.close()
+
+
+def test_template_groups_exclude_perfmon(tmp_path: Path) -> None:
+    """Criterion 4 at store level: template groups are byte-identical whether
+    or not the case also holds perfmon events."""
+    with_perf = CaseStore(tmp_path / "with.db")
+    without_perf = CaseStore(tmp_path / "without.db")
+    try:
+        _seed_mixed_sources(with_perf)
+        diag = _ev(
+            source_file="DSSErrors.log",
+            offset=0,
+            message="MCM denial on cube load",
+            source="dsserrors",
+        )
+        with without_perf.transaction():
+            without_perf.insert_events([diag])
+
+        for store in (with_perf, without_perf):
+            dedup.rebuild_template_groups(store)
+
+        assert with_perf.query_template_groups() == (
+            without_perf.query_template_groups()
+        )
+        # Non-vacuity: the perfmon event really is stored, just not ranked.
+        assert len(with_perf.query_events()) == 2
+        assert len(without_perf.query_events()) == 1
+    finally:
+        with_perf.close()
+        without_perf.close()
 
 
 def test_triage_run_meta_roundtrip(tmp_path: Path) -> None:
