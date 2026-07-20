@@ -624,6 +624,11 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
         # run here: with no detected denial there is nothing for a zero counter
         # to contradict (D-14).
         drift = _hazard_counter_set_drift(placeable)
+        # Fixed code order (D-21): drift, then the unplaceable-samples disclosure
+        # (WR-03) so a mixed file's untimestamped samples are counted and cited
+        # alongside its trend rather than silently absent from sample_count. Two
+        # runs produce identical hazard tuples.
+        case_a_hazards = [h for h in (drift, unplaceable_hazard) if h is not None]
         groups.append(
             TrendGroup(
                 scope="file",
@@ -634,7 +639,7 @@ def _file_scope_groups(perfmon_events: list[Event]) -> tuple[TrendGroup, ...]:
                 boundary_event_ids=(first.event_id, last.event_id),
                 sample_count=len(placeable),
                 counters=_counter_trends(placeable),
-                hazards=() if drift is None else (drift,),
+                hazards=tuple(case_a_hazards),
             )
         )
     return tuple(groups)

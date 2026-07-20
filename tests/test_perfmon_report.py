@@ -143,6 +143,38 @@ def test_markdown_none_figures_render_as_dash() -> None:
     assert "nan" not in out
 
 
+def test_markdown_renders_unplaceable_disclosure_group() -> None:
+    """WR-03 Case B: a boundless file group (start_ts=None, no counters, no
+    boundary) carrying only the unplaceable_samples hazard renders cleanly — no
+    crash, no literal ``None``, and the hazard message reaches the report."""
+    disclosure = TrendGroup(
+        scope="file",
+        key="undated.csv",
+        label="No perfmon sample in this file carried a placeable timestamp",
+        start_ts=None,
+        end_ts=None,
+        boundary_event_ids=(),
+        sample_count=0,
+        counters=(),
+        hazards=(
+            PerfmonHazard(
+                dimension="unplaceable_samples",
+                severity="info",
+                message="3 perfmon sample(s) for this file carry no placeable "
+                "timestamp.",
+                event_ids=("undated1", "undated2", "undated3"),
+                value=3.0,
+            ),
+        ),
+    )
+    out = render_perfmon_markdown(PerfmonAnalysis(groups=(disclosure,)))
+
+    assert "undated.csv" in out
+    assert "carry no placeable" in out
+    assert "undated1" in out
+    assert "None" not in out
+
+
 def test_markdown_empty_analysis_states_full_range() -> None:
     """D-20: no episodes must never imply a correlation that was not performed."""
     out = render_perfmon_markdown(PerfmonAnalysis(groups=()))
