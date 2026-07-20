@@ -68,7 +68,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 12: `dssperfmon` Adapter & Pipeline Exclusion** - PDH-CSV ingestion as deterministic, citable, UTC-normalised time-series events, held out of dedup/embed/cluster/salience by source kind (PERF-01, PERF-02, PERF-03) (completed 2026-07-20)
 - [ ] **Phase 13: Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV** - Each MCM episode annotated with its corroborating counter trend over MCM-04's existing lead-up window, deterministic correlation-hazard flags, shipped as the standalone `sift perfmon <case>` report + CSV (PERF-04, PERF-05, PERF-06)
-- [ ] **Phase 14: Perfmon Facts into `sift analyze` + Golden Eval Case** - Computed perfmon figures injected into `sift analyze` as cited evidence (never model-authored) plus a regression-gated perfmon golden case (PERF-07, PERF-08)
+- [x] **Phase 14: Perfmon Facts into `sift analyze` + Golden Eval Case** - Computed perfmon figures injected into `sift analyze` as cited evidence (never model-authored) plus a regression-gated perfmon golden case (PERF-07, PERF-08) (completed 2026-07-20)
 
 ## Phase Details
 
@@ -286,7 +286,7 @@ Plans:
 | 11. MCM Facts into `sift analyze` | v1.1 | 3/3 | Complete | 2026-07-20 |
 | 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 0/? | Complete    | 2026-07-20 |
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 0/? | In Progress|  |
-| 14. Perfmon Facts into `sift analyze` | v1.2 | 0/5 | In Progress|  |
+| 14. Perfmon Facts into `sift analyze` | v1.2 | 0/5 | Complete    | 2026-07-20 |
 
 ## Backlog
 

@@ -4,11 +4,11 @@ milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 current_phase: 14
 current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
-status: verifying
-stopped_at: Completed 14-05-PLAN.md
-last_updated: "2026-07-20T19:14:39.443Z"
+status: complete
+stopped_at: Phase 14 complete (5/5 plans, VERIFICATION 11/11) — v1.2 milestone complete (3/3 phases). Run security/code-review gates, then /gsd-complete-milestone
+last_updated: "2026-07-20T19:21:44.457Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 14 execution started
+last_activity_desc: Phase 14 complete; v1.2 milestone complete (all 3 phases)
 progress:
   total_phases: 3
   completed_phases: 3
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 
 ## Current Position
 
-Phase: 14 (perfmon-facts-into-sift-analyze-golden-eval-case) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-07-20 — Phase 14 execution started
+Phase: 13 — Episode Correlation, Hazard Flags & `sift perfmon` Report + CSV
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-07-20 — Phase 14 complete, transitioned to Phase 13
 
 Progress: [██████████] 100% (1/3 v1.2 phases)
 
@@ -39,7 +39,7 @@ Progress: [██████████] 100% (1/3 v1.2 phases)
 
 **Velocity:**
 
-- Total plans completed: 49
+- Total plans completed: 54
 - Average duration: -
 - Total execution time: -
 
@@ -58,6 +58,7 @@ Progress: [██████████] 100% (1/3 v1.2 phases)
 | 10 | 4 | - | - |
 | 11 | 3 | - | - |
 | 12 | 4 | - | - |
+| 14 | 5 | - | - |
 
 **Recent Trend:**
 
