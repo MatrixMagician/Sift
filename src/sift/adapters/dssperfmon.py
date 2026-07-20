@@ -62,6 +62,28 @@ _DRIFT_NOTE = (
     "line {line}: {seen} columns, expected {expected}; row degraded to "
     "severity='unknown' without realignment (D-16)."
 )
+_CSV_ERROR_NOTE = (
+    "line {line}: stdlib csv could not tokenise the row ({detail}); degraded to "
+    "severity='unknown' with its bytes preserved verbatim (PERF-02)."
+)
+
+# Attrs keys this adapter owns. Counter names come from the customer's CSV
+# header, so they are attacker-influenceable (see module docstring); a counter
+# named "byte_offset" must not be able to overwrite the provenance event_id is
+# derived from. Colliding counters are namespaced under _COUNTER_PREFIX rather
+# than dropped — nothing disappears silently in either direction.
+_RESERVED_ATTRS = frozenset(
+    {
+        "byte_offset",
+        "byte_len",
+        "host",
+        "pdh_version",
+        "tz_name",
+        "tz_offset_min",
+        "unparsed_columns",
+    }
+)
+_COUNTER_PREFIX = "counter."
 
 # Stable join for attrs["unparsed_columns"] — counter names may contain spaces
 # and parentheses but never a semicolon.
@@ -199,7 +221,44 @@ class DssperfmonAdapter(ConfigurableAdapter):
                 if not text.strip():
                     continue
                 # stdlib csv parses ONE row; it never owns file iteration.
-                row = next(csv.reader([text]))
+                #
+                # csv.Error is NOT a ValueError, so it would sail past the
+                # strptime guard below and out of parse() entirely — taking
+                # every remaining row with it and reporting coverage 0.0. A
+                # CR-only export reaches here as one force-split monster line
+                # and trips exactly that. A row csv cannot tokenise is the case
+                # the never-drop guarantee exists for, so it degrades like any
+                # other malformed row (PERF-02, T-12-08).
+                try:
+                    row = next(csv.reader([text]))
+                except csv.Error as exc:
+                    stats.notes.append(
+                        _CSV_ERROR_NOTE.format(line=line_no, detail=exc)
+                    )
+                    stats.event_count += 1
+                    stats.unknown_fallback_bytes += len(bline)
+                    csv_error_attrs: dict[str, str] = {
+                        "byte_offset": str(line_offset),
+                        "byte_len": str(len(bline)),
+                        "pdh_version": "4.0",
+                        "unparsed_columns": "*",
+                    }
+                    if header is not None:
+                        csv_error_attrs["host"] = header[0]
+                    yield _fallback_event(
+                        relpath=relpath,
+                        case_id=case_id,
+                        line_offset=line_offset,
+                        line_no=line_no,
+                        host=header[0] if header is not None else "",
+                        # No tokens means no field 0: there is no stamp to
+                        # recover, unlike the drift and bad-cell branches.
+                        ts=None,
+                        ts_confidence="missing",
+                        attrs=csv_error_attrs,
+                        text=text,
+                    )
+                    continue
                 if header is None:
                     header = _parse_header(row)
                     header_width = len(row)
@@ -236,7 +295,18 @@ class DssperfmonAdapter(ConfigurableAdapter):
                     attrs["tz_name"] = tz_name
                 if tz_offset_min:
                     attrs["tz_offset_min"] = tz_offset_min
-                attrs.update(values)
+                # Reserved keys win: a counter named "byte_offset" must not be
+                # able to rewrite the provenance event_id derives from. The
+                # colliding counter keeps its value under a prefix rather than
+                # being dropped, so neither the provenance nor the counter
+                # disappears silently.
+                for counter_name, counter_value in values.items():
+                    key = (
+                        f"{_COUNTER_PREFIX}{counter_name}"
+                        if counter_name in _RESERVED_ATTRS
+                        else counter_name
+                    )
+                    attrs[key] = counter_value
 
                 # D-16: column drift is disclosed, never realigned, padded or
                 # truncated. Surviving drift is this phase's job; diagnosing it
