@@ -199,6 +199,21 @@ when a single server is serving both and you are switching models for one run. T
 the roles independently, use `SIFT_GENERATION_MODEL` and `SIFT_EMBEDDINGS_MODEL`, or the
 TOML keys.
 
+**Load the generation model with enough context.** Lemonade loads a model with a
+4096-token context by default, which is smaller than `sift analyze`'s triage prompt — the
+server then rejects the over-context request and the run fails (reported as *"request (N
+tokens) exceeds the available context size"*). Load it with at least 8192 tokens; the
+setting is server-side, not in Sift's config:
+
+```bash
+lemonade load user.Qwen2.5-14B-Instruct --ctx-size 32768 --save-options
+```
+
+`--save-options` persists the context size across future loads (or set the
+`LEMONADE_CTX_SIZE` environment variable). For a backend that does not expose llama.cpp's
+`/props` (Lemonade), also set `generation.context` to the same value so Sift's prompt
+budget trims to fit rather than overflowing.
+
 Neither `model` has a baked default. Leaving it `null` omits the `model` field from the
 request entirely, letting the server use whatever it has loaded. Sift records the model
 identity the embeddings server actually reports for provenance, so an unset value still
