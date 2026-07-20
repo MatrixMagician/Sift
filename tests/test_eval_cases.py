@@ -27,8 +27,9 @@ from sift.store import CaseStore
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SUITE = _REPO_ROOT / "eval" / "cases"
 
-# The complete suite: five SPEC §6 exemplars, the negative case, plus the MCM
-# denial golden case (MCM-07, Plan 11-03).
+# The complete suite: five SPEC §6 exemplars, the negative case, the MCM denial
+# golden case (MCM-07, Plan 11-03), plus the perfmon-denial golden case
+# (PERF-08, Plan 14-05).
 _EXPECTED_CASES = {
     "memory-watermark-cascade",
     "smtp-rejection-storm",
@@ -37,6 +38,7 @@ _EXPECTED_CASES = {
     "dependency-timeout-mixed-tz",
     "negative-no-incident",
     "mcm-denial",
+    "perfmon-denial",
 }
 
 # The offline reply for the negative case: a HypothesisSet with no hypotheses, so
@@ -81,8 +83,11 @@ def _offline_client(
     return client, http
 
 
-def test_suite_is_exactly_the_seven_cases() -> None:
-    assert {d.name for d in _case_dirs()} == _EXPECTED_CASES
+def test_suite_is_exactly_the_eight_cases() -> None:
+    dirs = {d.name for d in _case_dirs()}
+    assert dirs == _EXPECTED_CASES
+    assert len(dirs) == 8
+    assert "perfmon-denial" in dirs
 
 
 def test_every_truth_yaml_loads() -> None:
@@ -270,6 +275,114 @@ def test_mcm_denial_citation_validity_is_mcm_sensitive(
     client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
     try:
         off = run_case(_MCM_CASE, client2, config)
+    finally:
+        http2.close()
+    assert off.run_failed is False, off.error
+    assert off.citation_validity_rate < 1.0
+
+
+# --- Perfmon denial golden case (PERF-08, Plan 14-05) -------------------------
+
+_PERFMON_CASE = _SUITE / "perfmon-denial"
+
+
+def _citable_perfmon_id(config: SiftConfig, case_dir: Path) -> str:
+    """A citable perfmon ``event_id`` printed by ``render_perfmon_facts`` for this
+    case, ingested via the real sniff+ingest path.
+
+    Returns the first ``dssperfmon`` id in the rendered block's citable set — a
+    real counter sample at the denial boundary, disjoint from the MCM denial
+    boundary ids (which are ``dsserrors`` events). Because the id is a pure
+    function of ``(relpath, byte_offset)``, a MockTransport handler can cite it up
+    front and ``run_case``'s own temp ingest resolves the same id."""
+    import contextlib
+    import io
+    import tempfile
+
+    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.config import McmThresholdsConfig
+    from sift.pipeline.mcm import analyse_mcm
+    from sift.pipeline.perfmon import analyse_perfmon
+    from sift.pipeline.perfmon_facts import render_perfmon_facts
+
+    noise = io.StringIO()
+    with tempfile.TemporaryDirectory(prefix="sift-eval-perfmon-") as tmp:
+        db = Path(tmp) / "seed.db"
+        with contextlib.redirect_stdout(noise), contextlib.redirect_stderr(noise):
+            store = CaseStore(db)
+            try:
+                store.set_meta("input_dir", str((case_dir / "input").resolve()))
+                store.set_meta("adapter_overrides", "[]")
+                _ingest(case_dir.name, config, store)
+                events = store.query_events()
+                mcm = analyse_mcm(events, McmThresholdsConfig())
+                _block, pids = render_perfmon_facts(analyse_perfmon(mcm, events))
+                by_id = {e.event_id: e for e in events}
+            finally:
+                store.close()
+    perfmon_ids = sorted(i for i in pids if by_id[i].source == "dssperfmon")
+    assert perfmon_ids, "perfmon-denial must print >=1 citable dssperfmon id"
+    return perfmon_ids[0]
+
+
+def test_perfmon_denial_case_discovered_and_scored_positive() -> None:
+    """`sift eval` discovers perfmon-denial and scores it as a positive case (not
+    run_failed); the required denial evidence surfaces in the exemplars (PERF-08)."""
+    assert _PERFMON_CASE in _case_dirs()
+    truth = load_truth(_PERFMON_CASE / "truth.yaml")
+    assert truth.expect_no_incident is False
+
+    config = load_config({})
+    client, http = _offline_client(config)
+    try:
+        result = run_case(_PERFMON_CASE, client, config)
+    finally:
+        http.close()
+    assert result.run_failed is False, result.error
+    assert result.expect_no_incident is False
+    # required_evidence is matched against the cluster exemplars fed to the model;
+    # all three denial evidence regexes surface (retrieval computed, not vacuous).
+    assert result.retrieval_hit_rate == 1.0
+
+
+def test_perfmon_denial_citation_validity_is_perfmon_sensitive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The injection-sensitive metric for this case is citation_validity_rate, NOT
+    retrieval (required_evidence is matched against raw exemplars, insensitive to
+    injection). A hypothesis may cite a perfmon counter event ONLY because
+    ``render_perfmon_facts`` unions it into ``prompted_ids``; strip that injection
+    and the SAME citation is FLAGGED, dropping citation_validity_rate below its 1.0
+    floor — the case turns red. This proves the golden case is not a vacuous gate
+    (T-14-10, the PERF-08 gate teeth).
+
+    The cited id is a ``dssperfmon`` sample disjoint from the MCM denial boundary
+    ids, so it is citable via the PERFMON injection ALONE — stripping only
+    ``render_perfmon_facts`` (not ``render_mcm_facts``) is sufficient to demonstrate
+    the gate, isolating the perfmon-correlation path."""
+    config = load_config({})
+    perfmon_id = _citable_perfmon_id(config, _PERFMON_CASE)
+
+    # INJECTION ON: render_perfmon_facts makes the perfmon id citable -> valid.
+    client, http = _offline_client(config, hyp_content=_mcm_hypset([perfmon_id]))
+    try:
+        on = run_case(_PERFMON_CASE, client, config)
+    finally:
+        http.close()
+    assert on.run_failed is False, on.error
+    assert on.citation_validity_rate == 1.0
+
+    # INJECTION OFF: strip ONLY the perfmon fact block at the chokepoint. The same
+    # cited perfmon id is no longer in prompted_ids -> the gate FLAGS it.
+    from sift.pipeline import hypothesise
+
+    def _no_block(_analysis: object) -> tuple[str, set[str]]:
+        return "", set()
+
+    monkeypatch.setattr(hypothesise, "render_perfmon_facts", _no_block)
+    client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([perfmon_id]))
+    try:
+        off = run_case(_PERFMON_CASE, client2, config)
     finally:
         http2.close()
     assert off.run_failed is False, off.error
