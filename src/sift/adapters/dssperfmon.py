@@ -72,6 +72,17 @@ _CSV_ERROR_NOTE = (
     "severity='unknown' with its bytes preserved verbatim (PERF-02)."
 )
 
+# WR-02 / T-13-DOS: one malformed header width can drive one note per data row —
+# 13,596 of them on the reference artefact, roughly 1 MB in a single
+# parse_coverage meta row and 13,596 lines to the operator's terminal. Each note
+# category is bounded to _NOTE_CAP entries plus one honest summary. Capping is
+# only safe because the per-event _DRIFT_ATTR marker below is the evidence: the
+# note is a file-level disclosure, and the hazard in plan 13-04 reads the marker.
+_NOTE_CAP = 10
+_NOTE_SUMMARY = "{count} further {category} note(s) suppressed after the first {cap}."
+_DRIFT_CATEGORY = "column-drift"
+_CSV_ERROR_CATEGORY = "csv-tokenise"
+
 # Per-event drift evidence (WR-05). The file-level _DRIFT_NOTE is a disclosure
 # and is capped; this marker is the evidence, and it is what the counter-set
 # drift hazard in plan 13-04 cites, because an Event carries an event_id and a
@@ -262,6 +273,16 @@ class DssperfmonAdapter(ConfigurableAdapter):
         stats = ParseStats(path=relpath)
         offset = 0
         line_no = 0
+        # Per-category occurrence counts, local to this parse: the cap needs no
+        # room in ParseStats' public shape, so the adapter protocol is untouched.
+        seen_notes: dict[str, int] = {}
+
+        def note(category: str, text: str) -> None:
+            """Append ``text`` unless this category has already spent its cap."""
+            seen_notes[category] = seen_notes.get(category, 0) + 1
+            if seen_notes[category] <= _NOTE_CAP:
+                stats.notes.append(text)
+
         header: tuple[str, str, str, list[str], list[str]] | None = None
         header_width = 0
 
@@ -288,8 +309,9 @@ class DssperfmonAdapter(ConfigurableAdapter):
                 try:
                     row = next(csv.reader([text]))
                 except csv.Error as exc:
-                    stats.notes.append(
-                        _CSV_ERROR_NOTE.format(line=line_no, detail=exc)
+                    note(
+                        _CSV_ERROR_CATEGORY,
+                        _CSV_ERROR_NOTE.format(line=line_no, detail=exc),
                     )
                     stats.event_count += 1
                     stats.unknown_fallback_bytes += len(bline)
@@ -374,10 +396,11 @@ class DssperfmonAdapter(ConfigurableAdapter):
                     attrs[key] = counter_value
 
                 if drifted:
-                    stats.notes.append(
+                    note(
+                        _DRIFT_CATEGORY,
                         _DRIFT_NOTE.format(
                             line=line_no, seen=len(row), expected=header_width
-                        )
+                        ),
                     )
                 # D-14: blank or non-numeric cells name themselves and degrade
                 # the row; only checked when the columns line up at all.
@@ -420,6 +443,15 @@ class DssperfmonAdapter(ConfigurableAdapter):
                     message=" ".join(f"{k}={v}" for k, v in values.items()),
                     attrs=attrs,
                     raw=text,
+                )
+        # One honest summary per category that actually overflowed; a category
+        # that stayed under the cap says nothing at all.
+        for category, count in sorted(seen_notes.items()):
+            if count > _NOTE_CAP:
+                stats.notes.append(
+                    _NOTE_SUMMARY.format(
+                        count=count - _NOTE_CAP, category=category, cap=_NOTE_CAP
+                    )
                 )
         stats.total_bytes = offset
         self.last_stats = stats
