@@ -120,7 +120,7 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
 
 - Reference artefacts and the 23-counter set: REQUIREMENTS.md § Reference Data.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -130,7 +130,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 12-02-PLAN.md — Unknown-fallback branches, parse coverage, CSV/log alignment guard (wave 2)
-- [ ] 12-03-PLAN.md — Registry line, detection regression suite, CLI ingest + idempotence (wave 2)
+- [x] 12-03-PLAN.md — Registry line, detection regression suite, CLI ingest + idempotence (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
