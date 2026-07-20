@@ -88,17 +88,21 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
   1. Engineer runs `sift ingest` on a case containing the Hartford deny CSV and gets one event per
      sample row, each with `event_id = sha256(source_file, byte_offset)[:16]`; a second `sift ingest`
      adds zero new events
+
   2. Sniffing recognises the `(PDH-CSV 4.0)` header without an `--adapter` override, and sample
      timestamps are normalised through `base.to_utc` with `ts_confidence` recorded — with the header's
      declared zone/offset (e.g. `(Eastern Standard Time)(300)`) **recorded in `attrs` as evidence, not
      applied as a shift**, so a perfmon CSV and its paired DSSErrors log share one timeline
      (ADR 0012; amended 2026-07-20 after measurement showed applying the bias put the CSV 5 h after
      the denial it precedes by 6 s)
+
   3. Blank, malformed, or non-numeric counter values become `severity="unknown"` events rather than
      vanishing, and per-file parse coverage reflects them — nothing disappears silently
+
   4. Ingesting the same case with and without the perfmon CSV produces byte-identical cluster output
      (`sift show clusters`), proving perfmon events are excluded from dedup, embedding, clustering,
      and salience by source kind
+
   5. Every perfmon sample remains individually retrievable by `event_id` through the normal store and
      `sift show events` paths — excluded from ranking, never excluded from citation
 
@@ -110,16 +114,26 @@ template dedup), Phase 3 (embeddings, clustering), Phase 4 (salience) — all sh
   outside a new module" convention is deliberately broken; the exclusion predicate should live in
   one place (source-kind filter) rather than being re-implemented per stage. Regression risk to
   v1.0/v1.1 cluster output is the phase's main hazard — criterion 4 is the guard.
+
 - No downsampling on ingest (breaks byte-offset determinism, loses slope resolution) — see
   REQUIREMENTS.md § Out of Scope.
+
 - Reference artefacts and the 23-counter set: REQUIREMENTS.md § Reference Data.
 
 **Plans**: 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 12-01-PLAN.md — Fixture slice + `DssperfmonAdapter` sniff, byte-offset parse loop, ADR-0012 timestamp path (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 12-02-PLAN.md — Unknown-fallback branches, parse coverage, CSV/log alignment guard (wave 2)
 - [ ] 12-03-PLAN.md — Registry line, detection regression suite, CLI ingest + idempotence (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 12-04-PLAN.md — `EXCLUDED_FROM_RANKING` store seam, criterion-4 byte-identity gate, citation guards (wave 3)
 
 ---
@@ -141,13 +155,17 @@ window and `analyse_mcm` orchestration — shipped)
      annotated with counter value at denial time, slope across the window, and peak — computed over
      the **same** lead-up window MCM-04 already produces, so the trend and the OID/Source/SID
      attribution describe an identical time span
+
   2. Engineer running the same case twice on different machines gets identical figures and identical
      flags — the correlator is deterministic and machine-independent, with no model involvement
+
   3. Engineer whose CSV and log do not overlap in time (wrong timezone, wrong host, wrong day) gets a
      loud non-overlap flag instead of a silently fabricated correlation
+
   4. Engineer sees an explicit flag when `Total MCM Denial` reads zero across a window containing
      detected denials, and when the counter set drifts mid-file — reported as hazards, never used as
      correlation inputs
+
   5. Engineer can run `sift perfmon <case>` on a case containing a perfmon CSV and **no DSSErrors log
      at all** and get a counter-trend report plus CSV export, exit 0, no crash and no empty-episode
      traceback
@@ -156,12 +174,16 @@ window and `analyse_mcm` orchestration — shipped)
 
 - PERF-04 **reuses** the window MCM-04 computes (v1.1, Phase 10). This is a dependency on existing
   code, not new window logic — do not re-derive a window here.
+
 - The `Total MCM Denial` counter reads 0 across all 13,596 Hartford deny samples despite confirmed
   denials. It is a REPORTED FLAG (criterion 4), never a correlation input.
+
 - The Hartford CSV ends 6 s before the denial banner: lead-in is fully covered, **no post-recovery
   data exists**. Recovery-trend analysis is explicitly deferred (PERFV2-01).
+
 - Timezone is trusted from the PDH header, never inferred by maximising window overlap — that
   heuristic can invent an alignment that isn't real (REQUIREMENTS.md § Out of Scope).
+
 - Mirrors Phase 10's shape: analyser + graded flags + standalone command with report/CSV bundle.
 
 **Plans**: TBD
@@ -182,13 +204,17 @@ model can cite but cannot author — and a regression gate stops that from quiet
 
   1. Engineer running `sift analyze` on a case with perfmon data sees hypotheses that cite perfmon
      evidence by `event_id`, with `cited ⊆ prompted ⊆ store` preserved
+
   2. Engineer can confirm the figures in the report match the deterministic correlator's output
      exactly — the fact block is computed before generation, so an adversarial or hallucinating model
      cannot alter or invent a number (anti-hallucination test, mirroring Phase 11's)
+
   3. Engineer running `sift analyze` on a case with **no** perfmon data gets a byte-identical prompt
      to today's — the integration is strictly additive
+
   4. Engineer sees the perfmon fact block rendered from a versioned `prompts/*.md` template
      containing zero authored digits, so prompt iteration needs no Python change
+
   5. Engineer running `sift eval` gets a non-zero exit when correlation output regresses against the
      golden perfmon case
 
@@ -197,8 +223,10 @@ model can cite but cannot author — and a regression gate stops that from quiet
 - Directly mirrors Phase 11 (MCM-06/MCM-07). Reuse the established mechanics: figures built
   pre-generation, printed `[evt:]` ids unioned into `prompted_ids`, no-data prompt guarded by a
   golden hash, fact template holds no numbers.
+
 - Golden-case candidates: the Hartford deny CSV+log pair (primary) and the snapshot CSV+logs pair
   (second candidate) — REQUIREMENTS.md § Reference Data.
+
 - Note the Phase 11 precedent that the fact block is capped (8 episodes) to bound prompt growth;
   perfmon facts need an equivalent bound given 13,596 samples per file.
 
@@ -220,6 +248,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
 
 - **PERFV2-01** — Recovery-trend analysis (counter behaviour after an episode resolves) — blocked:
   no post-denial evidence exists in current reference data.
+
 - **PERFV2-02** — Multi-host correlation across perfmon CSVs from several cluster nodes.
 - **PERFV2-03** — Perfmon-only anomaly detection independent of any MCM episode.
 
