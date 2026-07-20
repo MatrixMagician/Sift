@@ -13,7 +13,7 @@ rounding at source, all ordering explicit.
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
@@ -99,7 +99,10 @@ class PerfmonHazard(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     dimension: str  # the condition graded, e.g. "span" | "samples"
-    severity: str  # "info" | "warn" | "critical"
+    # Literal, not bare str (WR-04): Pydantic rejects a typo'd severity at
+    # construction and pyright catches it at the call site, so a mistyped
+    # "criticla" can never sneak through and rank below "info" in the summary.
+    severity: Literal["info", "warn", "critical"]
     message: str  # British-English one-liner
     event_ids: tuple[str, ...]  # the ids the hazard is evidenced by
     value: float | None = None  # the triggering figure, rounded at source
@@ -139,7 +142,8 @@ class TrendGroup(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    scope: str  # "episode" | "file"
+    scope: Literal["episode", "file"]  # Literal, not str, so a typo can't render
+    # as "File" in _group_section (WR-04)
     key: str  # denial_event_id for episode scope, source_file for file scope
     label: str  # the window label, or a full-sample-range label for file scope
     start_ts: str | None  # ISO-8601 UTC, or None when the span never resolved
