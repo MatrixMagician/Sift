@@ -68,10 +68,11 @@ PERFMON_CSV_HEADER: tuple[str, ...] = (
 )
 
 # The characters a spreadsheet treats as the start of a formula when it opens a
-# CSV. Tab and CR are included because leading whitespace is stripped before the
-# first significant character is examined, so they smuggle a trigger past a
-# naive first-character check.
-_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+# CSV. Only the four printable triggers: leading whitespace is handled by
+# testing the first SIGNIFICANT character in ``_csv_safe`` (WR-05) rather than
+# by smuggling whitespace into the trigger set, where a naive first-character
+# check would still miss ``" =cmd"`` (a space, then a real trigger).
+_FORMULA_TRIGGERS = ("=", "+", "-", "@")
 
 # D-20: an analysis with no groups must state both facts — that no denial
 # episode was found, and what was (or was not) computed instead — so the report
@@ -220,8 +221,14 @@ def _csv_safe(value: str) -> str:
     from a real ``float``/``int``, so a legitimately negative figure such as a
     falling slope keeps its leading minus sign rather than being corrupted into
     text by a guard it never needed.
+
+    The first SIGNIFICANT character is tested, not literally the first one: a
+    spreadsheet strips leading whitespace before deciding a cell is a formula,
+    so ``" =cmd"`` and ``"\\t=cmd"`` are just as dangerous as a bare ``=`` and
+    must be quoted too (WR-05).
     """
-    return f"'{value}" if value.startswith(_FORMULA_TRIGGERS) else value
+    significant = value.lstrip(" \t\r\n")
+    return f"'{value}" if significant.startswith(_FORMULA_TRIGGERS) else value
 
 
 def write_perfmon_trend_csv(analysis: PerfmonAnalysis, path: Path) -> None:
