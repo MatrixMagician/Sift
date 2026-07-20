@@ -233,16 +233,23 @@ def test_mcm_denial_ingests_via_dsserrors_autosniff() -> None:
 def test_mcm_denial_citation_validity_is_mcm_sensitive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The MCM-sensitive metric for this case is citation_validity_rate, NOT
+    """The injection-sensitive metric for this case is citation_validity_rate, NOT
     retrieval (required_evidence is matched against raw exemplars, insensitive to
-    injection). A hypothesis may cite the MCM denial event ONLY because injection
-    unions it into prompted_ids; strip the injection and the SAME citation is
-    FLAGGED, dropping citation_validity_rate below its 1.0 floor — the case turns
-    red. This proves the golden case is not a vacuous gate (T-11-06)."""
+    injection). A hypothesis may cite the MCM denial event ONLY because the
+    deterministic fact injection unions it into prompted_ids; strip the injection
+    and the SAME citation is FLAGGED, dropping citation_validity_rate below its 1.0
+    floor — the case turns red. This proves the golden case is not a vacuous gate
+    (T-11-06).
+
+    Since Phase 14 the perfmon block ALSO cites the denial boundary events (its
+    D-08 zero-sample disclosure group is keyed on the same MCM denial window), so
+    the denial id is now citable via EITHER injection source. Both renderers must
+    therefore be stripped to demonstrate the gate — stripping only one leaves the
+    id citable through the other."""
     config = load_config({})
     _texts, denial_id = _ingest_case(config, _MCM_CASE)
 
-    # MCM ON: injection makes the denial id citable -> citation is valid.
+    # INJECTION ON: mcm (and perfmon) makes the denial id citable -> valid.
     client, http = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
     try:
         on = run_case(_MCM_CASE, client, config)
@@ -251,14 +258,15 @@ def test_mcm_denial_citation_validity_is_mcm_sensitive(
     assert on.run_failed is False, on.error
     assert on.citation_validity_rate == 1.0
 
-    # MCM OFF: strip the injected fact block at the chokepoint. The same cited
-    # denial id is no longer in prompted_ids -> the citation gate FLAGS it.
+    # INJECTION OFF: strip BOTH deterministic fact blocks at the chokepoint. The
+    # same cited denial id is no longer in prompted_ids -> the gate FLAGS it.
     from sift.pipeline import hypothesise
 
-    def _no_mcm_block(_analysis: object) -> tuple[str, set[str]]:
+    def _no_block(_analysis: object) -> tuple[str, set[str]]:
         return "", set()
 
-    monkeypatch.setattr(hypothesise, "render_mcm_facts", _no_mcm_block)
+    monkeypatch.setattr(hypothesise, "render_mcm_facts", _no_block)
+    monkeypatch.setattr(hypothesise, "render_perfmon_facts", _no_block)
     client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
     try:
         off = run_case(_MCM_CASE, client2, config)
