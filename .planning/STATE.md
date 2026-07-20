@@ -4,16 +4,16 @@ milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 current_phase: 14
 current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
-status: planned
-stopped_at: Phase 14 planned (5 plans, 3 waves) — ready for /gsd-execute-phase 14
-last_updated: "2026-07-20T18:03:35.717Z"
+status: executing
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-07-20T18:25:54.870Z"
 last_activity: 2026-07-20
-last_activity_desc: Phase 14 planning complete (5 plans, 3 waves) — VERIFICATION PASSED
+last_activity_desc: Phase 14 execution started
 progress:
   total_phases: 3
   completed_phases: 2
   total_plans: 15
-  completed_plans: 10
+  completed_plans: 11
   percent: 67
 ---
 
@@ -24,16 +24,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-19)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 13 — episode-correlation-hazard-flags-sift-perfmon-report-csv
+**Current focus:** Phase 14 — perfmon-facts-into-sift-analyze-golden-eval-case
 
 ## Current Position
 
-Phase: 13 (episode-correlation-hazard-flags-sift-perfmon-report-csv) — EXECUTING
-Plan: 6 of 6
+Phase: 14 (perfmon-facts-into-sift-analyze-golden-eval-case) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-07-20 — Phase 13 execution started
+Last activity: 2026-07-20 — Phase 14 execution started
 
-Progress: [██████████] 100% (1/3 v1.2 phases)
+Progress: [███████░░░] 73% (1/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -125,6 +125,7 @@ Progress: [██████████] 100% (1/3 v1.2 phases)
 | Phase 13 P04 | 35 min | 3 tasks | 2 files |
 | Phase 13 P05 | 25m | 3 tasks | 2 files |
 | Phase 13 P06 | ~35 min | 3 tasks | 3 files |
+| Phase 14 P01 | 30 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -221,6 +222,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Perfmon hazard determinism is asserted on _cited's order-preservation directly; two in-process runs cannot detect set iteration because hash order is fixed per process
 - [Phase ?]: Perfmon trend CSV guards string cells with _csv_safe (=+-@ TAB CR); numeric cells stay unguarded so negative slopes keep their sign
 - [Phase ?]: PERFMON_CSV_HEADER carries boundary_event_ids so every CSV row cites the span it was computed over
+- [Phase ?]: 14-01: reused shipped hartford deny slice verbatim + prepended 3 re-timed AvailableMCM lead-up lines to widen the resolved window to ~12s, so the perfmon-denial golden pair genuinely overlaps (non-vacuous)
+- [Phase ?]: 14-01: overlap guard test_fixture_overlaps asserts >=1 non-None at_denial_event_id (cited in store), proven RED on the non-overlapping shipped pair — PERF-07/PERF-08 remain OPEN (satisfied in 14-03/14-04/14-05)
 
 ### Pending Todos
 
@@ -249,9 +252,9 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T17:19:34.377Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-perfmon-facts-into-sift-analyze-golden-eval-case/14-CONTEXT.md
+Last session: 2026-07-20T18:25:39.499Z
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
