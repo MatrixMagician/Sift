@@ -10,7 +10,7 @@ Requirements for the DSSPerformanceMonitor Correlation milestone. Each maps to e
 ### Ingestion
 
 - [x] **PERF-01**: Engineer can ingest a DSSPerformanceMonitor PDH-CSV through a `dssperfmon` adapter that sniffs the `(PDH-CSV 4.0)` header, turns every sample row into a canonical `Event` with deterministic `event_id = sha256(source_file, byte_offset)[:16]`, and re-ingests idempotently
-- [x] **PERF-02**: Engineer gets UTC-normalised sample timestamps derived from the PDH header's declared zone and offset (e.g. `(Eastern Standard Time)(300)`) with `ts_confidence` recorded, and no sample is silently dropped — blank, malformed, or non-numeric counter values are preserved as `severity="unknown"` and reflected in per-file parse coverage
+- [x] **PERF-02**: Engineer gets sample timestamps normalised through `base.to_utc` with `ts_confidence` recorded, and the PDH header's declared zone and offset (e.g. `(Eastern Standard Time)(300)`) recorded in `attrs` as evidence rather than applied as a shift (ADR 0012; amended 2026-07-20 after measurement showed applying the bias put the CSV 5 h after the denial it precedes by 6 s), and no sample is silently dropped — blank, malformed, or non-numeric counter values are preserved as `severity="unknown"` and reflected in per-file parse coverage
 - [x] **PERF-03**: Engineer sees perfmon events excluded from template dedup, embedding, clustering, and salience by source kind — a case's cluster output is byte-identical whether or not a perfmon CSV was ingested, while every perfmon sample remains individually citable by `event_id`
 
 ### Correlation

@@ -1442,3 +1442,29 @@ def test_show_events_includes_perfmon(tmp_path: Path) -> None:
     shown = runner.invoke(app, ["show", "logplus", "events"])
     assert shown.exit_code == 0, shown.output
     assert _PERFMON_CSV in shown.output, "perfmon rows vanished from show events"
+
+
+def test_every_perfmon_sample_citable_and_none_ranked(tmp_path: Path) -> None:
+    """PERF-03 over the whole ingested population, not one seeded event.
+
+    The anti-hallucination invariant is per-sample: EVERY perfmon event_id must
+    resolve through the citation path (`get_events_by_ids`, what the evidence
+    appendix uses) while NONE reach the ranking seam. Asserted on real
+    CLI-ingested data, both directions, all 20 rows.
+    """
+    _ingest_case(tmp_path, "logplus", with_csv=True)
+    store = CaseStore(case_db_path(load_config().data_dir, "logplus"))
+    try:
+        perf_ids = {
+            e.event_id for e in store.query_events() if e.source == "dssperfmon"
+        }
+        assert len(perf_ids) == _PERFMON_ROWS, "fixture did not ingest as expected"
+
+        cited = store.get_events_by_ids(sorted(perf_ids))
+        assert set(cited) == perf_ids, "perfmon samples not individually citable"
+
+        ranked = {row[0] for row in store.iter_event_summaries()}
+        assert not (perf_ids & ranked), "perfmon leaked into the ranking seam"
+        assert ranked, "non-vacuity: ranking seam yielded nothing at all"
+    finally:
+        store.close()

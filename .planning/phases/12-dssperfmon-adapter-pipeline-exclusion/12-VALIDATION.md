@@ -1,108 +1,131 @@
 ---
 phase: 12
 slug: dssperfmon-adapter-pipeline-exclusion
-# status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-# audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-20
+audited: 2026-07-20
+gaps_filled: 1
+warnings: 3
 ---
 
-# Phase 12 — Validation Strategy
+# Phase 12 — Validation Record
 
-> Per-phase validation contract for feedback sampling during execution.
-> Seeded from `12-RESEARCH.md` § Validation Architecture.
+Adversarial audit of PERF-01/02/03 automated coverage. Starting hypothesis: each requirement is
+uncovered until a non-vacuous passing test proves otherwise.
 
----
+## Gate at audit time
 
-## Test Infrastructure
+`uv run ruff check` clean · `uv run pyright` 0 errors · `uv run pytest` **567 passed, 8 deselected**
+(was 566 — this audit adds one test).
 
-| Property | Value |
-|----------|-------|
-| **Framework** | pytest 9.1.1 |
-| **Config file** | `pyproject.toml` (markers: `live`, `perf`, `packaging`) |
-| **Quick run command** | `uv run pytest tests/test_dssperfmon.py tests/test_store.py tests/test_adapters_detect.py -x` |
-| **Full suite command** | `uv run pytest` |
-| **Phase gate** | `uv run ruff check && uv run pyright && uv run pytest` |
-| **Estimated runtime** | ~15 s quick / full suite per project norm |
-
----
-
-## Sampling Rate
-
-- **After every task commit:** Run the quick command above
-- **After every plan wave:** Run `uv run pytest` — **the FULL suite, not a subset.** This phase
-  edits shipped v1.0/v1.1 pipeline code (`store.py`), so a subset gate would not detect the
-  regression class this phase is most at risk of. Full suite is the merge gate for *every* wave,
-  not just the last.
-- **Before `/gsd-verify-work`:** `ruff check` + `pyright` + `pytest` all clean
-- **Max feedback latency:** ~15 s (quick), full suite per project norm
+The 8 deselected were enumerated rather than assumed: `test_100mb_ingest_under_60s`,
+`test_live_marked_tests_bypass_socket_guard`, `test_doctor_against_live_server`,
+`test_judge_live_round_trip`, `test_offline_wheel_install_yields_working_console_script`,
+`test_deploy_base_urls_are_guard_clean`, `test_quadlet_generator_dry_run_validates_or_skips`,
+`test_render_pdf_live_writes_real_pdf_without_external_fetch`. All carry pre-existing
+`live`/`perf`/`packaging` marks; none is a phase-12 behaviour.
 
 ---
 
-## Per-Task Verification Map
+## Per-requirement verdict
 
-*Task IDs are assigned by the planner; this table is completed once PLAN.md files exist. The
-criterion→test mapping below is fixed and comes from RESEARCH.md § Validation Architecture.*
+| Req | Verdict | Basis |
+|-----|---------|-------|
+| PERF-01 | ✅ COVERED | Sniff, one-event-per-row, deterministic id, idempotent re-ingest, span partition — unit + CLI. |
+| PERF-02 | ✅ COVERED | All four declared degradation modes exercised; coverage arithmetic pinned. |
+| PERF-03 | ✅ COVERED (1 gap filled, 1 caveat) | Exclusion seam + citation paths proven in both directions; see W-1. |
 
-| Criterion | Behaviour | Requirement | Test Type | Automated Command | File Exists | Status |
-|-----------|-----------|-------------|-----------|-------------------|-------------|--------|
-| 1 | One event per sample row, deterministic `event_id` | PERF-01 | unit | `pytest tests/test_dssperfmon.py::test_one_event_per_sample_row -x` | ❌ W0 | ⬜ pending |
-| 1 | Re-ingest adds zero new events | PERF-01 | integration (CLI) | `pytest tests/test_cli.py::test_ingest_perfmon_idempotent -x` | ❌ W0 | ⬜ pending |
-| 2 | `(PDH-CSV 4.0)` sniffed with no `--adapter` | PERF-01 | unit | `pytest tests/test_dssperfmon.py::test_sniff_pdh_header -x` | ❌ W0 | ⬜ pending |
-| 2 | Existing adapter detection unchanged | PERF-01 | regression | `pytest tests/test_adapters_detect.py -x` | ✅ exists | ⬜ pending |
-| 2 | Timestamps → UTC via `base.to_utc`, `ts_confidence` recorded | PERF-02 | unit | `pytest tests/test_dssperfmon.py::test_timestamp_utc_and_confidence -x` | ❌ W0 | ⬜ pending |
-| 2 | **CSV/log alignment — ADR 0012 guard** | PERF-02 | integration | `pytest tests/test_dssperfmon.py::test_csv_aligns_with_paired_log -x` | ❌ W0 | ⬜ pending |
-| 2 | `--tz` override still wins | PERF-02 | unit | `pytest tests/test_dssperfmon.py::test_tz_override_applies -x` | ❌ W0 | ⬜ pending |
-| 3 | Blank/non-numeric cell → `severity="unknown"` | PERF-02 | unit (synthetic) | `pytest tests/test_dssperfmon.py -k unknown_fallback -x` | ❌ W0 | ⬜ pending |
-| 3 | Unparseable timestamp → `ts=None`, event survives | PERF-02 | unit (synthetic) | `pytest tests/test_dssperfmon.py::test_bad_timestamp_survives -x` | ❌ W0 | ⬜ pending |
-| 3 | Column-count drift → unknown + notes | PERF-02 | unit (synthetic) | `pytest tests/test_dssperfmon.py::test_column_drift_unknown -x` | ❌ W0 | ⬜ pending |
-| 3 | Coverage reflects unknown bytes | PERF-02 | unit | `pytest tests/test_dssperfmon.py::test_parse_coverage -x` | ❌ W0 | ⬜ pending |
-| 4 | **`sift show clusters` byte-identical ± CSV** | PERF-03 | integration (CLI) | `pytest tests/test_cli.py::test_cluster_output_identical_with_and_without_perfmon -x` | ❌ W0 | ⬜ pending |
-| 4 | `template_groups` identical ± CSV | PERF-03 | unit (store) | `pytest tests/test_store.py::test_template_groups_exclude_perfmon -x` | ❌ W0 | ⬜ pending |
-| 4 | Exemplars never perfmon | PERF-03 | unit (fake embed) | `pytest tests/test_cluster.py::test_exemplars_exclude_perfmon -x` | ❌ W0 | ⬜ pending |
-| 5 | `iter_event_rows` still yields perfmon | PERF-03 | unit (store) | `pytest tests/test_store.py::test_iter_event_rows_unfiltered -x` | ❌ W0 | ⬜ pending |
-| 5 | `get_events` by `event_id` returns perfmon | PERF-03 | unit (store) | `pytest tests/test_store.py::test_get_events_returns_perfmon -x` | ❌ W0 | ⬜ pending |
-| 5 | `sift show events` lists perfmon rows | PERF-03 | integration (CLI) | `pytest tests/test_cli.py::test_show_events_includes_perfmon -x` | ❌ W0 | ⬜ pending |
-| — | Whole v1.0/v1.1 suite unaffected | all | regression | `uv run pytest` | ✅ exists | ⬜ pending |
+### PERF-02 — the four degradation modes (assessed individually)
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+The concern was that fixture-only coverage would cover *some* modes. It covers all four, plus two:
 
----
+| Mode | Test | Non-trivial? |
+|------|------|--------------|
+| Bad cell (blank) | `test_blank_cell_unknown_fallback` | Yes — asserts `unparsed_columns`, `raw` preserved, **and that ts survives** |
+| Bad cell (non-numeric) | `test_non_numeric_cell_unknown_fallback` | Yes — asserts `attrs` keeps the raw `"N/A"`, so `float()` is a probe not a coercion |
+| Bad timestamp | `test_bad_timestamp_survives` | Yes — `ts=None`, `ts_confidence="missing"`, event still emitted, good columns still populated |
+| Column drift | `test_column_drift_unknown` | Yes — pins the *contested* reading (drift keeps a good ts) plus a `stats.notes` entry |
+| Embedded newline | `test_embedded_newline_two_unknown_events` | Yes — pins non-reassembly as deliberate |
+| No declared bias | `test_header_without_bias_still_parses` | Yes — asserts attrs are **absent**, not invented |
 
-## Wave 0 Requirements
+Every synthetic case additionally runs `assert_span_partition` via `run_syn`, so a degraded row that
+lost or duplicated bytes fails even if its own assertions pass. That is a structural anti-vacuity
+property, not a hand check. `test_parse_coverage` pins `unknown_fallback_bytes == len(bad)` exactly,
+not merely `coverage < 1.0`.
 
-- [ ] `tests/test_dssperfmon.py` — new file, covers PERF-01 / PERF-02 (mirror the
-      `tests/test_dsserrors.py:19` FIXTURES pattern)
-- [ ] `tests/fixtures/dssperfmon/hartford_deny_slice.csv` — verbatim PDH header + ~20 real sample rows
-- [ ] Synthetic malformed fixtures — the real CSV has **zero** blank/non-numeric cells (CONTEXT.md
-      D-17), so criterion 3's paths cannot be exercised without them
-- [ ] New cases appended to `tests/test_store.py` — the exclusion + unfiltered-citation pair (PERF-03)
-- [ ] New cases appended to `tests/test_cli.py` — criterion 4 byte-identity, criterion 5 show events
-- [ ] Optional case in `tests/test_cluster.py` reusing `_embed_handler` (`tests/test_cluster.py:78`)
+**Verdict: not nominal.** Synthetic-only is a necessity (D-17), not a shortcut, and the fixtures are
+authored inline where the defect is visible in the test body.
 
-No framework install needed. No new conftest fixtures needed — `_isolate_dirs` and `_no_network`
-are autouse and sufficient.
+### PERF-03 — byte-identity and citation
+
+`test_cluster_output_identical_with_and_without_perfmon` is genuine, not weak: it compares derived
+`show clusters` output (correctly *not* the two `case.db` files, which legitimately differ) and
+carries a real non-vacuity guard — `n_b - n_a == _PERFMON_ROWS` — so the equality cannot pass
+because the CSV failed to ingest. Reinforced at store level by `test_template_groups_exclude_perfmon`
+and at exemplar level by `test_exemplars_exclude_perfmon`.
+
+**Citation retrievability was the one disproportionate gap** and has been filled — see below.
 
 ---
 
-## Manual-Only Verifications
+## Gap filled
 
-| Behavior | Requirement | Why Manual | Test Instructions |
-|----------|-------------|------------|-------------------|
-| Full-scale ingest of the real 13,596-sample CSV | PERF-01 | Reference artefact lives outside the repo (`/home/oliverh/Downloads/hartford/`) and is too large to vendor as a fixture | `uv run sift ingest` a case containing `hartford_Linux_DenyDSSPerformanceMonitor16234.csv`; confirm 13,596 events, 100% parse coverage, and a second ingest adding zero |
+**G-1 — citation proven only for one hand-seeded event.** Before this audit the citation half of
+PERF-03 rested on `test_get_events_returns_perfmon` / `test_iter_event_rows_unfiltered` (both against
+a single synthetic `_seed_mixed_sources` event) and `test_show_events_includes_perfmon`, which
+asserts only that the CSV *filename* appears in `show events` output. None asserted that **every**
+ingested sample resolves by `event_id` — which is the literal wording of PERF-03 and the
+anti-hallucination invariant.
+
+Added `tests/test_cli.py::test_every_perfmon_sample_citable_and_none_ranked`: after a real CLI
+ingest, asserts all 20 perfmon `event_id`s resolve through `get_events_by_ids` (the path the evidence
+appendix uses), that none appear in `iter_event_summaries`, and — non-vacuity — that the ranking seam
+yielded something at all.
+
+Counterfactual proof performed, not assumed: with `EXCLUDED_FROM_RANKING` emptied the test **fails**;
+`src/sift/store.py` was restored byte-identically (`git diff` clean) and the full gate re-run.
+
+Command: `uv run pytest tests/test_cli.py::test_every_perfmon_sample_citable_and_none_ranked -x`
 
 ---
 
-## Validation Sign-Off
+## Warnings
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] Criterion 4 byte-identity test present and green (the phase's primary regression gate)
-- [ ] `nyquist_compliant: true` set in frontmatter
+**W-1 — byte-identity is asserted on the pre-`analyze` path.** `_ingest_case` deliberately skips
+`analyze`, so `show clusters` falls back to template groups; no test compares post-`analyze` cluster
+output ± CSV. The exclusion is a single `store.py` seam that all four ranking stages route through,
+and `test_exemplars_exclude_perfmon` covers the embed path with a fake embedder, so the residual risk
+is low — but the strongest possible form of criterion 4 is not what is asserted.
 
-**Approval:** pending
+**W-2 — executor counterfactuals are one-shot, not structural.** The break-and-restore proofs for
+12-02/12-03/12-04 were hand-performed once and leave nothing behind that would stop a future edit
+making those tests vacuous. G-1's test is likewise proven by a one-shot counterfactual (recorded
+above so it is at least reproducible). The exceptions are the tests carrying in-test non-vacuity
+guards — the `n_b - n_a == _PERFMON_ROWS` delta, the `assert_span_partition` call in every synthetic
+case, and the `assert ranked` line in G-1 — which are structural and survive refactoring.
+
+**W-3 — REQUIREMENTS.md PERF-02 wording is stale** (carried from 12-VERIFICATION.md advisory).
+"derived from the PDH header's declared zone and offset" describes the behaviour ADR 0012 rejected;
+the code records rather than applies. `test_header_zone_recorded_not_applied` pins the shipped,
+correct behaviour. Documentation defect only.
+
+## Manual-only, no automated test
+
+| Behaviour | Req | Why |
+|-----------|-----|-----|
+| Full-scale ingest of the real 13,596-sample CSV (100% coverage, second ingest adds zero) | PERF-01 | Artefact lives outside the repo and is too large to vendor. The 20-row slice is byte-verbatim, so format fidelity *is* automated; only scale is not. |
+
+---
+
+## Sign-off
+
+- [x] Every criterion has an automated command
+- [x] All four declared PERF-02 degradation modes exercised, plus two more
+- [x] Criterion 4 byte-identity test present, green, non-vacuous (W-1 caveat)
+- [x] Citation retrievability proven over the whole ingested population (G-1)
+- [x] Gate clean after the added test
+- [x] `nyquist_compliant: true`
+
+**Approval:** validated with 3 warnings.
