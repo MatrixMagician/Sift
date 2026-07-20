@@ -5,15 +5,15 @@ milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministi
 current_phase: 13
 current_phase_name: episode-correlation-hazard-flags-sift-perfmon-report-csv
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-07-20T14:00:53.041Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-07-20T14:20:21.625Z"
 last_activity: 2026-07-20
 last_activity_desc: Phase 13 execution started
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 10
-  completed_plans: 5
+  completed_plans: 6
   percent: 33
 ---
 
@@ -29,11 +29,11 @@ See: .planning/PROJECT.md (updated 2026-07-19)
 ## Current Position
 
 Phase: 13 (episode-correlation-hazard-flags-sift-perfmon-report-csv) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-07-20 — Phase 13 execution started
 
-Progress: [█████░░░░░] 50% (1/3 v1.2 phases)
+Progress: [██████░░░░] 60% (1/3 v1.2 phases)
 
 ## Performance Metrics
 
@@ -120,6 +120,7 @@ Progress: [█████░░░░░] 50% (1/3 v1.2 phases)
 | Phase 12 P03 | ~35 min | 2 tasks | 4 files |
 | Phase 12 P04 | ~30 min | 3 tasks | 4 files |
 | Phase 13 P01 | 20 min | 3 tasks | 3 files |
+| Phase 13 P02 | ~35 min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -207,6 +208,8 @@ Recent decisions affecting current work:
 - [Phase ?]: Criterion 4 is asserted on derived cluster output, never on the two case.db files — case B legitimately holds the perfmon events
 - [Phase ?]: Perfmon synthetic PDH-CSV builders write via csv.writer with LF terminators, matching the shipped hartford_deny_slice.csv (verified LF, not CRLF)
 - [Phase ?]: The MCM/CSV fixture non-overlap (12:39:47.142-12:39:47.356 vs last sample 12:39:39.397) is recorded in tests/test_perfmon.py's module docstring; golden trend figures must be asserted at correlator-unit level via log_boundary_event, never through joint ingest
+- [Phase ?]: Perfmon correlator imports the adapter's _RESERVED_ATTRS rather than re-declaring the provenance-key exclusion set, preventing drift on a security-relevant filter (T-13-ATTRSWEEP)
+- [Phase ?]: Correlation spans resolve both bounds by event_id from Event.ts; McmEpisode.denial_ts is never parsed, and an unresolvable bound yields a graded hazard rather than a substituted timestamp
 
 ### Pending Todos
 
@@ -235,8 +238,8 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-20T14:00:34.277Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-07-20T14:20:10.110Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
