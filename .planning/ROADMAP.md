@@ -259,7 +259,7 @@ model can cite but cannot author — and a regression gate stops that from quiet
   case would be vacuous. An overlapping re-timed/synthetic pair + a self-verifying overlap guard are
   built first (Wave 1, plan 14-01) — within D-07's sanctioned discretion, not a reversal.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 **Wave 1**
@@ -274,7 +274,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 14-05-PLAN.md — `perfmon-denial` golden eval case (frozen truth.yaml) + citation-sensitivity regression gate (D-07, PERF-08) (wave 3)
+- [x] 14-05-PLAN.md — `perfmon-denial` golden eval case (frozen truth.yaml) + citation-sensitivity regression gate (D-07, PERF-08) (wave 3)
 
 ## Progress
 
