@@ -1,12 +1,13 @@
 """Sift command-line interface.
 
-Seven flat subcommands per SPEC.md §5.8. new/ingest/show are implemented in
+Flat subcommands per SPEC.md §5.8. new/ingest/show are implemented in
 Phase 1; analyze/report/eval/doctor arrive in later phases. Config resolution
 follows D-08 precedence (flags > SIFT_* env > config.toml > defaults) — every
 implemented command exposes ``--data-dir`` as the flags layer.
 """
 
 import json
+import shutil
 import sqlite3
 import sys
 from datetime import UTC, datetime
@@ -155,6 +156,57 @@ def new(
     store.set_meta("adapter_overrides", json.dumps(adapter))
     store.close()
     print(f"Created case {case_name!r} for {input_dir}")
+
+
+@app.command()
+def delete(
+    case: str,
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Skip the confirmation prompt")
+    ] = False,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Delete a case and everything in it — the inverse of 'sift new'.
+
+    Removes the whole case directory: ``case.db`` plus the ``mcm/`` and
+    ``perfmon/`` report artefacts. A case is self-contained by design (a clean
+    store close checkpoints the WAL, so nothing lives outside the directory),
+    which is what makes deleting the directory equivalent to deleting the case.
+    Reports exported elsewhere with 'sift report --out' are not touched.
+
+    This is an unlink, not a secure wipe: the raw evidence bytes may remain
+    recoverable on the underlying media until overwritten.
+    """
+    config = load_config({"data_dir": data_dir})
+    try:
+        # case_db_path allowlist-validates the name and asserts the resolved
+        # path stays under <data_dir>/cases (T-02-01, D-04) — the single
+        # containment check, which also closes a symlinked case directory.
+        db_path = case_db_path(config.data_dir, case)
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        raise typer.Exit(1) from None
+    if not db_path.exists():
+        print(f"Error: case {case!r} does not exist")
+        raise typer.Exit(1)
+    case_dir = db_path.parent
+    files = [p for p in case_dir.rglob("*") if p.is_file()]
+    total_mb = sum(p.stat().st_size for p in files) / 1024**2
+    if not force:
+        print(f"Delete case {case!r}?")
+        print(f"  {case_dir}")
+        print(f"  {len(files)} file(s), {total_mb:,.1f} MB")
+        # Aborting raises typer.Abort (exit 1), so a declined or non-interactive
+        # prompt can never fall through to the rmtree. --force is the scripted path.
+        typer.confirm("This cannot be undone. Continue?", abort=True)
+    try:
+        shutil.rmtree(case_dir)
+    except OSError as exc:
+        # Read-only media or a permission failure mid-walk leaves a partial
+        # directory; say so plainly rather than raising a traceback (WR-02).
+        print(f"Error: cannot delete case {case!r}: {_sanitise(str(exc))}")
+        raise typer.Exit(1) from None
+    print(f"Deleted case {case!r}")
 
 
 @app.command()

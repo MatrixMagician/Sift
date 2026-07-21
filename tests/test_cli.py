@@ -1468,3 +1468,71 @@ def test_every_perfmon_sample_citable_and_none_ranked(tmp_path: Path) -> None:
         assert ranked, "non-vacuity: ranking seam yielded nothing at all"
     finally:
         store.close()
+
+
+def _case_dir(case: str = "demo") -> Path:
+    return case_db_path(load_config().data_dir, case).parent
+
+
+def test_delete_force_removes_the_whole_case_directory(tmp_path: Path) -> None:
+    """`sift delete --force` removes case.db AND the mcm/perfmon report
+    artefacts — the whole directory, which is what deleting a case means."""
+    _ingested_case(tmp_path)
+    case_dir = _case_dir()
+    (case_dir / "mcm").mkdir()
+    (case_dir / "mcm" / "report.md").write_text("findings", encoding="utf-8")
+    assert (case_dir / "case.db").exists()
+
+    result = runner.invoke(app, ["delete", "demo", "--force"])
+
+    assert result.exit_code == 0, result.output
+    assert "Deleted case 'demo'" in result.output
+    assert not case_dir.exists(), "report artefacts or db survived the delete"
+
+
+def test_delete_declined_at_the_prompt_leaves_the_case_intact(tmp_path: Path) -> None:
+    """Answering 'n' aborts: nothing is removed and the exit code is non-zero,
+    so a scripted caller cannot mistake a decline for a deletion."""
+    _ingested_case(tmp_path)
+    case_dir = _case_dir()
+    before = sorted(p.name for p in case_dir.iterdir())
+
+    result = runner.invoke(app, ["delete", "demo"], input="n\n")
+
+    assert result.exit_code != 0
+    assert case_dir.exists()
+    assert sorted(p.name for p in case_dir.iterdir()) == before
+
+
+def test_delete_unknown_case_exits_1_without_traceback() -> None:
+    result = runner.invoke(app, ["delete", "nosuchcase", "--force"])
+
+    assert result.exit_code == 1, result.output
+    assert "does not exist" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_delete_rejects_a_traversal_case_name_and_removes_nothing(
+    tmp_path: Path,
+) -> None:
+    """T-02-01: a case name that would escape <data_dir>/cases is refused by
+    case_db_path's allowlist before rmtree is ever reached. The sibling
+    directory next to the case root must survive untouched.
+
+    The decoy carries a case.db so a naive ``data_dir / "cases" / case`` join
+    would find it, pass the existence check, and recursively delete the lot —
+    the assertion below is what fails if the containment check is ever dropped.
+    """
+    _ingested_case(tmp_path)
+    cases_root = _case_dir().parent
+    outside = cases_root.parent / "not-a-case"
+    outside.mkdir()
+    (outside / "case.db").write_bytes(b"decoy")
+    (outside / "keep.txt").write_text("do not delete me", encoding="utf-8")
+
+    result = runner.invoke(app, ["delete", "../not-a-case", "--force"])
+
+    assert result.exit_code == 1, result.output
+    assert "invalid case name" in result.output
+    assert (outside / "keep.txt").read_text(encoding="utf-8") == "do not delete me"
+    assert _case_dir().exists(), "the real case was collateral damage"

@@ -63,6 +63,7 @@ silent re-embed.
 | `sift perfmon <case>` | Deterministic DSSPerformanceMonitor correlation against MCM episodes | No |
 | `sift eval` | Runs the golden-case suite and gates on thresholds | Yes |
 | `sift doctor [case]` | Verifies endpoints, embeddings round-trip, sqlite-vec | Yes |
+| `sift delete <case>` | Removes the case directory once you are done with it | No |
 
 Only `analyze`, `eval` and `doctor` construct an inference client. `report`,
 `mcm` and `perfmon` are pure functions of the case database — you can render

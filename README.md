@@ -143,6 +143,12 @@ Write the report to a file instead of stdout with `sift report my-incident --out
 Inspect intermediate state at any point with `sift show`
 (e.g. `sift show my-incident clusters`, `sift show my-incident hypotheses`).
 
+When you are finished with the incident, `sift delete my-incident` removes the
+case directory — `case.db` and its `mcm/`/`perfmon/` artefacts — so the customer
+log text does not linger on disk. It prompts before deleting; pass `--force` to
+skip the prompt in a script. A report you exported elsewhere with `--out` is
+outside the case directory and is kept.
+
 > **Hypothesis quality depends on the generation model.** A very small or
 > unstable model may return hypotheses that fail Sift's citation validation:
 > the report is still produced but marked **DEGRADED**, with the raw model

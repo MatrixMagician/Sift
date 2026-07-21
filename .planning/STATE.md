@@ -255,6 +255,12 @@ None. The three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --list`)
 - [Phase 7]: Eval drift-metric design against nondeterministic backends is thinly documented; expect iteration (research flag)
 - [Cross-cutting]: sqlite-vec is pre-v1 with a single maintainer — keep vector access confined to store.py; BLOB+numpy escape hatch documented
 
+## Quick Tasks Completed
+
+| Date | Slug | Delivered |
+|------|------|-----------|
+| 2026-07-21 | [delete-case](quick/20260721-delete-case/SUMMARY.md) | `sift delete <case> [--force]` — removes the case directory (`case.db` + `mcm/`/`perfmon/`), confirm-by-default, no analysed-gate |
+
 ## Deferred Items
 
 Items acknowledged and carried forward:
