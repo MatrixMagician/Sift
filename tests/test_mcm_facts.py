@@ -41,6 +41,7 @@ from sift.pipeline.mcm_facts import (
     render_mcm_facts,
 )
 from sift.render._util import sanitise
+from sift.render.mcm_report import render_mcm_markdown
 from sift.store import CaseStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mcm"
@@ -285,3 +286,19 @@ def test_injection_directive_in_key_is_sanitised_prose_survives() -> None:
     assert "\x1b" not in block and "\x9b" not in block and "\x00" not in block
     # The template's citable-evidence framing survives the render unchanged.
     assert "these facts ARE evidence" in block
+
+
+def test_fact_block_and_report_quote_the_same_granted_mb() -> None:
+    """Prompt and report never quote different MB figures for one row (IN-01).
+
+    1,100,481 bytes is a divergence witness: dividing straight to a ``,.1f``
+    yields "1.0", while rounding to 3 dp first (the report's path) yields "1.1".
+    Both renderers now share ``render._util.mb_bytes``, so the pinned "1.1"
+    fails the moment either side re-derives the conversion itself.
+    """
+    analysis = _analysis(by_source=(_row("source", "RptSvr", 1_100_481, "b" * 16),))
+    block, _ = render_mcm_facts(analysis)
+    report = render_mcm_markdown(analysis)
+
+    assert "granted 1.1 MB" in block
+    assert "| RptSvr | 1.1 |" in report

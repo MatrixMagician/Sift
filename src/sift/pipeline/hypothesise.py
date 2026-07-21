@@ -89,7 +89,7 @@ _MCM_SLOT = "<<MCM_FACTS>>"
 _MCM_BLOCK_RE = re.compile(
     r"<!-- MCM_BLOCK_START.*?-->\n.*?<!-- MCM_BLOCK_END.*?-->\n", re.DOTALL
 )
-_MCM_MARKER_RE = re.compile(r"<!-- MCM_BLOCK_(?:START|END).*?-->\n", re.DOTALL)
+_MCM_MARKER_RE = re.compile(r"<!-- MCM_BLOCK_(?:START|END).*?-->\n")
 
 
 def _apply_mcm_block(template: str, fact_block: str | None) -> str:

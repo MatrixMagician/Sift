@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 # NOT a second implementation (RESEARCH Security V5). ``_field`` wraps
 # ``render._util.sanitise``; importing it here is the sanctioned cross-module
 # reuse the plan prescribes ("import them, do not reimplement escaping").
+from sift.render._util import mb_bytes as _mb_bytes
 from sift.render.markdown import _field  # pyright: ignore[reportPrivateUsage]
 
 if TYPE_CHECKING:
@@ -74,11 +75,6 @@ _BREAKDOWN_ROWS: tuple[tuple[str, str], ...] = (
     ("SmartHeap unused pool", "smartheap_unused_pool_mb"),
     ("Other IServer memory", "other_memory_mb"),
 )
-
-
-def _mb_bytes(granted_bytes: int) -> float:
-    """Convert bytes to megabytes, rounded deterministically to 3 dp."""
-    return round(granted_bytes / 1024**2, 3)
 
 
 def _lifecycle_table(signals: tuple[LifecycleSignal, ...]) -> list[str]:

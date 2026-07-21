@@ -1,8 +1,10 @@
-"""Shared render-time helpers: control-char sanitisation + PDF-extra error.
+"""Shared render-time helpers: control-char sanitisation, MB conversion, PDF error.
 
 ``sanitise`` is the single control-char strip used by BOTH the CLI (imported
 back as ``_sanitise``) and the report renderers, so there is one implementation
 and no ``cli`` <-> ``render`` import cycle (render never imports cli).
+``mb_bytes`` is likewise the single bytes-to-MB conversion, shared by the MCM
+report renderer and the MCM fact renderer (IN-01).
 """
 
 import unicodedata
@@ -28,6 +30,18 @@ def sanitise(text: str) -> str:
             and unicodedata.category(ch) != "Cf"
         )
     )
+
+
+def mb_bytes(granted_bytes: int) -> float:
+    """Convert bytes to megabytes, rounded deterministically to 3 dp.
+
+    The single conversion for every granted-memory figure Sift displays, called
+    by both ``render/mcm_report.py`` and ``pipeline/mcm_facts.py`` (IN-01): two
+    independent divisions agree on real data but can drift apart under later
+    edits, and the report and the prompt must never quote different numbers for
+    the same row.
+    """
+    return round(granted_bytes / 1024**2, 3)
 
 
 class PdfExtraMissing(RuntimeError):

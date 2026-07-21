@@ -27,7 +27,7 @@ from __future__ import annotations
 import importlib.resources
 from typing import TYPE_CHECKING
 
-from sift.render._util import sanitise
+from sift.render._util import mb_bytes, sanitise
 
 if TYPE_CHECKING:
     from sift.pipeline.mcm import EpisodeAnalysis, McmAnalysis
@@ -132,7 +132,7 @@ def render_mcm_facts(analysis: McmAnalysis) -> tuple[str, set[str]]:
             for row in rows[:_TOP_N]:
                 eid = row.event_ids[0]
                 ids.add(eid)
-                granted_mb = row.granted_bytes / 1024**2
+                granted_mb = mb_bytes(row.granted_bytes)
                 lines.append(
                     f"[evt:{eid}] {sanitise(row.dimension)}={sanitise(row.key)} "
                     f"granted {granted_mb:,.1f} MB"
