@@ -121,6 +121,56 @@ def test_embed_truncates_inputs_to_max_input_chars() -> None:
     assert seen == [10, 5]  # long input truncated to 10 chars; short untouched
 
 
+def test_embed_packs_batches_within_the_context_budget() -> None:
+    """A request's TOTAL size must fit the embedding model's context window.
+
+    Capping each input (max_input_chars) bounds one record but not their sum:
+    batch_size=64 inputs of 8000 chars is ~256k tokens against a typical 8192
+    window, which is what aborted `sift analyze CS1066664` — the first batch of
+    the real case was 24,700 chars (~12,700 tokens at the 1.94 chars/token
+    measured on real DSSErrors text) against n_ctx 8192.
+
+    embed() must therefore split on the token budget, not only on the count,
+    while still embedding every input exactly once and in order.
+    """
+    batches: list[list[str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        inputs = [str(t) for t in json.loads(request.content)["input"]]
+        batches.append(inputs)
+        data = [{"index": i, "embedding": [float(i)]} for i in range(len(inputs))]
+        return httpx.Response(200, json={"data": data})
+
+    # context=1000 tokens => 2000 chars per request at the conservative ratio.
+    texts = [f"{i:04d}" + "x" * 796 for i in range(10)]  # 800 chars each
+    vecs = _client(handler, batch_size=64, context=1000).embed(texts)
+
+    assert len(vecs) == 10, "every input must still be embedded"
+    assert [t for b in batches for t in b] == texts, "order/content must survive"
+    assert len(batches) > 1, "a 8000-char workload must not go out as one request"
+    for b in batches:
+        size = sum(len(t) for t in b)
+        assert size <= 2000, f"batch over budget: {size} chars"
+
+
+def test_embed_sends_an_oversized_single_input_alone() -> None:
+    """One input larger than the whole budget still has to be sent (truncated by
+    max_input_chars), not dropped and not silently merged with neighbours."""
+    batches: list[list[str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        inputs = [str(t) for t in json.loads(request.content)["input"]]
+        batches.append(inputs)
+        data = [{"index": i, "embedding": [1.0]} for i in range(len(inputs))]
+        return httpx.Response(200, json={"data": data})
+
+    vecs = _client(handler, context=100, max_input_chars=5000).embed(["y" * 5000, "z"])
+
+    assert len(vecs) == 2
+    assert [t for b in batches for t in b] == ["y" * 5000, "z"]
+    assert len(batches) == 2, "the oversized input must travel on its own"
+
+
 def test_embed_server_error_object_raises_actionable_message() -> None:
     # A 200 body carrying {"error": ...} (no "data" list) is how llama.cpp /
     # Lemonade reject an over-context request. embed() must surface an

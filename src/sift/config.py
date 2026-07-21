@@ -49,13 +49,23 @@ class EmbeddingsConfig(BaseModel):
     base_url: str = "http://localhost:13305/v1"
     model: str | None = None  # D-03: NO baked default — identity comes from config.
     timeout: float = 60.0
+    # Upper bound on inputs per request. The context budget below usually binds
+    # first — this only caps the count for short inputs.
     batch_size: int = 64
     # Cap each embedding input to this many characters before sending. A large
     # multi-line record (MCM memory dump, stack trace) can exceed the model's
     # context window; the backend then rejects the whole request and aborts
-    # analyze. 8000 chars is ~2000-2700 tokens, safely under an 8192-token
-    # context; lower it for a small-context model (e.g. bge-small = 512).
+    # analyze. Measured on real DSSErrors text, 8000 chars is ~4100 tokens
+    # (1.94 chars/token — log text with GUIDs, hex and paths tokenises far worse
+    # than prose), so one such input alone still fits an 8192-token context.
     max_input_chars: int = 8000
+    # Embedding context window (tokens) used to bound the TOTAL size of one
+    # request. Capping each input bounds one record but not their sum: 64 inputs
+    # of 8000 chars is ~256k tokens, which the backend rejects outright — the
+    # failure that aborted `sift analyze` on a 1781-group case. Sift cannot read
+    # the loaded n_ctx (Lemonade serves no /props), so set this to the real value
+    # when it differs from the default.
+    context: int = 8192
 
 
 class ClusteringConfig(BaseModel):
@@ -152,6 +162,7 @@ _ENV_SCALARS: dict[str, tuple[str, str]] = {
     "SIFT_EMBEDDINGS_TIMEOUT": ("embeddings", "timeout"),
     "SIFT_EMBEDDINGS_BATCH_SIZE": ("embeddings", "batch_size"),
     "SIFT_EMBEDDINGS_MAX_INPUT_CHARS": ("embeddings", "max_input_chars"),
+    "SIFT_EMBEDDINGS_CONTEXT": ("embeddings", "context"),
 }
 
 

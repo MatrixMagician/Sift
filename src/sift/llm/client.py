@@ -147,12 +147,20 @@ def _order_by_index(rows: object, count: int) -> list[object]:
     return cast(list[object], slots)
 
 
-def _embed_reject_message(data: dict[str, object], max_input_chars: int) -> str:
+def _embed_reject_message(
+    data: dict[str, object], max_input_chars: int, context: int
+) -> str:
     """Actionable message when ``/embeddings`` returns no ``data`` list.
 
     llama.cpp/Lemonade answer an over-context request with HTTP 200 and an
     ``{"error": ...}`` body (no ``data``). Name the cause and the knob rather
     than the cryptic 'data is not a list'.
+
+    Leads with ``embeddings.context`` because the usual cause is the batch
+    aggregate, not one oversized record: the per-input cap bounds a single
+    record while the request carries many. Lemonade also collapses the batch
+    case to a generic "llama-server request failed" (only the single-input case
+    reports the token count), so the message cannot rely on the server's text.
     """
     detail = ""
     err = data.get("error")
@@ -164,9 +172,11 @@ def _embed_reject_message(data: dict[str, object], max_input_chars: int) -> str:
         detail = err
     suffix = f" (server: {detail})" if detail else ""
     return (
-        f"embeddings response has no 'data' list{suffix}; an input may exceed "
-        f"the model's context window — lower embeddings.max_input_chars "
-        f"(currently {max_input_chars}) or increase the server context"
+        f"embeddings response has no 'data' list{suffix}; the request exceeded "
+        f"the embedding model's context window — set embeddings.context "
+        f"(currently {context}) to the server's real n_ctx, or lower "
+        f"embeddings.max_input_chars (currently {max_input_chars}) if a single "
+        f"record is the outlier"
     )
 
 
@@ -215,10 +225,20 @@ class InferenceClient:
         allow_public: Break-glass to skip the SSRF guard (``--i-know-what-im-doing``).
         retries: Extra attempts after the first on connect/timeout/5xx.
         backoff_base: Seconds for exponential backoff (`base * 2**attempt`).
-        batch_size: Max inputs per ``/embeddings`` request.
+        batch_size: Max inputs per ``/embeddings`` request (count ceiling).
         max_input_chars: Cap each embedding input to this many characters, so a
             large record cannot exceed the model's context and abort the batch.
+        context: Embedding context window in tokens, bounding the TOTAL size of
+            one request. Usually the binding constraint, not ``batch_size``.
     """
+
+    # Conservative chars-per-token divisor for the batch budget. Measured 1.94
+    # on real DSSErrors text (60000 chars -> 30923 tokens, reported by the
+    # server); 2 rounds that the safe way. Deliberately NOT the len//4 heuristic
+    # used for prose elsewhere — log text (GUIDs, hex, paths, timestamps)
+    # tokenises about twice as densely, and over-estimating the fit is what
+    # produced the rejected batch this constant exists to prevent.
+    _CHARS_PER_TOKEN = 2
 
     def __init__(
         self,
@@ -231,6 +251,7 @@ class InferenceClient:
         backoff_base: float = 0.5,
         batch_size: int = 64,
         max_input_chars: int = 8000,
+        context: int = 8192,
     ) -> None:
         _assert_local(generation.base_url, allow_public)
         _assert_local(embeddings.base_url, allow_public)
@@ -241,6 +262,8 @@ class InferenceClient:
         self._backoff_base = backoff_base
         self._batch_size = max(1, batch_size)
         self._max_input_chars = max(1, max_input_chars)
+        self._context = max(1, context)
+        self._batch_chars = self._context * self._CHARS_PER_TOKEN
         self._has_tokenize: bool | None = None  # None = not yet probed
         self._has_props: bool | None = None
         # Model id the embeddings server reported on the last embed (STORE-03
@@ -263,12 +286,36 @@ class InferenceClient:
             time.sleep(self._backoff_base * 2**attempt)
         raise AssertionError("unreachable")  # pragma: no cover
 
+    def _pack_batches(self, capped: Sequence[str]) -> list[list[str]]:
+        """Group inputs into requests that fit the context budget.
+
+        Greedy first-fit over the list in order, so the caller's ordering (which
+        ``embed`` relies on to map vectors back) is preserved exactly. Bounded by
+        both the char budget and ``batch_size``; an input larger than the whole
+        budget still travels alone rather than being dropped — ``max_input_chars``
+        is the mechanism that bounds it, and the server decides whether it fits.
+        """
+        batches: list[list[str]] = []
+        current: list[str] = []
+        size = 0
+        for text in capped:
+            over_budget = current and size + len(text) > self._batch_chars
+            if over_budget or len(current) >= self._batch_size:
+                batches.append(current)
+                current, size = [], 0
+            current.append(text)
+            size += len(text)
+        if current:
+            batches.append(current)
+        return batches
+
     def embed(self, inputs: Sequence[str]) -> list[list[float]]:
         """Embed inputs, preserving order and validating dimensions (LLM-01).
 
-        Sends the whole list in ``batch_size`` chunks, reorders each batch by the
-        server's ``data[].index``, and asserts every vector shares one non-zero
-        dimension. ``embed([])`` short-circuits to ``[]`` with no HTTP call.
+        Packs requests up to the context budget AND ``batch_size`` (whichever
+        binds first), reorders each batch by the server's ``data[].index``, and
+        asserts every vector shares one non-zero dimension. ``embed([])``
+        short-circuits to ``[]`` with no HTTP call.
 
         Raises:
             ValueError: On a malformed or dimension-inconsistent response.
@@ -279,15 +326,12 @@ class InferenceClient:
         url = f"{self._embeddings.base_url.rstrip('/')}/embeddings"
         vectors: list[list[float]] = []
         dim: int | None = None
-        for start in range(0, len(inputs), self._batch_size):
-            # Cap each input so a large multi-line record (MCM memory dump,
-            # stack trace) never exceeds the model's context window and makes
-            # the backend reject the whole batch. Embedded text is never cited,
-            # so a deterministic prefix truncation is safe.
-            batch = [
-                text[: self._max_input_chars]
-                for text in inputs[start : start + self._batch_size]
-            ]
+        # Cap each input so a large multi-line record (MCM memory dump, stack
+        # trace) never exceeds the model's context window and makes the backend
+        # reject the whole batch. Embedded text is never cited, so a
+        # deterministic prefix truncation is safe.
+        capped = [text[: self._max_input_chars] for text in inputs]
+        for batch in self._pack_batches(capped):
             payload: dict[str, object] = {"input": batch}
             if self._embeddings.model is not None:
                 payload["model"] = self._embeddings.model
@@ -303,7 +347,9 @@ class InferenceClient:
             if not isinstance(raw_rows, list):
                 # llama.cpp/Lemonade answer an over-context request with 200 +
                 # {"error": ...} and no "data"; surface the cause and the knob.
-                raise ValueError(_embed_reject_message(data, self._max_input_chars))
+                raise ValueError(
+                    _embed_reject_message(data, self._max_input_chars, self._context)
+                )
             for embedding in _order_by_index(cast(list[object], raw_rows), len(batch)):
                 vector = _coerce_vector(embedding)
                 if dim is None:
