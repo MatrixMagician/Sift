@@ -143,6 +143,10 @@ Write the report to a file instead of stdout with `sift report my-incident --out
 Inspect intermediate state at any point with `sift show`
 (e.g. `sift show my-incident clusters`, `sift show my-incident hypotheses`).
 
+`sift list` shows every case in the data directory with its creation time, event
+and hypothesis counts, and database size — handy when you have forgotten what a
+case was called. It never writes to a case.
+
 When you are finished with the incident, `sift delete my-incident` removes the
 case directory — `case.db` and its `mcm/`/`perfmon/` artefacts — so the customer
 log text does not linger on disk. It prompts before deleting; pass `--force` to

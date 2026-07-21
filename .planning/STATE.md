@@ -260,6 +260,7 @@ None. The three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --list`)
 | Date | Slug | Delivered |
 |------|------|-----------|
 | 2026-07-21 | [delete-case](quick/20260721-delete-case/SUMMARY.md) | `sift delete <case> [--force]` — removes the case directory (`case.db` + `mcm/`/`perfmon/`), confirm-by-default, no analysed-gate |
+| 2026-07-21 | [list-cases](quick/20260721-list-cases/SUMMARY.md) | `sift list` — case/created/events/hypotheses/size table; read-only by construction so listing cannot migrate a case |
 
 ## Deferred Items
 

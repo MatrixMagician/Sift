@@ -158,6 +158,70 @@ def new(
     print(f"Created case {case_name!r} for {input_dir}")
 
 
+def _case_row(db_path: Path) -> tuple[str, str, str]:
+    """Read (created, events, hypotheses) from a case WITHOUT migrating it.
+
+    This is the one place in the CLI that opens sqlite outside ``CaseStore``,
+    and deliberately so: ``CaseStore.__init__`` runs ``_migrate()``, so listing
+    N cases through it would rewrite the schema of every case on disk — and
+    announce a migration per case — purely as a side effect of displaying them.
+    A listing must not mutate evidence, hence the read-only URI connection.
+
+    Every field degrades to an em dash on any sqlite error rather than failing
+    the whole listing: a corrupt or old-schema case is precisely the one an
+    operator most wants to see (and most likely wants to delete). ``hypotheses``
+    only exists from a later migration, so it is missing on Phase-1-era cases.
+    """
+    dash = "—"
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return (dash, dash, dash)
+    try:
+
+        def scalar(sql: str) -> str:
+            try:
+                row = conn.execute(sql).fetchone()
+            except sqlite3.Error:
+                return dash
+            return dash if row is None or row[0] is None else str(row[0])
+
+        # Trimmed to minutes: the listing is for picking a case, not forensics.
+        created = scalar("SELECT value FROM meta WHERE key = 'created_at'")[:16]
+        return (
+            created or dash,
+            scalar("SELECT count(*) FROM events"),
+            scalar("SELECT count(*) FROM hypotheses"),
+        )
+    finally:
+        conn.close()
+
+
+@app.command("list")
+def list_(data_dir: DataDirOption = None) -> None:
+    """List the cases in the data directory.
+
+    Read-only: never opens a case for writing, so listing cannot migrate,
+    modify or lock a case.db.
+    """
+    config = load_config({"data_dir": data_dir})
+    cases_root = config.data_dir / "cases"
+    rows: list[tuple[str, str, str, str, str]] = []
+    for db_path in sorted(cases_root.glob("*/case.db")):
+        size_mb = f"{db_path.stat().st_size / 1024**2:,.1f}"
+        # A case directory name is filesystem-sourced and therefore untrusted —
+        # sanitise it like every other display field (T-04-01).
+        rows.append((_sanitise(db_path.parent.name), *_case_row(db_path), size_mb))
+    if not rows:
+        print(f"No cases in {cases_root}")
+        return
+    headers = ("CASE", "CREATED", "EVENTS", "HYPOTHESES", "DB (MB)")
+    widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+    print("  ".join(h.ljust(w) for h, w in zip(headers, widths, strict=True)))
+    for row in rows:
+        print("  ".join(c.ljust(w) for c, w in zip(row, widths, strict=True)))
+
+
 @app.command()
 def delete(
     case: str,

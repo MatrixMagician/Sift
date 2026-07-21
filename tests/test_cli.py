@@ -1536,3 +1536,69 @@ def test_delete_rejects_a_traversal_case_name_and_removes_nothing(
     assert "invalid case name" in result.output
     assert (outside / "keep.txt").read_text(encoding="utf-8") == "do not delete me"
     assert _case_dir().exists(), "the real case was collateral damage"
+
+
+def test_list_shows_each_case_sorted_with_counts(tmp_path: Path) -> None:
+    """The listing names every case and carries the numbers you pick one by."""
+    _ingested_case(tmp_path)
+    second = tmp_path / "input2"
+    second.mkdir()
+    (second / "app.log").write_text(FIXTURE_LOG, encoding="utf-8")
+    assert runner.invoke(app, ["new", "acme", "--input", str(second)]).exit_code == 0
+
+    result = runner.invoke(app, ["list"])
+
+    assert result.exit_code == 0, result.output
+    lines = [ln for ln in result.output.splitlines() if ln.strip()]
+    assert lines[0].split() == ["CASE", "CREATED", "EVENTS", "HYPOTHESES", "DB", "(MB)"]
+    # Sorted by name: acme (created, never ingested) before demo (3 events).
+    assert lines[1].startswith("acme")
+    assert lines[2].startswith("demo")
+    assert lines[2].split()[2] == "3"
+
+
+def test_list_with_no_cases_is_not_an_error() -> None:
+    result = runner.invoke(app, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert "No cases in" in result.output
+
+
+def test_list_still_shows_a_corrupt_case(tmp_path: Path) -> None:
+    """A case whose db cannot be read is the one you most want to see listed —
+    it degrades to em dashes rather than taking the whole listing down."""
+    _ingested_case(tmp_path)
+    case_db_path(load_config().data_dir, "demo").write_bytes(b"not a sqlite database")
+
+    result = runner.invoke(app, ["list"])
+
+    assert result.exit_code == 0, result.output
+    assert "demo" in result.output
+    assert "—" in result.output
+
+
+def test_list_does_not_migrate_the_cases_it_lists(tmp_path: Path) -> None:
+    """`list` must never write to a case.
+
+    CaseStore.__init__ runs _migrate(), so listing through the store would
+    rewrite the schema of every case on disk purely to display it. An EMPTY
+    case.db is the honest fixture for that: it is un-migrated (user_version 0)
+    with no tables, so the migration chain would run to completion and be
+    plainly visible afterwards. (Rewinding user_version on an already-migrated
+    file does NOT work as a probe — migration 1 hits "table events already
+    exists", so a store-based listing would error out and write nothing,
+    passing this test for the wrong reason.)
+    """
+    stale = case_db_path(load_config().data_dir, "stale")
+    stale.parent.mkdir(parents=True)
+    stale.touch()  # 0 bytes: a valid, empty, never-migrated sqlite database
+
+    assert runner.invoke(app, ["list"]).exit_code == 0
+
+    conn = sqlite3.connect(stale)
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+    assert version == 0, "listing migrated the case it was only meant to display"
+    assert stale.stat().st_size == 0, "listing wrote to case.db"
