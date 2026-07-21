@@ -9,3 +9,8 @@ dist/
 # Root-anchored: .claude/CLAUDE.md is tracked and must stay so.
 /CLAUDE.md
 /SPEC.md
+
+# Per-run scratch from GSD workflows (docs-update manifests, verifier JSON).
+# Refills on every run and is never durable planning state — unlike the rest
+# of .planning/, which is tracked on purpose.
+/.planning/tmp/
