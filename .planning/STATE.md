@@ -232,7 +232,18 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None. The three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --list`):
+- [llm] `.planning/todos/pending/2026-07-21-generation-context-unset.md` — `generation.context`
+  is unset, so `PromptBudget` uses the built-in fallback instead of the 14B's real loaded
+  `n_ctx` (Lemonade serves no `/props`). Surfaced when `sift analyze CS1066664` finished
+  **degraded** (0 hypotheses, exit 3) on 2026-07-21 where the prior run gave 1. Cause NOT
+  yet attributed — likely a marginal model on a changed prompt, not a regression.
+- [pipeline] `.planning/todos/pending/2026-07-21-embedding-batch-composition-determinism.md`
+  — cluster count moved 814 → 813 when `embeddings.context` went 8192 → 32768, i.e. when the
+  batch layout changed. UNCONFIRMED (one observation; HDBSCAN margin noise is equally likely).
+  Matters because it would make a config knob determinism-affecting. Settle it at the
+  embed level, not by re-running analyze.
+
+Earlier: the three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --list`):
 
 - dssperfmon WR-02/WR-03/WR-05 — **stale**; all three had already landed during v1.2
   execution (`_NOTE_CAP`, duplicate-short-name detection, `counter_set_drift` attr).
