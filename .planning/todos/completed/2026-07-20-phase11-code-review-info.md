@@ -20,3 +20,10 @@ files:
 `src/sift/pipeline/hypothesise.py:90,106` — the MCM block regex uses a redundant `re.DOTALL`, and the MCM-present path emits a cosmetic double newline. Neither affects behaviour (the no-MCM byte-identity hash is guarded); tidy when next touching the file.
 
 **Priority:** low — cosmetic/consistency only; no correctness or invariant impact.
+
+---
+
+**Resolved 2026-07-21** (`66324e9`) — IN-01 fixed: both call sites now share
+`render/_util.mb_bytes`, pinned by a divergence-witness regression test. IN-03 partially
+fixed: the redundant `re.DOTALL` is gone; the cosmetic double newline is deliberately kept,
+since removing it would change shipped MCM prompt bytes for no behavioural gain.

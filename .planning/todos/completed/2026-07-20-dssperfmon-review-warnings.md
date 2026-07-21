@@ -59,3 +59,11 @@ capping.
   (`math.isfinite`), not here at storage — storage keeps the value verbatim.
 - An emptied `EXCLUDED_FROM_RANKING` would build `WHERE source NOT IN ()`, a
   SQLite syntax error rather than a no-op.
+
+---
+
+**Resolved 2026-07-21** — all three landed during v1.2 execution, verified against
+`src/sift/adapters/dssperfmon.py` at HEAD: WR-02 by `_NOTE_CAP = 10` + `_NOTE_SUMMARY`
+(per-category cap with an honest suppression summary); WR-03 by duplicate-short-name
+detection at header-parse time with an explanatory drift note; WR-05 by the per-event
+`counter_set_drift` attr. Filed before those commits; archived without further work.

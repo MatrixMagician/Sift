@@ -46,3 +46,10 @@ but attributable to no span — either a `PerfmonAnalysis`-level hazard field, o
 dedicated "unattributed samples" group. Reuse `_hazard_unplaceable_samples`
 (already caps at `_CITE_CAP`, sorts by `event_id`) so the disclosure text and
 citation shape stay consistent with the no-episodes path.
+
+---
+
+**Resolved 2026-07-21** — closed in plan 14-02 by `_unattributed_group`
+(`src/sift/pipeline/perfmon.py`), the synthetic case-level disclosure group that reuses
+`_hazard_unplaceable_samples` verbatim on the episodes-present branch. Filed before that
+commit; archived without further work.

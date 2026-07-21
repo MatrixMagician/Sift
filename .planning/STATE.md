@@ -232,7 +232,16 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-- [Phase 11 code-review INFO] `.planning/todos/pending/2026-07-20-phase11-code-review-info.md` — IN-01 (share one granted-MB formatting helper, `mcm_facts.py:107` vs report renderer) + IN-03 (cosmetic `re.DOTALL`/double-newline tidy in `hypothesise.py:90,106`). Low priority, cosmetic; WR-01 already fixed (`9efab09`).
+None. The three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --list`):
+
+- dssperfmon WR-02/WR-03/WR-05 — **stale**; all three had already landed during v1.2
+  execution (`_NOTE_CAP`, duplicate-short-name detection, `counter_set_drift` attr).
+- perfmon unplaceable samples on the episodes-present branch — **stale**; closed in 14-02
+  by `_unattributed_group` in `pipeline/perfmon.py`.
+- Phase 11 code-review INFO — **fixed** (`66324e9`): IN-01 shared `render/_util.mb_bytes`
+  between the MCM report and the fact renderer, pinned by a divergence-witness test;
+  IN-03's redundant `re.DOTALL` removed. The cosmetic double newline was deliberately
+  kept — removing it would change shipped MCM prompt bytes for no behavioural gain.
 
 ### Blockers/Concerns
 
@@ -260,9 +269,9 @@ passed audit:
 
 | Category | Item | Status |
 |----------|------|--------|
-| code-review | dssperfmon: three deferred review warnings WR-02/WR-03/WR-05 (2026-07-20-dssperfmon-review-warnings) | non-blocking; WR-03 core fix folded into 14-02 |
-| correctness | perfmon: unplaceable samples on the episodes-present branch (2026-07-20-perfmon-unplaceable-samples-episode-scope) | non-blocking; addressed via synthetic hazard TrendGroup in 14-02 |
-| code-review | Phase-11 code-review INFO follow-ups (2026-07-20-phase11-code-review-info) | cosmetic; IN-01/IN-03 low priority |
+| code-review | dssperfmon: three deferred review warnings WR-02/WR-03/WR-05 (2026-07-20-dssperfmon-review-warnings) | Closed 2026-07-21 — all three verified landed in v1.2 |
+| correctness | perfmon: unplaceable samples on the episodes-present branch (2026-07-20-perfmon-unplaceable-samples-episode-scope) | Closed 2026-07-21 — `_unattributed_group`, landed in 14-02 |
+| code-review | Phase-11 code-review INFO follow-ups (2026-07-20-phase11-code-review-info) | Closed 2026-07-21 (`66324e9`) — IN-01 + IN-03 |
 
 ## Session Continuity
 
