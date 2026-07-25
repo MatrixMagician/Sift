@@ -1,0 +1,20 @@
+# eu-stack thread-role rules (EUS-01, EUS-02).
+#
+# Row order IS the precedence knob (D-01): rules are tried in file order, top
+# to bottom, and every frame #0..#N of a signature is scanned for the first
+# rule; the first rule that matches ANYWHERE in the stack wins. A `running`
+# rule for a subsystem must be placed ABOVE any idle rule sharing an ancestor
+# frame, or the running thread will read as idle.
+#
+# `unclassified` is never a rule role — it is the sole residual for a
+# signature that matched no rule below (D-12).
+
+[meta]
+version = 1
+validated_against = "MicroStrategy Intelligence Server (castorserver) on glibc 2.34; v1.3 reference capture, 2 dumps, 3902 threads / 93 signatures"
+
+[[rule]]
+role = "idle-parked"
+subsystem = "job-queue"
+match = "contains"
+pattern = 'MSIQTask::GetNextPreferredJob'

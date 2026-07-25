@@ -73,6 +73,25 @@ def _condense_symbol(frame_body: str) -> str:
     return frame_body.split(" - ", 1)[0].strip()
 
 
+# Shared with sift.pipeline.eustack (D-08): the classifier reuses this helper
+# rather than growing its own copy of _FRAME_RE, so the two never drift apart
+# on what counts as a frame line (the same rule this file already applies to
+# byte_lines, imported from genericlog above).
+def iter_frames(raw: str) -> Iterator[tuple[int, str]]:
+    """Split a raw eu-stack thread block into ``(frame_index, frame_body)``
+    pairs, in file order, over the full block depth.
+
+    The frame body is the FULL text after the address — including any
+    ``- <lib> <source>:<line>`` tail, verbatim. Stripping that tail is the
+    normaliser's job (``sift.pipeline.eustack.normalise``), not the
+    splitter's.
+    """
+    for line in raw.splitlines():
+        match = _FRAME_RE.match(line)
+        if match is not None:
+            yield int(match.group(1)), match.group(3)
+
+
 def _match_ts(text: str, override_tz: str | None) -> tuple[datetime, str] | None:
     """Parse a leading ISO 8601 dump-time stamp -> (aware-UTC dt, confidence).
 
