@@ -654,3 +654,94 @@ def test_flag_value_and_threshold_travel_together() -> None:
     )
     assert flag.value == expected
     assert flag.unit == "percent"
+
+
+def test_unclassified_not_pooled_and_not_in_any_denominator() -> None:
+    """D-02: the unclassified population is isolated in its own None-keyed
+    row and appears in no other pool's denominator. The dict key stays typed
+    str | None and is never stringified — the mechanism preventing a literal
+    "None" subsystem string from colliding with it."""
+    unclassified_raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+    idle_raw = _thread_raw("MSIQTask::GetNextPreferredJob")
+    running_raw = _thread_raw("CDSSSubsetEngine::GenCube")
+    events = (
+        [_event(unclassified_raw, thread=f"u{i}") for i in range(4)]
+        + [_event(idle_raw, thread=f"i{i}") for i in range(3)]
+        + [_event(running_raw, thread=f"r{i}") for i in range(2)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    none_rows = [p for p in saturation.pools if p.subsystem is None]
+    assert len(none_rows) == 1
+    assert none_rows[0].total_threads == analysis.threads_by_role["unclassified"]
+    assert none_rows[0].total_threads == 4
+
+    other_total = sum(
+        p.total_threads for p in saturation.pools if p.subsystem is not None
+    )
+    assert other_total == (
+        analysis.total_threads - analysis.threads_by_role["unclassified"]
+    )
+
+
+def test_pool_occupancy_extremes_and_empty_analysis() -> None:
+    # (a) zero idle-parked threads -> occupancy 1.0.
+    running_raw = _thread_raw("CDSSSubsetEngine::GenCube")
+    running_events = [_event(running_raw, thread=f"r{i}") for i in range(2)]
+    rules, rules_hash = load_rules()
+    running_analysis = analyse_eustack(running_events, rules, rules_hash)
+    running_saturation = analyse_saturation(running_analysis, EustackThresholdsConfig())
+    cube_generation = next(
+        p for p in running_saturation.pools if p.subsystem == "cube-generation"
+    )
+    assert cube_generation.occupancy == 1.0
+
+    # (b) only idle-parked threads -> occupancy 0.0.
+    idle_raw = _thread_raw("MSIQTask::GetNextPreferredJob")
+    idle_events = [_event(idle_raw, thread=f"i{i}") for i in range(3)]
+    idle_analysis = analyse_eustack(idle_events, rules, rules_hash)
+    idle_saturation = analyse_saturation(idle_analysis, EustackThresholdsConfig())
+    job_queue = next(p for p in idle_saturation.pools if p.subsystem == "job-queue")
+    assert job_queue.occupancy == 0.0
+
+    # (c) empty event list and all-non-thread events -> empty tuples, no
+    # exception, no division guard needed.
+    empty_analysis = analyse_eustack([], rules, rules_hash)
+    empty_saturation = analyse_saturation(empty_analysis, EustackThresholdsConfig())
+    assert empty_saturation.pools == ()
+    assert empty_saturation.flags == ()
+
+    non_thread_events = [_event(idle_raw, thread=None) for _ in range(3)]
+    non_thread_analysis = analyse_eustack(non_thread_events, rules, rules_hash)
+    non_thread_saturation = analyse_saturation(
+        non_thread_analysis, EustackThresholdsConfig()
+    )
+    assert non_thread_saturation.pools == ()
+    assert non_thread_saturation.flags == ()
+
+
+def test_deterministic_pool_ordering() -> None:
+    # Two pools with EQUAL total_threads: alpha (job-queue) vs bravo
+    # (cube-generation) tie on count, breaking ascending on subsystem name.
+    idle_raw = _thread_raw("MSIQTask::GetNextPreferredJob")  # subsystem job-queue
+    running_raw = _thread_raw("CDSSSubsetEngine::GenCube")  # subsystem cube-generation
+    unclassified_raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+    events = (
+        [_event(idle_raw, thread=f"i{i}") for i in range(2)]
+        + [_event(running_raw, thread=f"r{i}") for i in range(2)]
+        + [_event(unclassified_raw, thread=f"u{i}") for i in range(2)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    subsystems = [p.subsystem for p in saturation.pools]
+    # cube-generation < job-queue ascending; all three pools tie at 2 threads;
+    # the None row sorts after every equal-count named pool.
+    assert subsystems == ["cube-generation", "job-queue", None]
+
+    first = analyse_saturation(analysis, EustackThresholdsConfig()).model_dump_json()
+    second = analyse_saturation(analysis, EustackThresholdsConfig()).model_dump_json()
+    assert first == second
