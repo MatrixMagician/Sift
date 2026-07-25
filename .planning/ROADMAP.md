@@ -67,5 +67,13 @@ Full detail: `.planning/milestones/v1.2-ROADMAP.md`.
 - **PERFV2-02** — Multi-host correlation across perfmon CSVs from several cluster nodes.
 - **PERFV2-03** — Perfmon-only anomaly detection independent of any MCM episode.
 
+- **DET-01** — Reuse persisted embedding vectors instead of re-embedding on every
+  `analyze` (SEED-002) — **v1.3 candidate**. Closes the embedding-stage determinism
+  exposure confirmed 2026-07-25 (ADR 0014): batch layout, including the layout of
+  *preceding* requests to the shared backend, perturbs vectors enough to flip 4% of
+  nearest-neighbour relations. Recording the knobs in case `meta` makes a divergence
+  diagnosable; only reuse makes a re-run reproducible. Also removes the dominant cost
+  of a re-analyze (1781 exemplars / ~1.45 MB re-embedded per run on `CS1066664`).
+
 ---
 *v1.2 shipped 2026-07-20. Next: `/gsd-new-milestone`.*
