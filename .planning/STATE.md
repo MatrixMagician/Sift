@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 16
 current_phase_name: Saturation, Contention & Signature Collapse
 status: executing
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-07-25T19:10:37.882Z"
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-07-25T19:24:34.786Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
   percent: 17
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 16 (Saturation, Contention & Signature Collapse) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 16 execution started
 
@@ -126,6 +126,7 @@ Last activity: 2026-07-25 — Phase 16 execution started
 | Phase 15 P05 | ~20min | 2 tasks | 2 files |
 | Phase 15 P06 | ~25min | 3 tasks | 3 files |
 | Phase 16 P01 | 25min | 3 tasks | 3 files |
+| Phase 16 P02 | 20min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -247,6 +248,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 15]: 15-06: TOML header comment originally used the word 'deadlock' describing the non-goal, tripping the plan's own new ownership-blind test — reworded to state the non-goal without naming the forbidden term; caught and fixed within the same task
 - [Phase ?]: [Phase 16]: 16-01: one SaturationFlag record shared by all three flag families (S-3), not DiagnosticFlag reuse — value/warn/critical travel together; event_ids deliberately omitted, deferred to Phase 18
 - [Phase ?]: [Phase 16]: 16-01: mcm._grade imported as-is into eustack.py (S-2), not promoted to a shared module — no import cycle, mcm.py's shipped tests stay untouched
+- [Phase ?]: 16-02: D-04 denylist implemented as str.startswith(tuple) leading-namespace prefix test — proven against real fixture shapes (std::condition_variable::wait, boost::asio::detail::scheduler::do_run_one) and hand-built template-argument-list frames in both directions
+- [Phase ?]: 16-02: lock_finding_note lives on SaturationAnalysis, not per-LockSite row, so the ownership-blind label (D-05) appears exactly once per report and a renderer cannot omit it by construction
+- [Phase ?]: 16-02: S-7 — the shipped whole-source ownership grep stays byte-for-byte unchanged (eustack_roles.toml's 'holder' is a non-goal comment, documentation not output); the three-term D-05 prohibition is enforced as a second assertion over strings analyse_saturation() actually emits, word-boundary matched, non-vacuity guarded
 
 ### Pending Todos
 
@@ -329,8 +333,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T19:10:37.873Z
-Stopped at: Completed 16-01-PLAN.md
+Last session: 2026-07-25T19:24:34.777Z
+Stopped at: Completed 16-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
