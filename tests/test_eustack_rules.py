@@ -1169,3 +1169,138 @@ def test_signature_passthrough_reads_eustack_analysis_directly() -> None:
             -later.thread_count,
             later.frames,
         )
+
+
+# --------------------------------------------------- deterministic ordering ---
+# Phase 16 plan 03: whole-model determinism across every grouping (pools,
+# lock sites, dependencies, flags).
+
+
+def test_deterministic_ordering_across_every_grouping() -> None:
+    """One input exercising all four orderings at once, each with a
+    deliberate tie, asserted against its named sort key directly rather than
+    a hardcoded expected list — so the test documents the contract, not a
+    snapshot. A Counter.most_common() regression (unspecified tie behaviour)
+    would fail this test; the byte-identical-rerun check alone would NOT
+    (tests/test_perfmon.py's own reasoning: hash order is fixed within one
+    process, so a set iteration would not be detected by a repeat run)."""
+    # Pool tie: job-queue and cube-generation both land on 4 threads —
+    # cube-generation must sort first (ascending subsystem name on a tie).
+    job_queue_raw = _thread_raw("MSIQTask::GetNextPreferredJob")
+    cube_generation_raw = _thread_raw("CDSSSubsetEngine::GenCube")
+    unclassified_raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+
+    # Lock-site tie: two distinct sites, both converging 3 threads each —
+    # "MSynch::AlphaSite::Enter" must sort first (ascending on site string).
+    lock_a_raw = _thread_raw(
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MSynch::AlphaSite::Enter",
+        "SomeCaller::A",
+    )
+    lock_b_raw = _thread_raw(
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MSynch::BravoSite::Enter",
+        "SomeCaller::B",
+    )
+
+    # Dependency tie: warehouse and http both land on 2 threads — "http"
+    # must sort first (ascending subsystem name on a tie).
+    warehouse_raw = _thread_raw("CDSSQueryEngine::WaitUntilFinished")
+    http_raw = _thread_raw("curl_multi_poll")
+
+    events = (
+        [_event(job_queue_raw, thread=f"jq{i}") for i in range(4)]
+        + [_event(cube_generation_raw, thread=f"cg{i}") for i in range(4)]
+        + [_event(unclassified_raw, thread=f"u{i}") for i in range(2)]
+        + [_event(lock_a_raw, thread=f"la{i}") for i in range(3)]
+        + [_event(lock_b_raw, thread=f"lb{i}") for i in range(3)]
+        + [_event(warehouse_raw, thread=f"w{i}") for i in range(2)]
+        + [_event(http_raw, thread=f"h{i}") for i in range(2)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    thresholds = EustackThresholdsConfig()
+    saturation = analyse_saturation(analysis, thresholds)
+
+    # --- pools: (-total_threads, subsystem is None, subsystem or "") ---
+    for earlier, later in zip(
+        saturation.pools, saturation.pools[1:], strict=False
+    ):
+        earlier_key = (
+            -earlier.total_threads,
+            earlier.subsystem is None,
+            earlier.subsystem or "",
+        )
+        later_key = (
+            -later.total_threads,
+            later.subsystem is None,
+            later.subsystem or "",
+        )
+        assert earlier_key <= later_key
+    pool_subsystems = [p.subsystem for p in saturation.pools]
+    cube_index = pool_subsystems.index("cube-generation")
+    job_queue_index = pool_subsystems.index("job-queue")
+    assert cube_index == job_queue_index - 1, (
+        "tied pools (4 threads each) must break ascending on subsystem name: "
+        "cube-generation before job-queue"
+    )
+
+    # --- lock_sites: (-thread_count, site) ---
+    for earlier, later in zip(
+        saturation.lock_sites, saturation.lock_sites[1:], strict=False
+    ):
+        assert (-earlier.thread_count, earlier.site) <= (
+            -later.thread_count,
+            later.site,
+        )
+    lock_sites_by_name = [s.site for s in saturation.lock_sites]
+    alpha_index = lock_sites_by_name.index("MSynch::AlphaSite::Enter")
+    bravo_index = lock_sites_by_name.index("MSynch::BravoSite::Enter")
+    assert alpha_index == bravo_index - 1, (
+        "tied lock sites (3 threads each) must break ascending on site: "
+        "AlphaSite before BravoSite"
+    )
+
+    # --- dependencies: (-thread_count, subsystem) ---
+    for earlier, later in zip(
+        saturation.dependencies, saturation.dependencies[1:], strict=False
+    ):
+        assert (-earlier.thread_count, earlier.subsystem) <= (
+            -later.thread_count,
+            later.subsystem,
+        )
+    dependency_subsystems = [d.subsystem for d in saturation.dependencies]
+    http_index = dependency_subsystems.index("http")
+    warehouse_index = dependency_subsystems.index("warehouse")
+    assert http_index == warehouse_index - 1, (
+        "tied dependencies (2 threads each) must break ascending on "
+        "subsystem name: http before warehouse"
+    )
+
+    # --- flags: fixed authored order, NOT sorted by severity ---
+    # unclassified share, then no-resolvable-frame share, then
+    # lock-convergence entries in lock_sites order (severity sorting is a
+    # render-time concern belonging to Phase 17, per mcm_facts.py's
+    # _SEVERITY_ORDER precedent).
+    flag_dimensions = [f.dimension for f in saturation.flags]
+    assert flag_dimensions[0] == "unclassified_thread_pct"
+    assert flag_dimensions[1] == "no_resolvable_frame_pct"
+    lock_flag_sites = [
+        f.message for f in saturation.flags if f.dimension == "lock_convergence_count"
+    ]
+    assert len(lock_flag_sites) == 2
+    # AlphaSite's flag must precede BravoSite's, matching lock_sites order.
+    assert "AlphaSite" in lock_flag_sites[0]
+    assert "BravoSite" in lock_flag_sites[1]
+
+    # --- byte-identical rerun ---
+    # Necessary but NOT sufficient on its own: hash order is fixed within
+    # one process, so a set iteration would not be detected by a repeat run
+    # (the same reasoning tests/test_perfmon.py records for its own
+    # determinism check). The direct per-key order assertions above are
+    # what actually catch a Counter.most_common()/set-iteration regression.
+    first = analyse_saturation(analysis, thresholds).model_dump_json()
+    second = analyse_saturation(analysis, thresholds).model_dump_json()
+    assert first == second
