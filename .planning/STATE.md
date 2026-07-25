@@ -5,8 +5,8 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 17
 current_phase_name: Multi-Dump Progression & `sift eustack` Report + CSV
 status: planning
-stopped_at: Completed 16-04-PLAN.md
-last_updated: "2026-07-25T20:00:19.855Z"
+stopped_at: Phase 17 context gathered
+last_updated: "2026-07-25T20:20:28.104Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 16 complete, transitioned to Phase 17
 progress:
@@ -337,9 +337,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T19:43:43.218Z
-Stopped at: Completed 16-04-PLAN.md
-Resume file: None
+Last session: 2026-07-25T20:20:28.091Z
+Stopped at: Phase 17 context gathered
+Resume file: .planning/phases/17-multi-dump-progression-sift-eustack-report-csv/17-CONTEXT.md
 
 ## Operator Next Steps
 
