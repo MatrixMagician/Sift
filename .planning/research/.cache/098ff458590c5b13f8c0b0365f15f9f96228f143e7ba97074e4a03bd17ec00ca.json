@@ -1,1 +1,0 @@
-{"content":"tomllib is stdlib since Python 3.11 (PEP 680), read-only (loads/load). Sift's floor is 3.12+ so it is always available with zero new dependency.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-07-25T09:06:12.687Z","ttl":86400000,"kind":"web"}

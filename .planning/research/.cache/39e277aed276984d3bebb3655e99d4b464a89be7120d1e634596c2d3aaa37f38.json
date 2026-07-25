@@ -1,1 +1,0 @@
-{"content":"gdb 'thread apply all bt' / pstack triage classifies threads purely by pattern-matching top frames against known blocking library calls vs application code; GDB itself never reports OS thread state, only frame content.","source":"web","provider":"websearch","confidence":"MEDIUM","fetched_at":"2026-07-25T09:14:44.719Z","ttl":86400000,"kind":"web"}
