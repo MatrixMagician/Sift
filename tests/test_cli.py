@@ -1241,25 +1241,40 @@ def test_show_hypotheses_rejects_filter(monkeypatch: pytest.MonkeyPatch) -> None
 _FIXTURES = Path(__file__).parent / "fixtures"
 
 # (format dir, total events across the bundle, the file with a deliberate
-# unparseable region, a stable substring `show events` renders).
+# unparseable region, a stable substring `show events` renders, an optional
+# single filename to copy instead of the whole format directory).
+#
+# eustack's fixture directory also carries the phase-15 signature-preserving
+# derivative fixture and its (uncollected) derivation script -- neither is
+# part of this curated e2e bundle, so this case scopes the copy to the one
+# file it actually means to ingest (T-05-E2E-eustack-scope).
 _PHASE5_E2E = [
-    ("journald", 15, "basic.json", "emergency shutdown"),
-    ("dsserrors", 14, "node1/DSSErrors.log", "node2/DSSErrors.log"),
-    ("eustack", 6, "threaddump.txt", "clock_nanosleep"),
+    ("journald", 15, "basic.json", "emergency shutdown", None),
+    ("dsserrors", 14, "node1/DSSErrors.log", "node2/DSSErrors.log", None),
+    ("eustack", 6, "threaddump.txt", "clock_nanosleep", "threaddump.txt"),
 ]
 
 
-def _copy_fixture(tmp_path: Path, fmt: str) -> Path:
+def _copy_fixture(tmp_path: Path, fmt: str, *, only: str | None = None) -> Path:
     input_dir = tmp_path / "input"
-    shutil.copytree(_FIXTURES / fmt, input_dir)
+    if only is None:
+        shutil.copytree(_FIXTURES / fmt, input_dir)
+    else:
+        input_dir.mkdir()
+        shutil.copy2(_FIXTURES / fmt / only, input_dir / only)
     return input_dir
 
 
-@pytest.mark.parametrize(("fmt", "total", "unparseable", "shown"), _PHASE5_E2E)
+@pytest.mark.parametrize(("fmt", "total", "unparseable", "shown", "only"), _PHASE5_E2E)
 def test_phase5_e2e_ingest_show_real_coverage_idempotent(
-    tmp_path: Path, fmt: str, total: int, unparseable: str, shown: str
+    tmp_path: Path,
+    fmt: str,
+    total: int,
+    unparseable: str,
+    shown: str,
+    only: str | None,
 ) -> None:
-    input_dir = _copy_fixture(tmp_path, fmt)
+    input_dir = _copy_fixture(tmp_path, fmt, only=only)
     assert runner.invoke(app, ["new", fmt, "--input", str(input_dir)]).exit_code == 0
 
     first = runner.invoke(app, ["ingest", fmt])
