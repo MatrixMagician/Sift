@@ -23,7 +23,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
   `blocked-on-external`, `blocked-on-lock`, `running`, or `unclassified`, driven by a versioned
   rules file that can be edited without touching Python
 
-- [ ] **EUS-02**: User sees unrecognised frames counted and reported as `unclassified` — never
+- [x] **EUS-02**: User sees unrecognised frames counted and reported as `unclassified` — never
   silently bucketed into a known role and never guessed
 
 ### Saturation and contention
@@ -130,7 +130,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | EUS-01 | Phase 15 | Complete |
-| EUS-02 | Phase 15 | Pending |
+| EUS-02 | Phase 15 | Complete |
 | EUS-03 | Phase 16 | Pending |
 | EUS-04 | Phase 16 | Pending |
 | EUS-05 | Phase 16 | Pending |

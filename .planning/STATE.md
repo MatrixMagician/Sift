@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 15
 current_phase_name: thread-role-taxonomy-rules-file
 status: executing
-stopped_at: Completed 15-04-PLAN.md
-last_updated: "2026-07-25T11:14:58.651Z"
+stopped_at: Completed 15-05-PLAN.md
+last_updated: "2026-07-25T11:24:50.934Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 15 (thread-role-taxonomy-rules-file) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 15 execution started
 
@@ -133,6 +133,7 @@ Last activity: 2026-07-25 — Phase 15 execution started
 | Phase 15 P02 | ~10min | 2 tasks | 2 files |
 | Phase 15 P03 | ~9min | 2 tasks | 3 files |
 | Phase 15 P04 | 25min | 2 tasks | 2 files |
+| Phase 15 P05 | ~20min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -247,6 +248,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 15]: 15-03: signature-preserving fixture derived from dump A (chronologically earlier '160739' capture) at cap=1 all signatures + cap=5 for the 3 highest-population by raw thread count (1,715/1,110/247) — 93/93 signatures, 105 threads, 150,475 bytes, matching RESEARCH.md's measured 140-165KB band
 - [Phase ?]: [Phase 15]: 15-03: tests/test_cli.py's phase-5 eustack e2e test scoped to threaddump.txt only via a new _copy_fixture(only=...) parameter — tests/fixtures/eustack/ now holds more than one bundle and whole-directory copytree inflated its expected event count from 6 to 113
 - [Phase ?]: 15-04: rules loader is strict-fail-at-load (pattern normalisation, illegal role, duplicate rule, missing override file) with no path-containment guard, matching the shipped --kb precedent (ADR 0009 to land in 15-06)
+- [Phase ?]: [Phase 15]: 15-05: an unresolvable frame (?? or bare 0x address) is skipped as a match candidate inside classify_signature but stays in the signature tuple; the unclassified residual splits into matched-no-rule vs no-resolvable-frame (D-07), never a sixth role
+- [Phase ?]: [Phase 15]: 15-05: EUS-02 marked complete at the same library level EUS-01 closed at — analysis.unclassified is the full per-signature ranked report D-15 specifies; sift eustack CLI rendering remains Phase 17's job (D-13)
 
 ### Pending Todos
 
@@ -329,8 +332,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T11:14:58.639Z
-Stopped at: Completed 15-04-PLAN.md
+Last session: 2026-07-25T11:24:50.922Z
+Stopped at: Completed 15-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
