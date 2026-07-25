@@ -21,6 +21,7 @@ from sift.pipeline import eustack as _eustack_module
 from sift.pipeline.eustack import (
     LOCK_FINDING_NOTE,
     UNKNOWN_LOCK_SITE,
+    EustackAnalysis,
     SaturationAnalysis,
     analyse_eustack,
     analyse_saturation,
@@ -1075,3 +1076,96 @@ def test_reference_derivative_dependency_split_not_merged() -> None:
     http = saturation.dependencies[1]
     assert warehouse.thread_count != http.thread_count
     assert warehouse.thread_count != (warehouse.thread_count + http.thread_count)
+
+
+# ---------------------------------------------- no_resolvable_frame_pct ---
+# Phase 16 plan 03 (D-07 amended, S-5): the second ratio flag, same
+# thread-weighted denominator as unclassified_thread_pct.
+
+
+def test_no_resolvable_frame_flag_uses_total_thread_denominator() -> None:
+    """Both residual reasons are present and unequal, plus a large body of
+    genuinely classified threads, so the two candidate denominators
+    (total_threads vs unclassified-only) differ by a large factor — proving
+    the denominator choice is tested, not incidental."""
+    no_resolvable_raw = _thread_raw("??", "??")
+    matched_no_rule_raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+    classified_raw = _thread_raw("MSIQTask::GetNextPreferredJob")
+    events = (
+        [_event(no_resolvable_raw, thread=f"n{i}") for i in range(2)]
+        + [_event(matched_no_rule_raw, thread=f"m{i}") for i in range(6)]
+        + [_event(classified_raw, thread=f"c{i}") for i in range(92)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    thresholds = EustackThresholdsConfig()
+    saturation = analyse_saturation(analysis, thresholds)
+
+    flag = next(f for f in saturation.flags if f.dimension == "no_resolvable_frame_pct")
+    total_threads_denominator_value = round(2 / analysis.total_threads * 100, 1)
+    unclassified_only_denominator_value = round(
+        2 / analysis.threads_by_role["unclassified"] * 100, 1
+    )
+    assert total_threads_denominator_value != unclassified_only_denominator_value
+    assert flag.value == total_threads_denominator_value
+    assert flag.value != unclassified_only_denominator_value
+    assert flag.unit == "percent"
+    assert flag.warn == thresholds.no_resolvable_frame_pct.warn
+    assert flag.critical == thresholds.no_resolvable_frame_pct.critical
+
+    # Both ratio flags share the same denominator: recompute each
+    # independently and compare against total_threads.
+    unclassified_flag = next(
+        f for f in saturation.flags if f.dimension == "unclassified_thread_pct"
+    )
+    expected_unclassified = round(
+        analysis.threads_by_role["unclassified"] / analysis.total_threads * 100, 1
+    )
+    assert unclassified_flag.value == expected_unclassified
+
+
+def test_signature_passthrough_reads_eustack_analysis_directly() -> None:
+    """EUS-06: SaturationAnalysis has no field holding a signature list — a
+    future field addition duplicating EustackAnalysis.signatures fails this
+    test rather than passing silently. EustackAnalysis stays frozen,
+    extra="forbid", field set unchanged from Phase 15 (D-10)."""
+    assert set(SaturationAnalysis.model_fields) == {
+        "pools",
+        "lock_sites",
+        "lock_finding_note",
+        "dependencies",
+        "flags",
+    }
+
+    assert EustackAnalysis.model_config.get("frozen") is True
+    assert EustackAnalysis.model_config.get("extra") == "forbid"
+    assert set(EustackAnalysis.model_fields) == {
+        "total_threads",
+        "total_signatures",
+        "threads_by_role",
+        "signatures_by_role",
+        "signatures",
+        "unclassified",
+        "rules_hash",
+        "rules_version",
+        "rules_validated_against",
+    }
+
+    # The ranked collapse remains available and correct on the derivative
+    # fixture, read directly rather than re-derived: 93 signatures, sorted
+    # thread-count descending with ties ascending on the frames tuple, each
+    # group carrying a role.
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    assert len(analysis.signatures) == 93
+    for group in analysis.signatures:
+        assert group.role is not None
+    for earlier, later in zip(
+        analysis.signatures, analysis.signatures[1:], strict=False
+    ):
+        assert (-earlier.thread_count, earlier.frames) <= (
+            -later.thread_count,
+            later.frames,
+        )

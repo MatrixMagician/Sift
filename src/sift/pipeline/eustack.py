@@ -758,6 +758,50 @@ def analyse_saturation(
                 message=f"{unclassified_pct}% of threads are unclassified.",
             )
         )
+        # No-resolvable-frame share: the SECOND flag, inserted between
+        # unclassified share and lock convergence per the fixed authored
+        # order — mcm.compute_flags' precedent is a fixed append order
+        # rather than a sort, so this insertion point is what keeps the
+        # order correct; a later addition in the wrong place would quietly
+        # break it. Divides by the SAME thread-weighted denominator the
+        # unclassified-share flag uses (S-5/D-07 amended), never by
+        # unclassified threads only — this is a distinct quantity from a
+        # symbols-missing problem (obtain symbols) versus a rules-drift
+        # problem (curate a rule), the same two-reason split ADR 0015's
+        # T-15-11 control exists to preserve; one merged figure would
+        # actively mislead which fix applies. Earns a flag under D-07
+        # because it has a non-arbitrary zero point: perfect symbol
+        # resolution.
+        no_resolvable_frame_threads = sum(
+            group.thread_count
+            for group in analysis.unclassified
+            if group.reason == "no-resolvable-frame"
+        )
+        no_resolvable_frame_pct = round(
+            no_resolvable_frame_threads / analysis.total_threads * 100, 1
+        )
+        no_resolvable_severity = cast(
+            "FlagSeverity",
+            _grade(
+                no_resolvable_frame_pct,
+                thresholds.no_resolvable_frame_pct.warn,
+                thresholds.no_resolvable_frame_pct.critical,
+            ),
+        )
+        flags.append(
+            SaturationFlag(
+                dimension="no_resolvable_frame_pct",
+                severity=no_resolvable_severity,
+                value=no_resolvable_frame_pct,
+                unit="percent",
+                warn=thresholds.no_resolvable_frame_pct.warn,
+                critical=thresholds.no_resolvable_frame_pct.critical,
+                message=(
+                    f"{no_resolvable_frame_pct}% of threads have no resolvable "
+                    "frame."
+                ),
+            )
+        )
     # No per-pool occupancy flag is emitted — D-07 forbids it and EUSV2-03 is
     # deferred; no authoritative source exists for "N% busy = warning".
 
