@@ -123,7 +123,15 @@ Plans:
   4. Progression is expressed as signature-population change; no unqualified per-TID causal claim appears, because TID reuse is measured (9 exited / 10 new in 60 s on an idle server)
   5. Re-running the command on an unchanged case produces a byte-identical report and CSV, and CSV string cells carrying C++ symbol text pass the formula-injection guard (`_csv_safe` pattern)
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+
+- [ ] 17-01-PLAN.md — Tracer: `sift eustack` end-to-end on a dumps-only case — report + CSV written, exit 0, byte-identical re-run (EUS-09)
+- [ ] 17-02-PLAN.md — Multi-dump ordering (D-01 timestamp basis, D-02 declared fallback + loud flag) and per-signature population deltas (EUS-07, EUS-08)
+- [ ] 17-03-PLAN.md — Progression rendering, per-dump CSV delta columns, and the byte-identity, formula-injection and ownership-blind gates (EUS-07, EUS-09)
+
+**Planning note**: `analyse_eustack`/`analyse_saturation` have shipped since Phase 15/16 but have **zero CLI callers** — this phase is their first wiring, so the CLI integration is net-new work, not a small addition. Both committed eu-stack fixtures were run through the adapter at plan time: `threaddump.txt` carries a real header timestamp (`ts_confidence="exact"`, exercises D-01) while `reference_capture_derivative.txt` carries none (`"missing"`), and the real out-of-repo two-dump reference capture also carries none — so **D-02 is the path real data exercises**, and D-01 needs the synthetic fixture 17-02 authors.
 
 ### Phase 18: Eu-Stack Facts into `sift analyze`
 
@@ -184,7 +192,7 @@ Plans:
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 5/5 | Complete | 2026-07-20 |
 | 15. Thread-Role Taxonomy & Rules File | v1.3 | 0/6 | Complete    | 2026-07-25 |
 | 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Complete    | 2026-07-25 |
-| 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/? | Not started | - |
+| 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/3 | Planned | - |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Not started | - |
 | 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Not started | - |
 | 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/? | Not started | - |

@@ -47,20 +47,23 @@ All three test modules are **new** for this phase — Wave 0 must create them.
 
 ## Per-Task Verification Map
 
-Task IDs are assigned when plans are written; rows below are keyed by requirement
-and behaviour until then.
+Task IDs assigned 2026-07-25 from the committed `17-0*-PLAN.md` files.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | 1 | EUS-07 | — | N/A | unit | `uv run pytest tests/test_eustack_progression.py -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | EUS-07 | — | Progression text carries no per-TID claim (D-10) | unit | `uv run pytest tests/test_eustack_progression.py -k no_per_tid_claim -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | EUS-08 | — | D-01 path: all dumps timestamped → basis stated, no flag | unit | `uv run pytest tests/test_eustack_progression.py -k order_by_timestamp -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 1 | EUS-08 | — | D-02 path: any dump untimestamped → filename basis stated **and** loud unverified-ordering flag raised; progression still renders | unit | `uv run pytest tests/test_eustack_progression.py -k order_fallback_flagged -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | EUS-09 | T-17-01 | C++ symbol text routed through `_csv_safe`; formula-injection guard holds | unit | `uv run pytest tests/test_eustack_report.py -k csv_safe -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | EUS-09 | — | D-07 identity projection: matched frame + leaf only, never the full frames tuple | unit | `uv run pytest tests/test_eustack_report.py -k identity_projection -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | EUS-09 | — | Standalone contract: case with eu-stack dumps and no DSSErrors log exits 0 with report + CSV | integration (CliRunner) | `uv run pytest tests/test_cli_eustack.py -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | EUS-09 | — | Empty case (no eu-stack dumps) exits 0 with a degraded/empty bundle, mirroring `test_cli_mcm.py:88` / `test_cli_perfmon.py:316` | integration | `uv run pytest tests/test_cli_eustack.py -k empty_case -x` | ❌ W0 | ⬜ pending |
-| TBD | TBD | 2 | EUS-07/08/09 | — | Byte-identical re-run of report and CSV on an unchanged case (D-13) | integration | `uv run pytest tests/test_cli_eustack.py -k byte_identical -x` | ❌ W0 | ⬜ pending |
+| 17-01 T1 (tracer) | 17-01 | 1 | EUS-09 | T-17-03, T-17-04 | Bundle dir derived only from `case_db_path`; no user-supplied path segment | integration (CliRunner) | `uv run pytest tests/test_cli_eustack.py::test_eustack_writes_bundle -x` | ❌ W0 | ⬜ pending |
+| 17-01 T2 | 17-01 | 1 | EUS-09 | T-17-04 | Write failure exits 1 with a sanitised message, no traceback, no partial bundle | integration | `uv run pytest tests/test_cli_eustack.py -k "empty_case or missing_case or bad_format or write_failure" -x` | ❌ W0 | ⬜ pending |
+| 17-01 T2 | 17-01 | 1 | EUS-09 | — | Byte-identical re-run of report and CSV on an unchanged single-dump case (D-13) | integration | `uv run pytest tests/test_cli_eustack.py -k byte_identical -x` | ❌ W0 | ⬜ pending |
+| 17-02 T1 | 17-02 | 2 | EUS-07 | T-17-07 | Fixtures authored, reproducible from the script, free of customer identifiers | unit | `uv run pytest tests/test_cli.py -k phase5_e2e -q` | ✅ exists | ⬜ pending |
+| 17-02 T2 | 17-02 | 2 | EUS-08 | T-17-08 | D-01 path: all dumps timestamped → basis stated, no flag, order differs from filename order | unit | `uv run pytest tests/test_eustack_progression.py -k order_by_timestamp -x` | ❌ W0 | ⬜ pending |
+| 17-02 T2 | 17-02 | 2 | EUS-08 | T-17-08 | D-02 path: any dump untimestamped → filename basis stated **and** loud unverified-ordering flag raised; progression still renders; no timestamp invented | unit | `uv run pytest tests/test_eustack_progression.py -k "order_fallback_flagged or no_timestamp_is_invented" -x` | ❌ W0 | ⬜ pending |
+| 17-02 T3 | 17-02 | 2 | EUS-07 | — | Step deltas and overall delta disagree on the grew-then-shrank case (D-08); ranking is a total order | unit | `uv run pytest tests/test_eustack_progression.py -k "grew_then_shrank or total_order or appeared or vanished" -x` | ❌ W0 | ⬜ pending |
+| 17-02 T3 | 17-02 | 2 | EUS-07 | T-17-09 | Progression text carries no per-TID claim (D-10), non-vacuity guarded | unit | `uv run pytest tests/test_eustack_progression.py -k no_per_tid_claim -x` | ❌ W0 | ⬜ pending |
+| 17-03 T1 | 17-03 | 3 | EUS-07 | — | Changed-only progression section (D-09) with both delta kinds; unchanged signatures retained in the CSV | unit | `uv run pytest tests/test_eustack_report.py -k "only_changed or keeps_unchanged or csv_header or step_and_overall" -x` | ❌ W0 | ⬜ pending |
+| 17-03 T2 | 17-03 | 3 | EUS-09 | T-17-01 | C++ symbol text routed through `_csv_safe`; formula-injection guard holds on a leading-space trigger | unit | `uv run pytest tests/test_eustack_report.py -k csv_safe -x` | ❌ W0 | ⬜ pending |
+| 17-03 T2 | 17-03 | 3 | EUS-09 | T-17-14 | D-07 identity projection: matched frame + leaf only, never the full frames tuple, no hash column | unit | `uv run pytest tests/test_eustack_report.py -k identity_projection -x` | ❌ W0 | ⬜ pending |
+| 17-03 T2 | 17-03 | 3 | EUS-09 | T-17-12, T-17-13 | No forbidden ownership vocabulary and no per-thread claim in any rendered artefact (D-13/D-10) | unit | `uv run pytest tests/test_eustack_report.py -k "ownership_blind or population_phrased" -x` | ❌ W0 | ⬜ pending |
+| 17-03 T2 | 17-03 | 3 | EUS-07/09 | — | Byte-identical re-run of report, JSON and CSV on an unchanged multi-dump case (D-13) | integration | `uv run pytest tests/test_cli_eustack.py -k multi_dump -x` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
