@@ -99,6 +99,5 @@
     "enabled": true,
     "auto_update": true
   },
-  "resolve_model_ids": "omit",
   "context_window": 1000000
 }
