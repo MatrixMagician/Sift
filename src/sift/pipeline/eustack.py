@@ -220,6 +220,97 @@ def _is_resolvable(symbol: str) -> bool:
     return _BARE_ADDRESS_RE.match(symbol) is None
 
 
+# --- Lock-site attribution (Phase 16 EUS-04, D-03/D-04) ---
+#
+# A lock "site" is the ENCLOSING APPLICATION FRAME, never the leaf: the
+# shipped `blocked-on-lock` rule is a `contains` match on `__lll_lock_wait`
+# (a glibc leaf), so `SignatureGroup.frame_index` points at glibc. Reporting
+# the leaf would attribute every contention finding to the same futex symbol
+# and tell an engineer nothing — the walk below is what makes the finding
+# actionable.
+
+# D-04 AMENDED denylist evidence: counted over the real reference capture,
+# ~110 distinct top-level namespaces appear and exactly two are third-party
+# (`std::` 14 frames, `boost::` 10); `__gnu_cxx::` and `abi::` are defensive
+# entries for the same libstdc++/libgcc family. Every other top-level
+# namespace — `MSynch::`, `CDSSQueryEngine::`, `MSIThread::`,
+# `MSIThreadPoolTask::`, `MCE::`, `MDb::` and so on — is MicroStrategy, which
+# is why this is a denylist of four rather than an allowlist of ~110 that
+# would grow with every build.
+_RUNTIME_NAMESPACES: tuple[str, ...] = ("std::", "boost::", "__gnu_cxx::", "abi::")
+
+# D-04 edge case 1: no qualifying frame above the leaf is unknown-but-counted
+# — never dropped, never attributed to the leaf. A `str | None` site field
+# would make the `(-thread_count, site)` sort key raise `TypeError` when
+# `None` and `str` are compared (16-RESEARCH.md Pitfall 4); substituting this
+# sentinel at construction keeps `LockSite.site` typed `str` and the sort key
+# total. Plain British English, no digits, none of the three D-05-prohibited
+# terms.
+UNKNOWN_LOCK_SITE: str = "no application call site resolved above the lock wait"
+
+# D-05: the ownership-blind label carried on SaturationAnalysis and emitted
+# at the point of reporting. States that the finding is a count of threads
+# observed at a site, and that eu-stack output carries no lock-acquisition
+# edges, so nothing beyond the site itself can be established. Written
+# around the three prohibited terms, never paraphrasing them.
+LOCK_FINDING_NOTE: str = (
+    "This finding is a count of threads observed waiting at a lock site. "
+    "eu-stack output carries no lock-acquisition edges, so nothing beyond "
+    "the site and the thread count can be established from this data alone."
+)
+
+
+def enclosing_application_frame(
+    frames: tuple[str, ...], frame_index: int
+) -> str | None:
+    """D-03/D-04: the first resolvable, non-runtime, `::`-qualified frame
+    ABOVE `frame_index` (the classification's own reported index, never a
+    fresh re-scan — D-04 edge case 5).
+
+    "Above" means INCREASING index: `iter_frames()` yields `#1`, `#2`, `#3`…
+    from leaf toward the thread entry point — see
+    `test_tracer_thread_block_classifies_via_packaged_rules`'s worked
+    example (`#0` leaf pthread_cond_timedwait -> `#3` the classifying frame
+    -> `#4` MSIThread::Run(), the entry point). `frames[frame_index + 1:]` is
+    therefore the walk, and a slice past the end of the tuple is empty, not
+    an error — exactly how D-04 edge case 4 (the leaf is the last frame)
+    resolves to `None` with no bounds check.
+
+    An unresolvable frame (`_is_resolvable()`, reused rather than
+    re-implemented) is walked PAST, never a stopping point (D-04 edge case
+    2). `str.startswith(_RUNTIME_NAMESPACES)` gives the LEADING-namespace
+    test for free — a prefix test, never a substring test — so a genuine
+    `MBase::` frame nested inside a `std::` template argument list such as
+    `std::thread::_State_impl<std::tuple<MBase::ThreadedRepeater...>>` is
+    judged on its leading `std::` (correctly a runtime frame) while a frame
+    whose own leading namespace is `MBase::` and which merely mentions
+    `std::` inside its template arguments is correctly kept (D-04 edge
+    case 3).
+
+    `frames` entries are already `normalise()`d by `signature_of()` — this
+    walk never re-normalises them; two code paths that should agree but are
+    never compared is how a normalisation bug hides.
+
+    Known, accepted imprecision (recorded openly, following ADR 0015's own
+    precedent): the denylist covers the two third-party namespaces measured
+    in the reference capture, so a C++-runtime namespace outside those four
+    would still be reported as a site.
+
+    Returns `None` when no such frame exists — the caller substitutes
+    `UNKNOWN_LOCK_SITE` (D-04 edge case 1: unknown-but-counted, never
+    dropped, never attributed to the leaf).
+    """
+    for frame in frames[frame_index + 1 :]:
+        if not _is_resolvable(frame):
+            continue
+        if "::" not in frame:
+            continue
+        if frame.startswith(_RUNTIME_NAMESPACES):
+            continue
+        return frame
+    return None
+
+
 def classify_signature(
     signature: tuple[str, ...], rules: ThreadRoleRules
 ) -> Classification:

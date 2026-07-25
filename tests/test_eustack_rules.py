@@ -22,6 +22,7 @@ from sift.pipeline.eustack import (
     analyse_eustack,
     analyse_saturation,
     classify_signature,
+    enclosing_application_frame,
     load_rules,
     normalise,
     signature_of,
@@ -745,3 +746,109 @@ def test_deterministic_pool_ordering() -> None:
     first = analyse_saturation(analysis, EustackThresholdsConfig()).model_dump_json()
     second = analyse_saturation(analysis, EustackThresholdsConfig()).model_dump_json()
     assert first == second
+
+
+# ------------------------------------------------- enclosing_application_frame ---
+# Phase 16 plan 02 (EUS-04): the D-04 lock-site enclosing-frame walk.
+
+
+def test_lock_site_walk_finds_enclosing_application_frame() -> None:
+    """The walk goes toward INCREASING index and stops at the FIRST
+    qualifying frame, not the outermost."""
+    frames = (
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MSynch::CriticalSection::Enter",
+        "MSIQTask::Execute",
+    )
+    assert (
+        enclosing_application_frame(frames, 0) == "MSynch::CriticalSection::Enter"
+    )
+
+
+def test_lock_site_skips_runtime_namespace() -> None:
+    """Real fixture shapes (tests/fixtures/eustack/reference_capture_derivative.txt):
+    TID 100014 (lines 113-120) carries a std::condition_variable::wait(...)
+    runtime frame directly above the futex wait, and TID 100011 (lines 86-93)
+    carries several boost::asio::detail::... runtime frames — in both cases
+    the walk must skip past the runtime frame(s) to the genuine MicroStrategy
+    application frame beneath, not stop at the first '::'-qualified frame."""
+    std_frames = (
+        "__lll_lock_wait",
+        "pthread_cond_wait",
+        "std::condition_variable::wait(std::unique_lock<std::mutex>&)",
+        "ParallelBursting::ThreadPool::WorkLoop(unsigned long)",
+    )
+    assert (
+        enclosing_application_frame(std_frames, 0)
+        == "ParallelBursting::ThreadPool::WorkLoop(unsigned long)"
+    )
+
+    boost_frames = (
+        "__lll_lock_wait",
+        "pthread_cond_wait",
+        "boost::asio::detail::scheduler::do_run_one("
+        "boost::asio::detail::conditionally_enabled_mutex::scoped_lock&, "
+        "boost::asio::detail::scheduler_thread_info&, "
+        "boost::system::error_code const&)",
+        "boost::asio::detail::scheduler::run(boost::system::error_code&)",
+        "ParallelBursting::ThreadPool::WorkLoop(unsigned long)",
+    )
+    assert (
+        enclosing_application_frame(boost_frames, 0)
+        == "ParallelBursting::ThreadPool::WorkLoop(unsigned long)"
+    )
+
+
+def test_lock_site_template_arg_not_misjudged() -> None:
+    """D-04 edge case 3: the denylist test is applied to the symbol's LEADING
+    namespace, not 'contains std:: anywhere' — a genuine MBase:: frame with a
+    std:: template argument is kept; a genuine std:: frame with an MBase::
+    template argument is skipped. Both directions of the same prefix rule."""
+    mbase_leading = (
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MBase::ThreadedRepeater<std::chrono::duration<long> >::Run()",
+    )
+    assert (
+        enclosing_application_frame(mbase_leading, 0)
+        == "MBase::ThreadedRepeater<std::chrono::duration<long> >::Run()"
+    )
+
+    std_leading = (
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "std::thread::_State_impl<std::tuple<MBase::ThreadedRepeater> >::_M_run()",
+    )
+    assert enclosing_application_frame(std_leading, 0) is None
+
+
+def test_lock_site_unknown_but_counted() -> None:
+    """D-04 edge cases 1, 2 and 4: no qualifying frame above the leaf, in
+    three different shapes, all resolve to None (unknown-but-counted at the
+    caller, never dropped, never attributed to the leaf)."""
+    # No frame above the leaf carries '::' at all — unqualified C symbols.
+    all_c_symbols = ("__lll_lock_wait", "pthread_mutex_lock", "malloc")
+    assert enclosing_application_frame(all_c_symbols, 0) is None
+
+    # The leaf is the LAST frame in the tuple — empty slice, no IndexError.
+    leaf_is_last = ("__lll_lock_wait",)
+    assert enclosing_application_frame(leaf_is_last, 0) is None
+
+    # Only unresolvable frames above the leaf — walked past, not a stop.
+    only_unresolvable = ("__lll_lock_wait", "??", "0x00007f0000000001")
+    assert enclosing_application_frame(only_unresolvable, 0) is None
+
+
+def test_lock_site_walk_starts_at_reported_frame_index() -> None:
+    """D-04 edge case 5: multiple __lll_lock_wait frames in one stack — the
+    walk starts from the classification's reported frame_index, never a
+    fresh re-scan of the tuple for the first leaf."""
+    frames = (
+        "__lll_lock_wait",
+        "MSynch::First::Enter",
+        "__lll_lock_wait",
+        "MSynch::Second::Enter",
+    )
+    assert enclosing_application_frame(frames, 0) == "MSynch::First::Enter"
+    assert enclosing_application_frame(frames, 2) == "MSynch::Second::Enter"
