@@ -19,6 +19,7 @@ from sift.config import EustackThresholdsConfig
 from sift.models import Event
 from sift.pipeline import eustack as _eustack_module
 from sift.pipeline.eustack import (
+    LOCK_FINDING_NOTE,
     UNKNOWN_LOCK_SITE,
     SaturationAnalysis,
     analyse_eustack,
@@ -571,11 +572,14 @@ def test_derivative_coverage_is_disclosed_not_inflated() -> None:
     assert classified_frames.isdisjoint(unclassified_frames)
 
 
-def test_no_ownership_attributed_lock_language_in_shipped_surface() -> None:
-    """The lock-ownership term REQUIREMENTS.md's Out of Scope table names as
-    a permanent non-goal appears nowhere in the shipped rules file or
-    classifier module. Read from REQUIREMENTS.md at runtime rather than
-    hardcoded, so the test cannot itself become the only place it's typed."""
+def test_ownership_blind_vocabulary_absent_from_source_and_emitted_output() -> None:
+    """D-05: the three-term lock-ownership prohibition is asserted BOTH over
+    shipped source text (the original Phase 15 half, byte-for-byte
+    unchanged) AND over strings Phase 16 actually EMITS at runtime (S-7) —
+    a behaviour assertion strictly stronger than a source grep. Renamed from
+    test_no_ownership_attributed_lock_language_in_shipped_surface so the
+    -k ownership_blind selector (16-VALIDATION.md) matches it.
+    """
     requirements_text = _REQUIREMENTS_MD.read_text(encoding="utf-8")
     match = re.search(r'the word "(\w+)"', requirements_text)
     assert match is not None, "REQUIREMENTS.md must name the forbidden term"
@@ -594,6 +598,65 @@ def test_no_ownership_attributed_lock_language_in_shipped_surface() -> None:
 
     assert forbidden_term.lower() not in rules_toml.lower()
     assert forbidden_term.lower() not in classifier_source.lower()
+
+    # --- S-7: extend the prohibition to all three D-05 terms, over EMITTED
+    # OUTPUT rather than source text. src/sift/rules/eustack_roles.toml
+    # carries "holder" in a prose comment describing the non-goal
+    # (documentation, not output), which is why the whole-source grep above
+    # stays scoped to the single REQUIREMENTS.md-named term while the
+    # three-term prohibition below is enforced over strings the code
+    # actually emits.
+    prohibited_terms = (forbidden_term, "owner", "holder")
+
+    rules, rules_hash = load_rules()
+
+    # Real derivative fixture: the healthy capture, zero lock matches by
+    # design — still contributes its non-lock SaturationFlag messages.
+    derivative_events = _parse_derivative_fixture()
+    derivative_analysis = analyse_eustack(derivative_events, rules, rules_hash)
+    derivative_saturation = analyse_saturation(
+        derivative_analysis, EustackThresholdsConfig()
+    )
+
+    # Synthetic lock-convergence scenario (D-11) so lock-specific emitted
+    # strings are genuinely present in the candidate set, not trivially
+    # absent because no LockSite/lock flag was ever produced.
+    lock_raw = _thread_raw(
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MSynch::CriticalSection::Enter",
+        "Alpha::Caller",
+    )
+    lock_events = [_event(lock_raw, thread=f"t{i}") for i in range(5)]
+    lock_analysis = analyse_eustack(lock_events, rules, rules_hash)
+    lock_saturation = analyse_saturation(lock_analysis, EustackThresholdsConfig())
+    assert lock_saturation.lock_sites, (
+        "synthetic scenario must actually produce a lock site"
+    )
+    has_lock_flag = any(
+        f.dimension == "lock_convergence_count" for f in lock_saturation.flags
+    )
+    assert has_lock_flag, "synthetic scenario must actually produce a lock flag"
+
+    candidates: list[str] = [LOCK_FINDING_NOTE, UNKNOWN_LOCK_SITE]
+    for saturation in (derivative_saturation, lock_saturation):
+        candidates.extend(site.site for site in saturation.lock_sites)
+        candidates.extend(flag.message for flag in saturation.flags)
+
+    # Non-vacuity guard (mirrors the eval gate's empty-positive-set check):
+    # a refactor that stops emitting these strings must not turn this test
+    # vacuously green.
+    assert candidates, "candidate string set must be non-empty"
+
+    for candidate in candidates:
+        for term in prohibited_terms:
+            # Word-boundary matched: a bare substring test would false-
+            # positive on an innocuous word ending in the same letters
+            # (e.g. "placeholder" containing "holder").
+            found = re.search(rf"\b{re.escape(term)}\b", candidate, re.IGNORECASE)
+            assert found is None, (
+                f"prohibited term {term!r} found in emitted string {candidate!r}"
+            )
 
 
 # ------------------------------------------------------- analyse_saturation ---
