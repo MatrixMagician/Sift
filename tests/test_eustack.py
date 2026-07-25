@@ -17,6 +17,7 @@ from sift.adapters.base import ParseStats
 from sift.adapters.eustack import (
     MAX_EVENT_LINES,
     EustackAdapter,
+    iter_frames,
 )
 from sift.models import Event
 
@@ -225,3 +226,42 @@ def test_no_emitted_severity_outside_check_set() -> None:
     allowed = {"fatal", "error", "warn", "info", "debug", "unknown"}
     events, _ = run_parse(FIXTURES, "threaddump.txt")
     assert {e.severity for e in events} <= allowed
+
+
+# ------------------------------------------------------------ iter_frames ---
+# Shared with sift.pipeline.eustack (D-08): a pure function over str, so
+# called directly here with no EustackAdapter instance.
+
+
+def test_iter_frames_yields_index_and_full_symbol() -> None:
+    raw = (
+        "TID 715821:\n"
+        "#0  0x00007f0000000001 alpha\n"
+        "#1  0x00007f0000000002 beta\n"
+        "#2  0x00007f0000000003 gamma - libcastor.so worker.cpp:412\n"
+    )
+    frames = list(iter_frames(raw))
+    assert frames == [
+        (0, "alpha"),
+        (1, "beta"),
+        # The lib/source tail survives verbatim — stripping it is the
+        # normaliser's job, not the splitter's.
+        (2, "gamma - libcastor.so worker.cpp:412"),
+    ]
+
+
+def test_iter_frames_on_capped_raw_yields_fewer_frames() -> None:
+    full = "TID 100:\n" + "".join(
+        f"#{i}  0x00007f0000000001 deep_frame\n" for i in range(400)
+    )
+    capped = "TID 100:\n" + "".join(
+        f"#{i}  0x00007f0000000001 deep_frame\n" for i in range(50)
+    )
+    full_frames = list(iter_frames(full))
+    capped_frames = list(iter_frames(capped))
+    assert len(capped_frames) < len(full_frames)
+
+
+def test_iter_frames_ignores_non_frame_lines() -> None:
+    raw = "TID 715821:\npreamble noise\n#0  0x00007f0000000001 alpha\n"
+    assert list(iter_frames(raw)) == [(0, "alpha")]

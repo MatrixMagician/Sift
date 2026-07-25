@@ -45,6 +45,10 @@ def test_tracer_thread_block_classifies_via_packaged_rules() -> None:
 # ------------------------------------------------------------- normalise ---
 
 
+# The reference capture carries these three symbols with a SINGLE `@` before
+# the GLIBC version, not only the double-`@@` form CONTEXT.md D-05 is worded
+# around (orchestrator-verified correction) — do not "fix" normalise() back
+# to an `@@`-only split, or these three go build-brittle again.
 def test_single_at_glibc_suffix_is_stripped() -> None:
     for symbol, expected in (
         ("clock_nanosleep@GLIBC_2.2.5", "clock_nanosleep"),
