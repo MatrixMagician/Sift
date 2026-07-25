@@ -813,6 +813,27 @@ class CaseStore:
                 f"server returned {dim}"
             )
 
+    def record_embedding_batch_knobs(
+        self, *, context: int, batch_size: int, max_input_chars: int
+    ) -> None:
+        """Record the embedding batch-layout knobs actually used, as meta (0014).
+
+        Batch composition perturbs the embedding vectors well above float32
+        noise (`.planning/todos/pending/2026-07-21-embedding-batch-composition-
+        determinism.md`, ADR 0014), so the layout must be recoverable from the
+        case to make a divergent re-run diagnosable.
+
+        Deliberately does NOT mirror :meth:`record_embedding_identity`'s
+        mismatch guard: an unconditional overwrite, no read, no comparison, no
+        raise. Unlike the model/dim identity (which should not silently
+        change), these three knobs legitimately vary between runs as ordinary
+        reconfiguration — hard-failing on a changed value would make a
+        re-analyze impossible after any config tweak.
+        """
+        self.set_meta("embedding_context", str(context))
+        self.set_meta("embedding_batch_size", str(batch_size))
+        self.set_meta("embedding_max_input_chars", str(max_input_chars))
+
     def upsert_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
         """Write (chunk_id, embedding) pairs, replacing any prior vector.
 

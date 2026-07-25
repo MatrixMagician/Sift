@@ -382,6 +382,14 @@ def cluster_and_label(
         model = client.embedding_model
         if model is not None:
             store.record_embedding_identity(model, dim)
+        # 0014: recorded unconditionally (unlike the identity above) — the
+        # batch-layout knobs are known from the client even when the model
+        # identity is not (D-03).
+        store.record_embedding_batch_knobs(
+            context=client.embedding_context,
+            batch_size=client.embedding_batch_size,
+            max_input_chars=client.embedding_max_input_chars,
+        )
         store.upsert_vectors(vector_rows)
         store.replace_chunks(chunks)
         store.replace_clusters(clusters)

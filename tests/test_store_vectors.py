@@ -170,6 +170,30 @@ def test_record_embedding_identity_guards_dim(tmp_path: Path) -> None:
         store.close()
 
 
+def test_record_embedding_batch_knobs_overwrites_without_raising(
+    tmp_path: Path,
+) -> None:
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        store.record_embedding_batch_knobs(
+            context=8192, batch_size=64, max_input_chars=8000
+        )
+        assert store.get_meta("embedding_context") == "8192"
+        assert store.get_meta("embedding_batch_size") == "64"
+        assert store.get_meta("embedding_max_input_chars") == "8000"
+        # These knobs legitimately change between runs (0014) — unlike
+        # record_embedding_identity's dim mismatch guard, a changed value must
+        # overwrite cleanly and never wedge a re-analyze.
+        store.record_embedding_batch_knobs(
+            context=32768, batch_size=32, max_input_chars=4000
+        )
+        assert store.get_meta("embedding_context") == "32768"
+        assert store.get_meta("embedding_batch_size") == "32"
+        assert store.get_meta("embedding_max_input_chars") == "4000"
+    finally:
+        store.close()
+
+
 # --- Task 3: replace_clusters + query + defensive reads -------------------
 
 

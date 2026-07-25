@@ -298,6 +298,35 @@ def test_embedding_model_falls_back_to_configured() -> None:
     assert client.embedding_model == "configured-embed"
 
 
+def test_embedding_batch_knob_properties_return_constructed_values() -> None:
+    # Case-meta provenance (0014): the knob properties must expose exactly what
+    # the constructor was given, so recording them off the client instance
+    # records what the embed pass actually used.
+    client = _client(
+        lambda request: httpx.Response(200, json={"data": []}),
+        batch_size=10,
+        max_input_chars=500,
+        context=4096,
+    )
+    assert client.embedding_context == 4096
+    assert client.embedding_batch_size == 10
+    assert client.embedding_max_input_chars == 500
+
+
+def test_embedding_batch_knob_properties_return_clamped_values() -> None:
+    # The properties must mirror the existing max(1, ...) normalisation, not
+    # the raw constructor argument — what is recorded is what is actually used.
+    client = _client(
+        lambda request: httpx.Response(200, json={"data": []}),
+        batch_size=0,
+        max_input_chars=-5,
+        context=0,
+    )
+    assert client.embedding_context == 1
+    assert client.embedding_batch_size == 1
+    assert client.embedding_max_input_chars == 1
+
+
 # --- chat (LLM-01) ------------------------------------------------------------
 
 

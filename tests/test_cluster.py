@@ -248,6 +248,33 @@ def test_cluster_persists_vectors_and_chunks(tmp_path: Path) -> None:
         store.close()
 
 
+def test_cluster_records_batch_knobs_even_without_model_identity(
+    tmp_path: Path,
+) -> None:
+    """0014: knobs are recorded even on the D-03 model-is-None path."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        http = httpx.Client(transport=httpx.MockTransport(_embed_handler()))
+        ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=None)
+        client = InferenceClient(
+            ep,
+            ep,
+            http,
+            backoff_base=0.0,
+            batch_size=2,
+            max_input_chars=100,
+            context=123,
+        )
+        cluster.cluster_and_label(store, client, ClusteringConfig())
+        assert store.get_meta("embedding_model") is None
+        assert store.get_meta("embedding_context") == "123"
+        assert store.get_meta("embedding_batch_size") == "2"
+        assert store.get_meta("embedding_max_input_chars") == "100"
+    finally:
+        store.close()
+
+
 def test_failure_mid_transaction_does_not_lock_dimension(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
