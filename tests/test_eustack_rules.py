@@ -23,6 +23,7 @@ from sift.pipeline.eustack import (
     UNKNOWN_LOCK_SITE,
     EustackAnalysis,
     SaturationAnalysis,
+    SignatureGroup,
     analyse_eustack,
     analyse_saturation,
     classify_signature,
@@ -31,6 +32,11 @@ from sift.pipeline.eustack import (
     normalise,
     signature_of,
 )
+
+# Shared, not copied (D-08): _grade is imported here ONLY to independently
+# recompute expected severity in test_every_flag_family_prints_value_beside_
+# threshold — never to change how analyse_saturation() itself grades.
+from sift.pipeline.mcm import _grade  # pyright: ignore[reportPrivateUsage]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eustack"
 _REQUIREMENTS_MD = (
@@ -1304,3 +1310,213 @@ def test_deterministic_ordering_across_every_grouping() -> None:
     first = analyse_saturation(analysis, thresholds).model_dump_json()
     second = analyse_saturation(analysis, thresholds).model_dump_json()
     assert first == second
+
+
+# ---------------------------------------------------- D-09 zero-flags gate ---
+# Phase 16 plan 04: the D-09 verification gate on the SHIPPED defaults, split
+# across two tests per S-8, plus the Success Criterion 5 value-beside-
+# threshold proof across all three flag families.
+
+
+def test_reference_derivative_zero_flags() -> None:
+    """S-8: the committed derivative fixture is signature-preserving, NOT
+    thread-weight-preserving. Its cap policy (1 thread per signature, 5 for
+    the three highest-population signatures) deflates the classified thread
+    population by roughly 3,000 threads while leaving the unclassified
+    population (40 of 93 signatures) nearly intact — inflating the
+    unclassified THREAD share from the real capture's 52/3,902 = 1.33% to
+    this fixture's 40/105 = 38.10%, a 28-fold inflation caused by the cap
+    policy, not by any real rules-drift signal.
+
+    `unclassified_thread_pct` is therefore deliberately EXCLUDED from this
+    half of the D-09 gate — `test_measured_reference_composition_raises_
+    zero_flags` covers it instead, against the real capture's MEASURED
+    composition. Raising `EustackThresholdsConfig.unclassified_thread_pct.
+    warn` above 38.1% to make this fixture read `info` was considered and
+    REJECTED (16-04-PLAN.md S-8): that would ship a threshold calibrated
+    against a fixture's cap policy rather than against a server, making the
+    flag nearly useless against a real 40%+ rules-drift population. Do not
+    "fix" this test by loosening the shipped default.
+
+    This test covers the two flag families the derivative CAN faithfully
+    exercise: `no_resolvable_frame_pct` (genuinely 0.0% here — every
+    derivative thread resolved to a real symbol) and `lock_convergence_count`
+    (genuinely zero sites — Rule 6, the sole `blocked-on-lock` rule, matches
+    this healthy capture zero times by design)."""
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    # EustackThresholdsConfig() with NO arguments: this gate runs the
+    # SHIPPED defaults, never a test-local override.
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    no_resolvable_flag = next(
+        f for f in saturation.flags if f.dimension == "no_resolvable_frame_pct"
+    )
+    assert no_resolvable_flag.severity == "info"
+
+    assert not any(f.dimension == "lock_convergence_count" for f in saturation.flags)
+
+    unclassified_flag = next(
+        f for f in saturation.flags if f.dimension == "unclassified_thread_pct"
+    )
+    assert unclassified_flag.value == 38.1
+
+
+def test_measured_reference_composition_raises_zero_flags() -> None:
+    """The real D-09 gate: the healthy reference capture's MEASURED
+    composition — 3,902 threads, 52 unclassified (1.33%, reason=
+    'matched-no-rule'), zero no-resolvable-frame threads, zero
+    blocked-on-lock signatures, ~3,400 of the 3,850 classified threads
+    parked in the headline job-queue pool — raises ZERO flags above `info`
+    against the SHIPPED `EustackThresholdsConfig()` defaults. Figures are
+    ADR 0015's Day-one coverage figures and 16-CONTEXT.md's Specific Ideas
+    section, both measured UPSTREAM of `analyse_saturation()`, never
+    reverse-engineered from it.
+
+    `EustackAnalysis` is constructed DIRECTLY rather than synthesising 3,902
+    raw thread blocks: `EustackAnalysis` is `analyse_saturation()`'s public,
+    frozen input contract (D-10), so building it at the real capture's
+    measured shape exercises the unit under test at the correct level
+    without a multi-thousand-line synthetic fixture that would itself need
+    its own provenance labelling."""
+    job_queue = SignatureGroup(
+        frames=("MSIQTask::GetNextPreferredJob",),
+        thread_count=3400,
+        role="idle-parked",
+        subsystem="job-queue",
+        pattern="MSIQTask::GetNextPreferredJob",
+        frame_index=3,
+        reason=None,
+    )
+    warehouse = SignatureGroup(
+        frames=("CDSSQueryEngine::WaitUntilFinished",),
+        thread_count=79,
+        role="blocked-on-external",
+        subsystem="warehouse",
+        pattern="CDSSQueryEngine::WaitUntilFinished",
+        frame_index=0,
+        reason=None,
+    )
+    http = SignatureGroup(
+        frames=("curl_multi_poll",),
+        thread_count=78,
+        role="blocked-on-external",
+        subsystem="http",
+        pattern="curl_multi_poll",
+        frame_index=0,
+        reason=None,
+    )
+    compute = SignatureGroup(
+        frames=("_shi_allocBlock",),
+        thread_count=293,
+        role="running",
+        subsystem="compute",
+        pattern="_shi_allocBlock",
+        frame_index=0,
+        reason=None,
+    )
+    unclassified = SignatureGroup(
+        frames=("SomeUnrecognisedFrame::Body",),
+        thread_count=52,
+        role="unclassified",
+        subsystem=None,
+        pattern=None,
+        frame_index=None,
+        reason="matched-no-rule",
+    )
+    analysis = EustackAnalysis(
+        total_threads=3902,
+        total_signatures=5,
+        threads_by_role={
+            "idle-parked": 3400,
+            "blocked-on-external": 157,
+            "blocked-on-lock": 0,
+            "running": 293,
+            "unclassified": 52,
+        },
+        signatures_by_role={
+            "idle-parked": 1,
+            "blocked-on-external": 2,
+            "blocked-on-lock": 0,
+            "running": 1,
+            "unclassified": 1,
+        },
+        signatures=(job_queue, warehouse, http, compute, unclassified),
+        unclassified=(unclassified,),
+        rules_hash="0" * 16,
+        rules_version=1,
+        rules_validated_against="measured-reference-capture",
+    )
+
+    # EustackThresholdsConfig() with NO arguments: the SHIPPED defaults are
+    # the gate under test; a test-local override would disconnect this test
+    # from what actually ships.
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    assert saturation.flags, "flag list must be non-empty to be a real gate"
+    for flag in saturation.flags:
+        assert flag.severity == "info", (
+            f"{flag.dimension} graded {flag.severity!r} against the shipped "
+            "defaults on the real capture's measured composition (D-09)"
+        )
+
+    unclassified_flag = next(
+        f for f in saturation.flags if f.dimension == "unclassified_thread_pct"
+    )
+    assert unclassified_flag.value == 1.3
+
+    no_resolvable_flag = next(
+        f for f in saturation.flags if f.dimension == "no_resolvable_frame_pct"
+    )
+    assert no_resolvable_flag.value == 0.0
+
+    assert not any(f.dimension == "lock_convergence_count" for f in saturation.flags)
+
+
+def test_every_flag_family_prints_value_beside_threshold() -> None:
+    """Success Criterion 5, all three flag families in one pass: every graded
+    flag's `value` travels beside its own `warn`/`critical` cut-points
+    (never re-read from config) with the matching `unit`, and `severity` is
+    exactly what an INDEPENDENT recompute of `_grade(value, warn, critical)`
+    in this test says it should be — a flag whose own severity disagrees
+    with its own printed figures fails this test."""
+    idle_raw = _thread_raw("MSIQTask::GetNextPreferredJob")
+    no_resolvable_raw = _thread_raw("??", "??")
+    matched_no_rule_raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+    lock_raw = _thread_raw(
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MSynch::CriticalSection::Enter",
+        "Alpha::Caller",
+    )
+    events = (
+        [_event(idle_raw, thread=f"i{i}") for i in range(100)]
+        + [_event(no_resolvable_raw, thread=f"n{i}") for i in range(2)]
+        + [_event(matched_no_rule_raw, thread=f"m{i}") for i in range(3)]
+        + [_event(lock_raw, thread=f"l{i}") for i in range(5)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    thresholds = EustackThresholdsConfig()
+    saturation = analyse_saturation(analysis, thresholds)
+
+    assert saturation.flags, "flag list must be non-empty before iterating"
+    dimensions = {f.dimension for f in saturation.flags}
+    assert dimensions == {
+        "unclassified_thread_pct",
+        "no_resolvable_frame_pct",
+        "lock_convergence_count",
+    }
+
+    for flag in saturation.flags:
+        assert isinstance(flag.value, float)
+        expected_pair = getattr(thresholds, flag.dimension)
+        assert flag.warn == expected_pair.warn
+        assert flag.critical == expected_pair.critical
+        expected_unit = (
+            "threads" if flag.dimension == "lock_convergence_count" else "percent"
+        )
+        assert flag.unit == expected_unit
+        expected_severity = _grade(flag.value, flag.warn, flag.critical)
+        assert flag.severity == expected_severity
