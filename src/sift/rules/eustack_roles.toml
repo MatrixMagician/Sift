@@ -24,8 +24,7 @@
 #
 # Lock findings are ownership-blind by construction: eu-stack carries no
 # monitor-ownership edges, so contention can be observed but never attributed
-# to a holder, and deadlock detection is a permanent non-goal (see
-# docs/decisions/0015-eustack-thread-role-taxonomy.md).
+# to a holder (see docs/decisions/0015-eustack-thread-role-taxonomy.md).
 #
 # Do NOT add a catch-all or generic ancestor-frame rule (e.g. a bare
 # `MSIThread::Run`) to inflate coverage. `unclassified` is the sole residual

@@ -8,6 +8,7 @@ synthetic capture with no MicroStrategy frames, so it cannot carry this proof.
 """
 
 import importlib.resources
+import re
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,9 @@ from sift.pipeline.eustack import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eustack"
+_REQUIREMENTS_MD = (
+    Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
+)
 
 # TID 4242: pthread_cond_timedwait@@GLIBC_2.3.2 (idle wait) ->
 # Semaphore::SmartLock::WaitForResource -> MSIQTask::WaitForWork ->
@@ -476,3 +480,112 @@ def test_preamble_events_are_excluded_from_counts() -> None:
     rules, rules_hash = load_rules()
     analysis = analyse_eustack(events, rules, rules_hash)
     assert analysis.total_threads < len(events)
+
+
+# ---------------------------------------------------- 24-rule taxonomy ---
+
+
+def test_reference_derivative_headline_signature() -> None:
+    """EUS-01 criterion 4, CI half: the MSIQTask::GetNextPreferredJob
+    population — the exact composition-blind false positive v1.3 exists to
+    eliminate — reads idle-parked/job-queue at frame index 3, never a
+    blocked role."""
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    group = next(
+        g
+        for g in analysis.signatures
+        if any("MSIQTask::GetNextPreferredJob" in frame for frame in g.frames)
+    )
+    assert group.role == "idle-parked"
+    assert group.subsystem == "job-queue"
+    assert group.pattern == "MSIQTask::GetNextPreferredJob"
+    assert group.frame_index == 3
+    assert group.role != "blocked-on-external"
+    assert group.role != "blocked-on-lock"
+
+
+def test_running_rule_precedes_evaluation_ancestor_rule(tmp_path: Path) -> None:
+    """D-01 ordering regression: a stack containing BOTH a running-rule frame
+    and, deeper, the shared-ancestor MSIEvaluationTask::Run frame classifies
+    running under the packaged order, and idle-parked under the reversed
+    order — proving the packaged order is the cause, not a coincidence."""
+    busy_raw = _thread_raw("_shi_allocBlock", "MSIEvaluationTask::Run")
+    signature = signature_of(busy_raw)
+
+    packaged_rules, _ = load_rules()
+    packaged_result = classify_signature(signature, packaged_rules)
+    assert packaged_result.role == "running"
+    assert packaged_result.pattern == "_shi_allocBlock"
+
+    reversed_path = tmp_path / "reversed.toml"
+    reversed_path.write_text(
+        _META
+        + '[[rule]]\nrole = "idle-parked"\nsubsystem = "evaluation"\n'
+        'match = "contains"\npattern = "MSIEvaluationTask::Run"\n'
+        '[[rule]]\nrole = "running"\nsubsystem = "compute"\n'
+        'match = "contains"\npattern = "_shi_allocBlock"\n',
+        encoding="utf-8",
+    )
+    reversed_rules, _ = load_rules(str(reversed_path))
+    reversed_result = classify_signature(signature, reversed_rules)
+    assert reversed_result.role == "idle-parked"
+
+
+def test_all_four_rule_roles_are_reachable() -> None:
+    """blocked-on-lock matches zero threads in the healthy reference
+    capture — without this test the whole role would ship unexercised."""
+    rules, _ = load_rules()
+    cases = {
+        "running": _thread_raw("_shi_allocBlock"),
+        "blocked-on-lock": _thread_raw("__lll_lock_wait"),
+        "blocked-on-external": _thread_raw("curl_multi_poll"),
+        "idle-parked": _thread_raw("MSIQTask::GetNextPreferredJob"),
+    }
+    for expected_role, raw in cases.items():
+        result = classify_signature(signature_of(raw), rules)
+        assert result.role == expected_role
+
+
+def test_derivative_coverage_is_disclosed_not_inflated() -> None:
+    """EUS-02 criterion 3: unclassified is non-empty, and a future catch-all
+    rule that drives it to zero fails this test. Asserts a lower bound, not
+    an exact count, so a later legitimate rule addition stays free to reduce
+    the residual without rewriting this test."""
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    assert len(analysis.unclassified) > 0
+    classified_frames = {
+        g.frames for g in analysis.signatures if g.role != "unclassified"
+    }
+    unclassified_frames = {g.frames for g in analysis.unclassified}
+    assert classified_frames.isdisjoint(unclassified_frames)
+
+
+def test_no_ownership_attributed_lock_language_in_shipped_surface() -> None:
+    """The lock-ownership term REQUIREMENTS.md's Out of Scope table names as
+    a permanent non-goal appears nowhere in the shipped rules file or
+    classifier module. Read from REQUIREMENTS.md at runtime rather than
+    hardcoded, so the test cannot itself become the only place it's typed."""
+    requirements_text = _REQUIREMENTS_MD.read_text(encoding="utf-8")
+    match = re.search(r'the word "(\w+)"', requirements_text)
+    assert match is not None, "REQUIREMENTS.md must name the forbidden term"
+    forbidden_term = match.group(1)
+
+    rules_toml = (
+        Path(__file__).parent.parent
+        / "src"
+        / "sift"
+        / "rules"
+        / "eustack_roles.toml"
+    ).read_text(encoding="utf-8")
+    classifier_source = (
+        Path(__file__).parent.parent / "src" / "sift" / "pipeline" / "eustack.py"
+    ).read_text(encoding="utf-8")
+
+    assert forbidden_term.lower() not in rules_toml.lower()
+    assert forbidden_term.lower() not in classifier_source.lower()
