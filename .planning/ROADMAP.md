@@ -72,7 +72,7 @@ Full detail: `.planning/milestones/v1.2-ROADMAP.md`.
   4. The 1,715 `MSIQTask::GetNextPreferredJob` threads in the healthy reference capture read as `idle-parked`, not as blocked or stuck — the 98.9% composition-blind false positive does not reproduce
   5. Classification work scales with distinct stack signatures (93 in the reference capture), not with thread count (3,902)
 
-**Plans**: 5/6 plans executed
+**Plans**: 6/6 plans executed
 
 Plans:
 
@@ -81,7 +81,7 @@ Plans:
 - [x] 15-03-PLAN.md — Signature-preserving CI fixture plus its role-blind derivation script
 - [x] 15-04-PLAN.md — Strict rules schema, hardened loader, and the rules_path override proof (SC2)
 - [x] 15-05-PLAN.md — `analyse_eustack`: role partition, ranked signatures, unclassified reporting
-- [ ] 15-06-PLAN.md — Curated 24-rule taxonomy, coverage gates and ADR 0015
+- [x] 15-06-PLAN.md — Curated 24-rule taxonomy, coverage gates and ADR 0015
 
 **Research flag** (resolved at plan time — see `15-CONTEXT.md` D-01/D-05/D-09 and ADR 0015 in plan 15-06): **Needed a design pass at plan time.** Frame-matching strategy is unresolved: enclosing application frame vs leaf priority; match precedence when several rules hit one stack (research recommends first-match-wins in file order, but the schema decision is explicit and unmade); and symbol brittleness across build variants — anchor on qualified names, mirroring ADR 0013's bare-substring collision. Classification reads `Event.raw`, not `Event.message` (`CONDENSED_FRAMES = 5` caps the message; the classifying frame sits 8–19 deep).
 

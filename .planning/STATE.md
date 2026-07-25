@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 15
 current_phase_name: thread-role-taxonomy-rules-file
-status: executing
-stopped_at: Completed 15-05-PLAN.md
-last_updated: "2026-07-25T11:24:50.934Z"
+status: verifying
+stopped_at: Completed 15-06-PLAN.md — Phase 15 (thread-role-taxonomy-rules-file) all 6 plans complete, ready for verification
+last_updated: "2026-07-25T11:34:43.884Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 6
-  completed_plans: 5
-  percent: 0
+  completed_plans: 6
+  percent: 17
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 Phase: 15 (thread-role-taxonomy-rules-file) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-25 — Phase 15 execution started
 
 ## Performance Metrics
@@ -134,6 +134,7 @@ Last activity: 2026-07-25 — Phase 15 execution started
 | Phase 15 P03 | ~9min | 2 tasks | 3 files |
 | Phase 15 P04 | 25min | 2 tasks | 2 files |
 | Phase 15 P05 | ~20min | 2 tasks | 2 files |
+| Phase 15 P06 | ~25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -250,6 +251,9 @@ Recent decisions affecting current work:
 - [Phase ?]: 15-04: rules loader is strict-fail-at-load (pattern normalisation, illegal role, duplicate rule, missing override file) with no path-containment guard, matching the shipped --kb precedent (ADR 0009 to land in 15-06)
 - [Phase ?]: [Phase 15]: 15-05: an unresolvable frame (?? or bare 0x address) is skipped as a match candidate inside classify_signature but stays in the signature tuple; the unclassified residual splits into matched-no-rule vs no-resolvable-frame (D-07), never a sixth role
 - [Phase ?]: [Phase 15]: 15-05: EUS-02 marked complete at the same library level EUS-01 closed at — analysis.unclassified is the full per-signature ranked report D-15 specifies; sift eustack CLI rendering remains Phase 17's job (D-13)
+- [Phase ?]: [Phase 15]: 15-06: shipped the 24-rule day-one taxonomy exactly as RESEARCH.md measured (running x5 first, blocked-on-lock x1, idle-parked x14, blocked-on-external x4) — 98.67% thread / 56.99% signature coverage on the real 3,902-thread/93-signature capture, no divergence from planning baseline
+- [Phase ?]: [Phase 15]: 15-06: ADR 0015 records D-01 rule-major first-match-wins and the shared-ancestor ordering trap it surfaced (a task-dispatch frame like MSIEvaluationTask::Run can be shared ancestor of both idle-wait and busy call chains — running rules must sit first), D-05's single-@ GLIBC normalisation refinement, D-09 exact-by-default match kinds, D-02/D-12 unclassified-as-sole-residual, D-07 no-resolvable-frame reason split, the declined rules_path containment guard, and the permanent lock-ownership non-goal
+- [Phase ?]: [Phase 15]: 15-06: TOML header comment originally used the word 'deadlock' describing the non-goal, tripping the plan's own new ownership-blind test — reworded to state the non-goal without naming the forbidden term; caught and fixed within the same task
 
 ### Pending Todos
 
@@ -332,8 +336,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T11:24:50.922Z
-Stopped at: Completed 15-05-PLAN.md
+Last session: 2026-07-25T11:34:43.872Z
+Stopped at: Completed 15-06-PLAN.md — Phase 15 (thread-role-taxonomy-rules-file) all 6 plans complete, ready for verification
 Resume file: None
 
 ## Operator Next Steps
