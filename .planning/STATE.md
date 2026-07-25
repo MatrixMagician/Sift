@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 15
 current_phase_name: thread-role-taxonomy-rules-file
 status: executing
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-07-25T10:51:07.046Z"
+stopped_at: Completed 15-02-PLAN.md
+last_updated: "2026-07-25T10:56:45.072Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 15 (thread-role-taxonomy-rules-file) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 15 execution started
 
@@ -130,6 +130,7 @@ Last activity: 2026-07-25 — Phase 15 execution started
 | Phase 14 P04 | 40m | 2 tasks | 3 files |
 | Phase 14 P05 | 6 | 2 tasks | 3 files |
 | Phase 15 P01 | 9min | 2 tasks | 6 files |
+| Phase 15 P02 | ~10min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -239,6 +240,8 @@ Recent decisions affecting current work:
 - [Phase ?]: PERF-07 delivered: perfmon facts spliced + unioned into prompted_ids (citable); no-perfmon prompt byte-identical (block-stripping restores ef5b76801235d179)
 - [Phase ?]: [Phase 15]: 15-01: normalise() splits on FIRST '@' not '@@' — reference capture carries single-@ GLIBC suffixes (clock_nanosleep@GLIBC_2.2.5) that a literal @@ split would leave version-suffixed
 - [Phase ?]: [Phase 15]: 15-01: tracer proves D-01 rule-major first-match-wins, D-08 shared iter_frames, D-16 rules/ package layout — no pyproject.toml change needed (verified via real uv build --wheel)
+- [Phase ?]: [Phase 15]: 15-02: EustackConfig.rules_path has no path-traversal/containment guard, matching the shipped --kb <dir> precedent (ADR 0009) — a local file read of a file the operator already has read access to
+- [Phase ?]: [Phase 15]: 15-02: rules_path typed str | None rather than Path | None — handed straight to load_rules(rules_path=...) which constructs the Path itself
 
 ### Pending Todos
 
@@ -321,8 +324,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T10:51:07.034Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-07-25T10:56:45.060Z
+Stopped at: Completed 15-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

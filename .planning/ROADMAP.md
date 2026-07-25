@@ -72,12 +72,12 @@ Full detail: `.planning/milestones/v1.2-ROADMAP.md`.
   4. The 1,715 `MSIQTask::GetNextPreferredJob` threads in the healthy reference capture read as `idle-parked`, not as blocked or stuck — the 98.9% composition-blind false positive does not reproduce
   5. Classification work scales with distinct stack signatures (93 in the reference capture), not with thread count (3,902)
 
-**Plans**: 1/6 plans executed
+**Plans**: 2/6 plans executed
 
 Plans:
 
 - [x] 15-01-PLAN.md — Tracer: one thread end-to-end, adapter frames through packaged TOML to a role
-- [ ] 15-02-PLAN.md — `[eustack] rules_path` config key with CLI > env > TOML > default precedence
+- [x] 15-02-PLAN.md — `[eustack] rules_path` config key with CLI > env > TOML > default precedence
 - [ ] 15-03-PLAN.md — Signature-preserving CI fixture plus its role-blind derivation script
 - [ ] 15-04-PLAN.md — Strict rules schema, hardened loader, and the rules_path override proof (SC2)
 - [ ] 15-05-PLAN.md — `analyse_eustack`: role partition, ranked signatures, unclassified reporting
