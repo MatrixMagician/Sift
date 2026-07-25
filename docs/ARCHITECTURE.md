@@ -140,9 +140,13 @@ local change. And `raw` text above 4 KB encoded is transparently zstd-compressed
 untrusted input.
 
 Run-level state lives in `meta`: `embedding_dim`, `embedding_metric`, `embedding_model`,
+`embedding_context`, `embedding_batch_size`, `embedding_max_input_chars`,
 `mask_version`, `cluster_label_prompt_hash`, and the `triage_*` keys
 (`triage_degraded`, `triage_prompt_hash`, `triage_created_at`, `triage_model`,
-`triage_timeline_summary`, `triage_unexplained_signals`, `triage_raw`).
+`triage_timeline_summary`, `triage_unexplained_signals`, `triage_raw`). The three
+`embedding_*` batch-layout keys are provenance only, recorded so a divergent
+re-run is diagnosable (ADR 0014) — they overwrite unconditionally on every
+`analyze`, unlike `embedding_dim`'s mismatch guard.
 
 The KB namespace is deliberately separate: `kb_chunks` has no `event_id` column anywhere, so a KB
 row structurally *cannot* become citable evidence. See

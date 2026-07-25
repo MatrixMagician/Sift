@@ -99,7 +99,14 @@ change, however good the rest of it is.
   is structurally non-citable, and it stays that way.
 - **Determinism.** `event_id = sha256(source_file, byte_offset)[:16]`, which
   makes re-ingestion idempotent. Identical case, configuration, model, and seed
-  must produce byte-identical JSON, modulo timestamps.
+  produce byte-identical JSON, modulo timestamps — but only given a stable
+  embedding-backend state: batch composition perturbs embedding vectors well
+  above float32 noise, and Sift neither controls nor can fully record that
+  backend state. ADR
+  [0008](docs/decisions/0008-report-determinism-scope.md) scopes the
+  guarantee to the report renderer given an identical `case.db`; ADR
+  [0014](docs/decisions/0014-embedding-determinism-scope.md) scopes the
+  embedding stage upstream of it, where the conditionality actually lives.
 - **Nothing disappears silently.** Unparseable regions become events with
   `severity="unknown"`; adapters emit per-file parse-coverage metrics. A
   multi-line record (a stack trace, an MCM block) is one event, not many.
