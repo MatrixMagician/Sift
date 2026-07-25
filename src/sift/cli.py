@@ -1305,6 +1305,116 @@ def perfmon(
         store.close()
 
 
+class EustackFormat(StrEnum):
+    """Report format for ``sift eustack`` (an unknown value is a Typer usage
+    error, exit 2 — mirrors ``PerfmonFormat``; ADR 0007). The CSV is always
+    written."""
+
+    md = "md"
+    json = "json"
+
+
+@app.command()
+def eustack(
+    case: str,
+    fmt: Annotated[
+        EustackFormat,
+        typer.Option("--format", help="Report format: md (default) or json"),
+    ] = EustackFormat.md,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Write the eu-stack thread-dump analysis bundle for a case (EUS-09).
+
+    Runs the deterministic ``analyse_eustack_bundle`` over the stored
+    eu-stack events (no LLM, no network — the figures are computed from
+    thread-dump text, never model-authored) and ALWAYS writes
+    ``<case>/eustack/eustack_report.md`` (or ``eustack_report.json`` with
+    ``--format json``) AND ``<case>/eustack/eustack_signatures.csv``, then
+    prints a short stdout summary. Works identically with NO DSSErrors log
+    anywhere in the case — eu-stack dumps are this command's sole input.
+    Classification and saturation are computed on the LAST dump only; a
+    single-dump case is the N=1 case of that same shape (D-11). The rules
+    file and saturation thresholds are config-only — there is no per-run CLI
+    knob (D-12). Exit-code contract (ADR 0007): 0 = bundle written (including
+    an empty case), 1 = missing case / write failure, 2 = Typer usage (bad
+    ``--format``).
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        from sift.pipeline.eustack import load_rules
+        from sift.pipeline.eustack_progression import analyse_eustack_bundle
+        from sift.render.eustack_report import (
+            render_eustack_json,
+            render_eustack_markdown,
+            write_eustack_signatures_csv,
+        )
+
+        # T-17-03: the bundle dir is derived from the SAME resolved case path
+        # _case_store validated (case_db_path asserts containment) — only
+        # <case>/eustack/ beneath it is ever created, never a user-supplied
+        # path.
+        eustack_dir = case_db_path(config.data_dir, case).parent / "eustack"
+        rules, rules_hash = load_rules(config.eustack.rules_path)
+        bundle = analyse_eustack_bundle(
+            store.query_events(), rules, rules_hash, config.eustack.thresholds
+        )
+        if fmt is EustackFormat.json:
+            report_name = "eustack_report.json"
+            report_text = render_eustack_json(bundle)
+        else:
+            report_name = "eustack_report.md"
+            report_text = render_eustack_markdown(bundle)
+        try:
+            eustack_dir.mkdir(parents=True, exist_ok=True)
+            (eustack_dir / report_name).write_text(report_text, encoding="utf-8")
+            write_eustack_signatures_csv(
+                bundle, eustack_dir / "eustack_signatures.csv"
+            )
+        except OSError as exc:
+            # T-17-04: the report is written before the CSV, so a mid-CSV
+            # failure would otherwise leave a valid-looking report next to a
+            # truncated CSV. Unlink both so a half-written bundle is never
+            # mistaken for a complete one; the message is sanitised and the
+            # traceback chain suppressed so no internal path or stack frame
+            # reaches the operator.
+            for partial in (
+                eustack_dir / report_name,
+                eustack_dir / "eustack_signatures.csv",
+            ):
+                partial.unlink(missing_ok=True)
+            print(
+                f"Error: cannot write eustack bundle to {eustack_dir}: "
+                f"{_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+
+        n_dumps = len(bundle.progression.dumps)
+        dump_plural = "dump" if n_dumps == 1 else "dumps"
+        n_signatures = bundle.analysis.total_signatures
+        sig_plural = "signature" if n_signatures == 1 else "signatures"
+        print(
+            f"Analysed {n_dumps} eu-stack {dump_plural}, {n_signatures} "
+            f"{sig_plural}; wrote {report_name} + eustack_signatures.csv to "
+            f"{eustack_dir}"
+        )
+        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
+        flags = sorted(
+            bundle.saturation.flags, key=lambda f: _sev_rank.get(f.severity, 3)
+        )
+        if flags:
+            top = flags[0]
+            # T-17-02: matched/leaf-frame-derived hazard text originates in
+            # the customer's binary, so it goes through _sanitise before echo.
+            print(f"  {top.severity} — {_sanitise(top.message)}")
+        else:
+            print("  no saturation flags raised")
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
+        # mcm/perfmon.
+        store.close()
+
+
 @app.command("eval")
 def eval_(
     suite: Annotated[
