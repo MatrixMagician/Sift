@@ -4,16 +4,16 @@ milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 16
 current_phase_name: Saturation, Contention & Signature Collapse
-status: planning
-stopped_at: Phase 16 planned and verified — 4 plans, plan-checker PASSED; awaiting go-ahead to execute
-last_updated: "2026-07-25T13:36:27.241Z"
+status: executing
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-07-25T19:10:37.882Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 15 complete, transitioned to Phase 16
+last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 10
-  completed_plans: 6
+  completed_plans: 7
   percent: 17
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 15 — thread-role-taxonomy-rules-file
+**Current focus:** Phase 16 — Saturation, Contention & Signature Collapse
 
 ## Current Position
 
-Phase: 16 — Saturation, Contention & Signature Collapse
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-07-25 — Phase 15 complete, transitioned to Phase 16
+Phase: 16 (Saturation, Contention & Signature Collapse) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 16 execution started
 
 ## Performance Metrics
 
@@ -125,6 +125,7 @@ Last activity: 2026-07-25 — Phase 15 complete, transitioned to Phase 16
 | Phase 15 P04 | 25min | 2 tasks | 2 files |
 | Phase 15 P05 | ~20min | 2 tasks | 2 files |
 | Phase 15 P06 | ~25min | 3 tasks | 3 files |
+| Phase 16 P01 | 25min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -244,6 +245,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 15]: 15-06: shipped the 24-rule day-one taxonomy exactly as RESEARCH.md measured (running x5 first, blocked-on-lock x1, idle-parked x14, blocked-on-external x4) — 98.67% thread / 56.99% signature coverage on the real 3,902-thread/93-signature capture, no divergence from planning baseline
 - [Phase ?]: [Phase 15]: 15-06: ADR 0015 records D-01 rule-major first-match-wins and the shared-ancestor ordering trap it surfaced (a task-dispatch frame like MSIEvaluationTask::Run can be shared ancestor of both idle-wait and busy call chains — running rules must sit first), D-05's single-@ GLIBC normalisation refinement, D-09 exact-by-default match kinds, D-02/D-12 unclassified-as-sole-residual, D-07 no-resolvable-frame reason split, the declined rules_path containment guard, and the permanent lock-ownership non-goal
 - [Phase ?]: [Phase 15]: 15-06: TOML header comment originally used the word 'deadlock' describing the non-goal, tripping the plan's own new ownership-blind test — reworded to state the non-goal without naming the forbidden term; caught and fixed within the same task
+- [Phase ?]: [Phase 16]: 16-01: one SaturationFlag record shared by all three flag families (S-3), not DiagnosticFlag reuse — value/warn/critical travel together; event_ids deliberately omitted, deferred to Phase 18
+- [Phase ?]: [Phase 16]: 16-01: mcm._grade imported as-is into eustack.py (S-2), not promoted to a shared module — no import cycle, mcm.py's shipped tests stay untouched
 
 ### Pending Todos
 
@@ -326,9 +329,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T13:36:27.231Z
-Stopped at: Phase 16 planned and verified — 4 plans, plan-checker PASSED; awaiting go-ahead to execute
-Resume file: .planning/phases/16-saturation-contention-signature-collapse/16-01-PLAN.md
+Last session: 2026-07-25T19:10:37.873Z
+Stopped at: Completed 16-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

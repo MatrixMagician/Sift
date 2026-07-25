@@ -28,7 +28,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 ### Saturation and contention
 
-- [ ] **EUS-03**: User sees per-pool occupancy so an idle pool of parked workers reads as healthy
+- [x] **EUS-03**: User sees per-pool occupancy so an idle pool of parked workers reads as healthy
   rather than saturated
 
 - [ ] **EUS-04**: User sees threads converging on a lock-acquisition path, always reported as
@@ -131,7 +131,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | EUS-01 | Phase 15 | Complete |
 | EUS-02 | Phase 15 | Complete |
-| EUS-03 | Phase 16 | Pending |
+| EUS-03 | Phase 16 | Complete |
 | EUS-04 | Phase 16 | Pending |
 | EUS-05 | Phase 16 | Pending |
 | EUS-06 | Phase 16 | Pending |

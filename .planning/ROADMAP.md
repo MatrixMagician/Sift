@@ -98,11 +98,11 @@ Plans:
   4. The thread population is collapsed to distinct stack signatures ranked by thread count (3,902 → 93 on the reference capture), each signature carrying its role
   5. Every graded flag prints its raw computed value beside the configured threshold, thresholds are config keys, and the healthy reference capture raises zero flags
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 
-- [ ] 16-01-PLAN.md — Tracer: per-pool occupancy end-to-end, config key through grouping and grading to a new frozen `SaturationAnalysis` (EUS-03)
+- [x] 16-01-PLAN.md — Tracer: per-pool occupancy end-to-end, config key through grouping and grading to a new frozen `SaturationAnalysis` (EUS-03)
 - [ ] 16-02-PLAN.md — Ownership-blind lock convergence: the D-04 enclosing-frame walk, `LockSite`, the count flag and the synthetic scenario (EUS-04)
 - [ ] 16-03-PLAN.md — External-wait split by dependency, the no-resolvable-frame flag, signature passthrough and whole-model determinism (EUS-05, EUS-06)
 - [ ] 16-04-PLAN.md — The D-09 zero-flags gate against the measured reference composition, plus ADR 0016 (EUS-03..06)
@@ -183,7 +183,7 @@ Plans:
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 6/6 | Complete | 2026-07-20 |
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 5/5 | Complete | 2026-07-20 |
 | 15. Thread-Role Taxonomy & Rules File | v1.3 | 0/6 | Complete    | 2026-07-25 |
-| 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Not started | - |
+| 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | In Progress|  |
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/? | Not started | - |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Not started | - |
 | 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Not started | - |
