@@ -17,7 +17,7 @@ and `vX.Y-phases/` the archived phase directories.
 ### v1.3 — EU-Stack Hang & Slowdown Diagnosis (Phases 15–20)
 
 - [x] **Phase 15: Thread-Role Taxonomy & Rules File** - Every thread carries a deterministic role from an editable versioned rules file; unknown frames are reported, never guessed (completed 2026-07-25)
-- [ ] **Phase 16: Saturation, Contention & Signature Collapse** - Per-pool occupancy, ownership-blind lock convergence, external-wait concentration and signature ranking, all computed model-free
+- [x] **Phase 16: Saturation, Contention & Signature Collapse** - Per-pool occupancy, ownership-blind lock convergence, external-wait concentration and signature ranking, all computed model-free (completed 2026-07-25)
 - [ ] **Phase 17: Multi-Dump Progression & `sift eustack` Report + CSV** - One command produces the full deterministic report from one dump or many, with no DSSErrors log required
 - [ ] **Phase 18: Eu-Stack Facts into `sift analyze`** - Computed eu-stack figures reach the model as cited-not-authored evidence; no-eu-stack prompt stays byte-identical
 - [ ] **Phase 19: Ranking Exclusion & Regression-Gated Golden Eval** - Thread events leave dedup/embed/cluster/salience once the replacement ships, then the whole path is regression-gated
@@ -183,7 +183,7 @@ Plans:
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 6/6 | Complete | 2026-07-20 |
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 5/5 | Complete | 2026-07-20 |
 | 15. Thread-Role Taxonomy & Rules File | v1.3 | 0/6 | Complete    | 2026-07-25 |
-| 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | In Progress|  |
+| 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Complete    | 2026-07-25 |
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/? | Not started | - |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Not started | - |
 | 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Not started | - |
