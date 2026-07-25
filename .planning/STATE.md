@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 15
 current_phase_name: thread-role-taxonomy-rules-file
 status: executing
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-07-25T10:56:45.072Z"
+stopped_at: Completed 15-03-PLAN.md
+last_updated: "2026-07-25T11:07:31.346Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 15 (thread-role-taxonomy-rules-file) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 15 execution started
 
@@ -131,6 +131,7 @@ Last activity: 2026-07-25 — Phase 15 execution started
 | Phase 14 P05 | 6 | 2 tasks | 3 files |
 | Phase 15 P01 | 9min | 2 tasks | 6 files |
 | Phase 15 P02 | ~10min | 2 tasks | 2 files |
+| Phase 15 P03 | ~9min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -242,6 +243,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 15]: 15-01: tracer proves D-01 rule-major first-match-wins, D-08 shared iter_frames, D-16 rules/ package layout — no pyproject.toml change needed (verified via real uv build --wheel)
 - [Phase ?]: [Phase 15]: 15-02: EustackConfig.rules_path has no path-traversal/containment guard, matching the shipped --kb <dir> precedent (ADR 0009) — a local file read of a file the operator already has read access to
 - [Phase ?]: [Phase 15]: 15-02: rules_path typed str | None rather than Path | None — handed straight to load_rules(rules_path=...) which constructs the Path itself
+- [Phase ?]: [Phase 15]: 15-03: signature-preserving fixture derived from dump A (chronologically earlier '160739' capture) at cap=1 all signatures + cap=5 for the 3 highest-population by raw thread count (1,715/1,110/247) — 93/93 signatures, 105 threads, 150,475 bytes, matching RESEARCH.md's measured 140-165KB band
+- [Phase ?]: [Phase 15]: 15-03: tests/test_cli.py's phase-5 eustack e2e test scoped to threaddump.txt only via a new _copy_fixture(only=...) parameter — tests/fixtures/eustack/ now holds more than one bundle and whole-directory copytree inflated its expected event count from 6 to 113
 
 ### Pending Todos
 
@@ -324,8 +327,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T10:56:45.060Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-07-25T11:07:31.337Z
+Stopped at: Completed 15-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
