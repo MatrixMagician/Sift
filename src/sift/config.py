@@ -121,6 +121,15 @@ class McmConfig(BaseModel):
     thresholds: McmThresholdsConfig = McmThresholdsConfig()
 
 
+class EustackConfig(BaseModel):
+    """``[eustack]`` wrapper, mirrors McmConfig's nested-key shape."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # None -> load the packaged default via importlib.resources
+    rules_path: str | None = None
+
+
 class SiftConfig(BaseModel):
     # T-04-02: a typo'd key must fail loudly, never be silently dropped.
     model_config = ConfigDict(extra="forbid")
@@ -132,6 +141,7 @@ class SiftConfig(BaseModel):
     embeddings: EmbeddingsConfig = EmbeddingsConfig()
     clustering: ClusteringConfig = ClusteringConfig()
     mcm: McmConfig = McmConfig()
+    eustack: EustackConfig = EustackConfig()
 
     @field_validator("timezones")
     @classmethod
@@ -163,6 +173,7 @@ _ENV_SCALARS: dict[str, tuple[str, str]] = {
     "SIFT_EMBEDDINGS_BATCH_SIZE": ("embeddings", "batch_size"),
     "SIFT_EMBEDDINGS_MAX_INPUT_CHARS": ("embeddings", "max_input_chars"),
     "SIFT_EMBEDDINGS_CONTEXT": ("embeddings", "context"),
+    "SIFT_EUSTACK_RULES_PATH": ("eustack", "rules_path"),
 }
 
 
