@@ -7,6 +7,12 @@ classification. It uses an inline raw thread block, not the committed
 synthetic capture with no MicroStrategy frames, so it cannot carry this proof.
 """
 
+import importlib.resources
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
 from sift.pipeline.eustack import (
     classify_signature,
     load_rules,
@@ -88,3 +94,191 @@ def test_normalise_is_idempotent() -> None:
     ):
         once = normalise(symbol)
         assert normalise(once) == once
+
+
+# --------------------------------------------------------------- loader ---
+
+_META = '[meta]\nversion = 1\nvalidated_against = "test"\n'
+
+
+def _write_rules(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "rules.toml"
+    path.write_text(_META + body, encoding="utf-8")
+    return path
+
+
+def test_unnormalised_pattern_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "blocked-on-external"\nsubsystem = "x"\n'
+        "pattern = 'pthread_cond_timedwait@@GLIBC_2.3.2'\n",
+    )
+    with pytest.raises(ValidationError, match="pthread_cond_timedwait"):
+        load_rules(str(path))
+
+
+def test_single_at_pattern_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "blocked-on-external"\nsubsystem = "x"\n'
+        "pattern = 'clock_nanosleep@GLIBC_2.2.5'\n",
+    )
+    with pytest.raises(ValidationError, match="clock_nanosleep"):
+        load_rules(str(path))
+
+
+def test_lib_tail_pattern_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "blocked-on-lock"\nsubsystem = "x"\n'
+        "pattern = 'castor_worker_wait - libcastor.so worker.cpp:412'\n",
+    )
+    with pytest.raises(ValidationError, match="castor_worker_wait"):
+        load_rules(str(path))
+
+
+def test_empty_pattern_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "running"\nsubsystem = "x"\npattern = "   "\n',
+    )
+    with pytest.raises(ValidationError, match="empty"):
+        load_rules(str(path))
+
+
+def test_unclassified_is_illegal_as_a_rule_role(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "unclassified"\nsubsystem = "x"\npattern = "foo"\n',
+    )
+    with pytest.raises(ValidationError, match="unclassified"):
+        load_rules(str(path))
+
+
+def test_unknown_key_in_rule_table_is_a_loud_error_naming_the_key(
+    tmp_path: Path,
+) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrol = "running"\nsubsystem = "x"\npattern = "foo"\n',
+    )
+    with pytest.raises(ValidationError, match="rol"):
+        load_rules(str(path))
+
+
+def test_unknown_match_kind_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "running"\nsubsystem = "x"\nmatch = "regex"\n'
+        'pattern = "foo"\n',
+    )
+    with pytest.raises(ValidationError, match="regex"):
+        load_rules(str(path))
+
+
+def test_duplicate_match_pattern_pair_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "running"\nsubsystem = "x"\nmatch = "contains"\n'
+        'pattern = "foo"\n'
+        '[[rule]]\nrole = "idle-parked"\nsubsystem = "y"\nmatch = "contains"\n'
+        'pattern = "foo"\n',
+    )
+    with pytest.raises(ValidationError, match="duplicate rule"):
+        load_rules(str(path))
+
+
+def test_missing_subsystem_rejected_at_load(tmp_path: Path) -> None:
+    path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "running"\npattern = "foo"\n',
+    )
+    with pytest.raises(ValidationError, match="subsystem"):
+        load_rules(str(path))
+
+
+def test_missing_validated_against_rejected_at_load(tmp_path: Path) -> None:
+    path = tmp_path / "rules.toml"
+    path.write_text("[meta]\nversion = 1\n", encoding="utf-8")
+    with pytest.raises(ValidationError, match="validated_against"):
+        load_rules(str(path))
+
+
+def test_malformed_rules_toml_is_a_loud_error_naming_the_source(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "rules.toml"
+    path.write_text("[meta\nversion = 1\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=str(path)):
+        load_rules(str(path))
+
+
+def test_missing_rules_path_does_not_fall_back_to_packaged_default(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "does-not-exist.toml"
+    with pytest.raises(ValueError, match=str(missing)) as excinfo:
+        load_rules(str(missing))
+    # The failure must be the missing-file error, not a validated packaged
+    # rules file mistakenly returned in its place.
+    assert "not found" in str(excinfo.value)
+
+
+def test_meta_only_rules_file_is_valid_with_no_rules(tmp_path: Path) -> None:
+    path = tmp_path / "rules.toml"
+    path.write_text(_META, encoding="utf-8")
+    rules, _content_hash = load_rules(str(path))
+    assert rules.rule == ()
+
+
+def test_packaged_rules_file_is_importable_resource() -> None:
+    assert (
+        importlib.resources.files("sift.rules")
+        .joinpath("eustack_roles.toml")
+        .is_file()
+    )
+
+
+def test_rules_path_override_changes_classification(tmp_path: Path) -> None:
+    """Success criterion 2: pointing rules_path at an edited copy changes a
+    thread's role, with no Python edited and nothing reinstalled."""
+    signature = signature_of(_TRACER_THREAD_BLOCK)
+    packaged_rules, _ = load_rules()
+    packaged_result = classify_signature(signature, packaged_rules)
+
+    override_path = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "running"\nsubsystem = "compute"\nmatch = "contains"\n'
+        'pattern = "MSIQTask::GetNextPreferredJob"\n',
+    )
+    override_rules, _ = load_rules(str(override_path))
+    override_result = classify_signature(signature, override_rules)
+
+    assert packaged_result.role != override_result.role
+    assert override_result.role == "running"
+
+
+def test_rule_order_is_the_precedence_knob(tmp_path: Path) -> None:
+    signature = signature_of(_TRACER_THREAD_BLOCK)
+
+    first_wins = _write_rules(
+        tmp_path,
+        '[[rule]]\nrole = "running"\nsubsystem = "a"\nmatch = "contains"\n'
+        'pattern = "MSIQTask::GetNextPreferredJob"\n'
+        '[[rule]]\nrole = "idle-parked"\nsubsystem = "b"\nmatch = "contains"\n'
+        'pattern = "MSIQTask::WaitForWork"\n',
+    )
+    rules, _ = load_rules(str(first_wins))
+    assert classify_signature(signature, rules).role == "running"
+
+    second_wins = tmp_path / "reversed.toml"
+    second_wins.write_text(
+        _META
+        + '[[rule]]\nrole = "idle-parked"\nsubsystem = "b"\nmatch = "contains"\n'
+        'pattern = "MSIQTask::WaitForWork"\n'
+        '[[rule]]\nrole = "running"\nsubsystem = "a"\nmatch = "contains"\n'
+        'pattern = "MSIQTask::GetNextPreferredJob"\n',
+        encoding="utf-8",
+    )
+    rules, _ = load_rules(str(second_wins))
+    assert classify_signature(signature, rules).role == "idle-parked"
