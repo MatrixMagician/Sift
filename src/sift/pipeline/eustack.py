@@ -26,11 +26,12 @@ import re
 import tomllib
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 if TYPE_CHECKING:
+    from sift.config import EustackThresholdsConfig
     from sift.models import Event
 
 # Shared, not copied (D-08): iter_frames and _condense_symbol live on the
@@ -39,6 +40,12 @@ from sift.adapters.eustack import (
     _condense_symbol,  # pyright: ignore[reportPrivateUsage] — imported, never redeclared, so normalise() and the adapter's own condensing cannot drift apart (D-08)
     iter_frames,
 )
+
+# Shared, not copied (S-2/D-08): _grade is mcm.py's pure, stateless two-cut-point
+# grader — reused as-is rather than promoted to a shared home, so mcm.py's
+# shipped, tested surface stays untouched. mcm.py imports nothing from
+# sift.pipeline, so this import introduces no cycle.
+from sift.pipeline.mcm import _grade  # pyright: ignore[reportPrivateUsage]
 
 _RULES_PACKAGE = "sift.rules"
 _RULES_FILE = "eustack_roles.toml"
@@ -371,3 +378,174 @@ def analyse_eustack(
         rules_version=rules.meta.version,
         rules_validated_against=rules.meta.validated_against,
     )
+
+
+# --- Saturation & contention (Phase 16: EUS-03/04/05/06, D-10) ---
+#
+# Everything below consumes EustackAnalysis read-only (D-10) — the model
+# above stays frozen and unchanged. This tracer (16-01) lands the first
+# grouping, EUS-03 per-pool occupancy, end to end: config -> grouping ->
+# grading -> a new frozen SaturationAnalysis. 16-02/16-03 add lock_sites and
+# dependencies additively; both default so this task's callers never break.
+
+FlagSeverity = Literal["info", "warn", "critical"]
+FlagUnit = Literal["percent", "threads"]
+
+
+class SaturationFlag(BaseModel):
+    """One graded Phase 16 diagnostic signal (Success Criterion 5, D-08 AMENDED).
+
+    ``mcm.DiagnosticFlag`` is deliberately NOT reused: its ``value_pct`` is
+    locked as a ratio ``part / whole * 100`` (the milestone machine-independence
+    invariant, verbatim in its own docstring), but D-07's lock-convergence flag
+    is a raw thread COUNT, not a ratio — forcing it into ``value_pct`` would
+    violate that documented contract. ``perfmon.py`` hit the identical mismatch
+    for its own hazards and resolved it by minting ``PerfmonHazard`` rather than
+    bending ``DiagnosticFlag``; this record follows that precedent, generalised
+    to one type shared by all three Phase 16 flag families (S-3) so a renderer
+    never has to type-narrow a ``DiagnosticFlag | SaturationFlag`` union.
+
+    ``warn``/``critical`` travel on the record alongside ``value`` (Success
+    Criterion 5): a renderer prints the computed figure beside its configured
+    threshold without re-reading config. ``severity`` is a ``Literal`` rather
+    than bare ``str`` — mirroring ``PerfmonHazard``'s WR-04 reasoning — so
+    Pydantic rejects a typo'd severity at construction and pyright catches one
+    at the call site.
+
+    ``event_ids`` is deliberately absent: ``SignatureGroup`` has no per-thread
+    event-id concept the way an MCM denial or perfmon sample does, and
+    resolving an aggregate figure back to a citable event set is Phase 18's
+    open design question (STATE.md Blockers). The omission is a decision, not
+    an oversight.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    dimension: str  # the config key graded, e.g. "unclassified_thread_pct"
+    severity: FlagSeverity
+    value: float
+    unit: FlagUnit
+    warn: float
+    critical: float
+    message: str  # British-English one-liner with the value inline
+
+
+class PoolOccupancy(BaseModel):
+    """One subsystem's busy/idle split (EUS-03).
+
+    Occupancy is ``1 - (idle-parked threads in this subsystem / all threads in
+    this subsystem)``, grouping ``EustackAnalysis.signatures`` on ``subsystem``
+    (D-01). ``compute``, ``lock`` and ``cube-generation`` get a row on
+    identical terms to ``job-queue`` — no allowlist of "real" pools exists.
+    ``subsystem is None`` is the single ``unclassified`` row (D-02): those
+    threads are counted here as their own row and appear in no other pool's
+    denominator.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subsystem: str | None
+    total_threads: int
+    idle_threads: int
+    busy_threads: int
+    occupancy: float
+    signature_count: int
+
+
+class SaturationAnalysis(BaseModel):
+    """Phase 16's aggregate surface over ``EustackAnalysis`` (D-10): a NEW
+    frozen model consuming Phase 15's output read-only. Phase 17 renders both
+    objects. ``lock_sites`` (16-02) and ``dependencies`` (16-03) are added by
+    later plans, each with a default so this task's callers never break — no
+    placeholder fields exist here for them, and no ``signatures`` field is
+    ever added (EUS-06 is satisfied by reading ``EustackAnalysis.signatures``
+    directly; duplicating it here is exactly what 16-03's passthrough test
+    guards against).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    pools: tuple[PoolOccupancy, ...]
+    flags: tuple[SaturationFlag, ...]
+
+
+def analyse_saturation(
+    analysis: EustackAnalysis, thresholds: EustackThresholdsConfig
+) -> SaturationAnalysis:
+    """Pure, deterministic, model-free (D-12) grouping over
+    ``EustackAnalysis.signatures``. A zero-thread analysis yields empty tuples
+    rather than an exception, mirroring ``analyse_eustack()``'s own contract.
+    """
+    # One pass, tallying per-subsystem totals and idle-parked totals plus a
+    # signature count. Plain dict accumulation (never Counter.most_common(),
+    # never set iteration) matches analyse_eustack()'s own discipline.
+    # `subsystem` stays typed str | None throughout and is never stringified
+    # — a literal "None" subsystem string could otherwise collide with the
+    # unclassified row's None key (D-02).
+    totals: dict[str | None, int] = {}
+    idle_totals: dict[str | None, int] = {}
+    signature_counts: dict[str | None, int] = {}
+    for group in analysis.signatures:
+        totals[group.subsystem] = totals.get(group.subsystem, 0) + group.thread_count
+        signature_counts[group.subsystem] = signature_counts.get(group.subsystem, 0) + 1
+        if group.role == "idle-parked":
+            idle_totals[group.subsystem] = (
+                idle_totals.get(group.subsystem, 0) + group.thread_count
+            )
+
+    pools: list[PoolOccupancy] = []
+    for subsystem, total in totals.items():
+        # `total` is structurally non-zero — a key only exists when a
+        # signature carried it — so no division guard is needed here.
+        idle = idle_totals.get(subsystem, 0)
+        pools.append(
+            PoolOccupancy(
+                subsystem=subsystem,
+                total_threads=total,
+                idle_threads=idle,
+                busy_threads=total - idle,
+                occupancy=round(1 - idle / total, 4),
+                signature_count=signature_counts[subsystem],
+            )
+        )
+    # Explicit total order: thread count descending, then classified pools
+    # ahead of the single None row, then subsystem name ascending. The
+    # `subsystem is None` term is load-bearing twice: it fixes the None row's
+    # position AND keeps None out of a direct comparison against str, which
+    # raises TypeError in Python 3.
+    pools.sort(key=lambda p: (-p.total_threads, p.subsystem is None, p.subsystem or ""))
+
+    # Fixed, authored check order (mcm.compute_flags' precedent) — this
+    # tracer emits the first check only; 16-02/16-03 append the rest.
+    flags: list[SaturationFlag] = []
+    if analysis.total_threads:
+        unclassified_pct = round(
+            analysis.threads_by_role["unclassified"] / analysis.total_threads * 100, 1
+        )
+        # _grade() returns plain str (mcm.DiagnosticFlag.severity is also bare
+        # str); SaturationFlag deliberately types severity as the Literal
+        # FlagSeverity (S-3/WR-04), so the cast documents that _grade()'s
+        # value set is a strict subset of the three graded levels.
+        severity = cast(
+            "FlagSeverity",
+            _grade(
+                unclassified_pct,
+                thresholds.unclassified_thread_pct.warn,
+                thresholds.unclassified_thread_pct.critical,
+            ),
+        )
+        flags.append(
+            SaturationFlag(
+                dimension="unclassified_thread_pct",
+                severity=severity,
+                value=unclassified_pct,
+                unit="percent",
+                warn=thresholds.unclassified_thread_pct.warn,
+                critical=thresholds.unclassified_thread_pct.critical,
+                message=f"{unclassified_pct}% of threads are unclassified.",
+            )
+        )
+    # No per-pool occupancy flag is emitted — D-07 forbids it and EUSV2-03 is
+    # deferred; no authoritative source exists for "N% busy = warning".
+
+    return SaturationAnalysis(pools=tuple(pools), flags=tuple(flags))

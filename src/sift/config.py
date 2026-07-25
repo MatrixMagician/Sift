@@ -83,7 +83,8 @@ class ClusteringConfig(BaseModel):
 
 
 class ThresholdPair(BaseModel):
-    """A (warn, critical) severity cut-point pair for one MCM diagnostic ratio."""
+    """A (warn, critical) severity cut-point pair for one graded diagnostic
+    figure — an MCM ratio or (Phase 16) an eu-stack ratio/count."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -121,6 +122,30 @@ class McmConfig(BaseModel):
     thresholds: McmThresholdsConfig = McmThresholdsConfig()
 
 
+class EustackThresholdsConfig(BaseModel):
+    """Eu-stack diagnostic-flag cut-points (D-08 AMENDED / Phase 16), graded via
+    the shared ``mcm._grade()`` helper regardless of whether the underlying
+    figure is a ratio or a raw count.
+
+    Calibration (S-4, both figures arithmetic against the real reference
+    capture, 2026-07-25): ``unclassified_thread_pct`` and
+    ``no_resolvable_frame_pct`` rest on ONE real capture — 52 of 3,902 threads
+    unclassified = 1.33% (ADR 0015), of which the no-resolvable-frame subset is
+    <= 1.33% (measured 0.0% on the committed derivative fixture). Both defaults
+    (warn=5.0, critical=15.0) leave that capture graded ``info`` with a 3.8x
+    margin to warn. ``lock_convergence_count`` has NO calibration data at all —
+    no real hung-server capture exists, and the healthy capture matches the
+    lock rule zero times, so its defaults (warn=5.0, critical=20.0) are round,
+    conservative placeholders exercised only by the D-11 synthetic fixture.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    unclassified_thread_pct: ThresholdPair = ThresholdPair(warn=5.0, critical=15.0)
+    no_resolvable_frame_pct: ThresholdPair = ThresholdPair(warn=5.0, critical=15.0)
+    lock_convergence_count: ThresholdPair = ThresholdPair(warn=5.0, critical=20.0)
+
+
 class EustackConfig(BaseModel):
     """``[eustack]`` wrapper, mirrors McmConfig's nested-key shape."""
 
@@ -128,6 +153,7 @@ class EustackConfig(BaseModel):
 
     # None -> load the packaged default via importlib.resources
     rules_path: str | None = None
+    thresholds: EustackThresholdsConfig = EustackThresholdsConfig()
 
 
 class SiftConfig(BaseModel):

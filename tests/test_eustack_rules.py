@@ -15,10 +15,12 @@ import pytest
 from pydantic import ValidationError
 
 from sift.adapters.eustack import EustackAdapter
+from sift.config import EustackThresholdsConfig
 from sift.models import Event
 from sift.pipeline import eustack as _eustack_module
 from sift.pipeline.eustack import (
     analyse_eustack,
+    analyse_saturation,
     classify_signature,
     load_rules,
     normalise,
@@ -589,3 +591,66 @@ def test_no_ownership_attributed_lock_language_in_shipped_surface() -> None:
 
     assert forbidden_term.lower() not in rules_toml.lower()
     assert forbidden_term.lower() not in classifier_source.lower()
+
+
+# ------------------------------------------------------- analyse_saturation ---
+# Phase 16 tracer (16-01): EUS-03 per-pool occupancy end to end.
+
+
+def test_pool_occupancy_splits_busy_and_parked() -> None:
+    idle_raw = _thread_raw("MSIQTask::GetNextPreferredJob")
+    running_raw = _thread_raw("CDSSSubsetEngine::GenCube")
+    events = [_event(idle_raw, thread=f"i{i}") for i in range(3)] + [
+        _event(running_raw, thread=f"r{i}") for i in range(2)
+    ]
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    job_queue = next(p for p in saturation.pools if p.subsystem == "job-queue")
+    assert job_queue.total_threads == 3
+    assert job_queue.idle_threads == 3
+    assert job_queue.busy_threads == 0
+    assert job_queue.occupancy == 0.0
+    assert job_queue.signature_count == 1
+
+    cube_generation = next(
+        p for p in saturation.pools if p.subsystem == "cube-generation"
+    )
+    assert cube_generation.total_threads == 2
+    assert cube_generation.idle_threads == 0
+    assert cube_generation.busy_threads == 2
+    assert cube_generation.occupancy == 1.0
+    assert cube_generation.signature_count == 1
+
+
+def test_reference_derivative_occupancy_reads_pools_as_idle() -> None:
+    """Success criterion 1: the healthy capture's parked job-queue workers
+    read as idle (occupancy 0.0), not as a saturated pool."""
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    job_queue = next(p for p in saturation.pools if p.subsystem == "job-queue")
+    assert job_queue.occupancy == 0.0
+    assert job_queue.idle_threads == job_queue.total_threads
+
+
+def test_flag_value_and_threshold_travel_together() -> None:
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    thresholds = EustackThresholdsConfig()
+    saturation = analyse_saturation(analysis, thresholds)
+
+    flag = next(
+        f for f in saturation.flags if f.dimension == "unclassified_thread_pct"
+    )
+    assert flag.warn == thresholds.unclassified_thread_pct.warn
+    assert flag.critical == thresholds.unclassified_thread_pct.critical
+    expected = round(
+        analysis.threads_by_role["unclassified"] / analysis.total_threads * 100, 1
+    )
+    assert flag.value == expected
+    assert flag.unit == "percent"
