@@ -21,9 +21,59 @@ report and perfmon figures fed into `sift analyze` as computed-never-authored ci
 dsserrors, eustack, dssperfmon); `sift` CLI subcommands new/ingest/analyze/report/show/mcm/perfmon/
 eval/doctor. Quality gate green: `ruff` clean, `pyright` 0 errors, `pytest` 658 passed.
 
-**Next milestone goals:** none defined yet. `/gsd-new-milestone` to scope the next cycle.
+**In flight:** v1.3 EU-Stack Hang & Slowdown Diagnosis (see Current Milestone below).
 Backlog carries PERFV2-01 (recovery-trend), PERFV2-02 (multi-host correlation), and PERFV2-03
 (perfmon-only anomaly detection), all deferred beyond v1.2.
+
+## Current Milestone: v1.3 EU-Stack Hang & Slowdown Diagnosis
+
+**Goal:** Turn eu-stack thread dumps into a deterministic thread-state and saturation analysis
+that explains why the Intelligence Server is slow or hung — working with or without an
+accompanying DSSErrors log.
+
+**Target features:**
+
+- Thread-role taxonomy as a versioned rules file — hand-curated frame-pattern → role/subsystem
+  table, classifying each thread idle-parked / blocked-on-external / blocked-on-lock / running /
+  **unclassified**; editable without touching Python, unknown frames reported not guessed
+- Deterministic saturation & contention analysis — per-pool occupancy (busy vs parked),
+  lock-contention convergence, external-wait concentration (warehouse / HTTP / IPC), stack-signature
+  collapse; computed model-free
+- Multi-dump progression signals — 1 dump gives full classification, 2+ additionally give
+  per-signature population deltas and which threads advanced; degrades loudly, never silently
+- `sift eustack <case>` standalone report + CSV, working with no DSSErrors log present
+  (mirrors the `sift mcm` / `sift perfmon` contract)
+- Eu-stack facts into `sift analyze` as cited-not-authored evidence (`cited ⊆ prompted ⊆ store`,
+  versioned zero-digit `eustack_facts.md`, byte-identical-additive when absent)
+- Resolve whether eu-stack thread events belong in dedup/embed/cluster/salience once the facts
+  are computed deterministically (`EXCLUDED_FROM_RANKING` currently holds only `dssperfmon`)
+- Regression-gated golden eval — the real healthy capture as the negative case, synthetic
+  hang-shape fixtures as positives
+- SEED-002 / DET-01 — reuse persisted embedding vectors instead of re-embedding every `analyze`,
+  closing the ADR 0014 batch-composition determinism exposure
+
+**Key context:**
+
+- **Ingestion is already solved.** The existing `eustack` adapter parses the reference capture
+  (`iserver1_stacks_1-minute_diff/`) at 99.999% coverage — sniff 0.8, 3,903 events, 22 fallback
+  bytes of 2,521,771. v1.3 is purely the analysis layer above it.
+- **The intuitive mechanism was empirically killed before scoping.** "Identical stack after 60 s =
+  stuck" flags 98.9% of threads (3,849 of 3,893 common TIDs) on a *healthy* server, because an idle
+  IServer parks thousands of pool workers in `pthread_cond_timedwait` indefinitely. Composition, not
+  motion, is the signal: 3,902 threads collapse to 93 distinct stack signatures, and the top
+  signatures self-label (1,715 `MSIQTask::GetNextPreferredJob` = idle job queue; 1,110
+  `MSIEvaluationTask::Run` = idle evaluators; 79 `CDSSQueryEngine::WaitUntilFinished` = blocked on
+  warehouse; 78 `curl_multi_poll` = blocked on external HTTP). Same failure mode as v1.2's
+  always-zero `Total MCM Denial` counter.
+- **The reference capture is a near-idle server** — ~3,400 of 3,902 threads are parked pool
+  workers. It proves the analyser does not cry wolf; it cannot prove hang *detection*. Positive
+  eval cases are therefore synthetic and must be labelled as such in the eval harness.
+- Deterministic-core-vs-LLM boundary preserved verbatim from v1.1/v1.2: every figure is COMPUTED
+  before generation and only then handed to the model as citable evidence. The model narrates the
+  numbers; it never authors them.
+- Consumes SEED-002 (planted v1.2, `target: v1.3 (candidate)`), triggered because the ranking-
+  exclusion decision touches the clustering/embedding pipeline.
+- Continues phase numbering from v1.2 (ended at phase 14) → v1.3 starts at phase 15.
 
 <details>
 <summary>Archived — v1.2 milestone goal & context (shipped 2026-07-20)</summary>
@@ -71,7 +121,10 @@ Backlog carries PERFV2-01 (recovery-trend), PERFV2-02 (multi-host correlation), 
 
 ### Active
 
-_No milestone in flight. `/gsd-new-milestone` scopes the next cycle; backlog carries PERFV2-01/02/03._
+**v1.3 — EU-Stack Hang & Slowdown Diagnosis (in flight)**
+
+See `.planning/REQUIREMENTS.md` for the scoped EUS-* / DET-* requirement set. Backlog continues to
+carry PERFV2-01/02/03, deferred beyond v1.2.
 
 **Carried from v1.0 (validated, listed for continuity)**
 
@@ -144,4 +197,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-20 after v1.2 milestone (DSSPerformanceMonitor Correlation) shipped. v1.0 + v1.1 + v1.2 complete and archived under `.planning/milestones/`.*
+*Last updated: 2026-07-25 — milestone v1.3 (EU-Stack Hang & Slowdown Diagnosis) started. v1.0 + v1.1 + v1.2 complete and archived under `.planning/milestones/`.*

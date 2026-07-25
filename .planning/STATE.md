@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
-status: Awaiting next milestone
-stopped_at: Completed 14-05-PLAN.md
-last_updated: "2026-07-25T09:00:00.000Z"
+milestone: v1.3
+milestone_name: EU-Stack Hang & Slowdown Diagnosis
+status: planning
+last_updated: "2026-07-25T09:02:18.874Z"
 last_activity: 2026-07-25
-last_activity_desc: "Quick task 260725-cxs: embedding batch knobs in case meta + ADR 0014"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 15
-  completed_plans: 15
-  percent: 100
-current_phase: 14
-current_phase_name: perfmon-facts-into-sift-analyze-golden-eval-case
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -28,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-25 — Completed quick task 260725-cxs: embedding batch knobs recorded in case `meta`, determinism claim qualified, ADR 0014 added
+Status: Defining requirements
+Last activity: 2026-07-25 — Milestone v1.3 started
 
 ## Performance Metrics
 
@@ -237,6 +233,7 @@ Recent decisions affecting current work:
   `n_ctx` (Lemonade serves no `/props`). Surfaced when `sift analyze CS1066664` finished
   **degraded** (0 hypotheses, exit 3) on 2026-07-21 where the prior run gave 1. Cause NOT
   yet attributed — likely a marginal model on a changed prompt, not a regression.
+
 - [pipeline] `.planning/todos/pending/2026-07-21-embedding-batch-composition-determinism.md`
   — **CONFIRMED 2026-07-25** at the embed level. Batch layout changes the vectors far above
   float noise (1385/1781 vectors differ between `context` 8192 and 32768; max component
@@ -253,8 +250,10 @@ Earlier: the three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --lis
 
 - dssperfmon WR-02/WR-03/WR-05 — **stale**; all three had already landed during v1.2
   execution (`_NOTE_CAP`, duplicate-short-name detection, `counter_set_drift` attr).
+
 - perfmon unplaceable samples on the episodes-present branch — **stale**; closed in 14-02
   by `_unattributed_group` in `pipeline/perfmon.py`.
+
 - Phase 11 code-review INFO — **fixed** (`66324e9`): IN-01 shared `render/_util.mb_bytes`
   between the MCM report and the fact renderer, pinned by a divergence-witness test;
   IN-03's redundant `re.DOTALL` removed. The cosmetic double newline was deliberately
