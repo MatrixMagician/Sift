@@ -59,6 +59,16 @@ PROGRESSION_SCOPE_NOTE: str = (
     "this data alone."
 )
 
+# D-02: the structural fact and its dimension key, stated once here so the
+# report's vocabulary is fixed in one place (mirrors ORDER_BASIS_* above).
+# British English throughout; states the limitation without requiring the
+# reader to consult the code.
+ORDERING_UNVERIFIED_DIMENSION: str = "dump_order_basis"
+ORDERING_UNVERIFIED_MESSAGE: str = (
+    "Dump ordering rests on sorted file names because at least one dump "
+    "carries no dump-time timestamp, so the resulting order is unverified."
+)
+
 
 class DumpSlice(BaseModel):
     """One dump's identity in the resolved order (EUS-08)."""
@@ -166,9 +176,14 @@ def resolve_dump_order(
     - Two or more dumps, every representative timestamped
       (``ts_confidence != "missing"``): sort on ``(ts, source_file)``,
       ``ORDER_BASIS_TIMESTAMP`` (D-01).
-    - Any representative untimestamped: the D-02 fallback and its loud flag
-      are 17-02's work — raise loudly here rather than silently falling
-      through to an undeclared order.
+    - Any representative untimestamped (``ts_confidence == "missing"``): sort
+      on ``source_file`` alone, ``ORDER_BASIS_FILENAME``, and raise exactly
+      one ``OrderingFlag`` at severity ``warn`` (D-02). No timestamp is ever
+      assigned, inferred, interpolated or filesystem-derived for the
+      untimestamped dump — its own ``DumpSlice.ts``/``ts_confidence`` stay
+      exactly what the adapter reported (ADR 0012 record-don't-apply
+      precedent). No operator-facing ordering override exists anywhere in
+      this module (D-03).
     """
     keys = list(dumps.keys())
     if len(keys) <= 1:
@@ -184,10 +199,13 @@ def resolve_dump_order(
         )
         return ordered, ORDER_BASIS_TIMESTAMP, ()
 
-    raise NotImplementedError(
-        "dump ordering fallback for an untimestamped dump (D-02) is 17-02's "
-        "work; this case's ordering cannot be resolved yet"
+    ordered = tuple(sorted(keys))
+    flag = OrderingFlag(
+        dimension=ORDERING_UNVERIFIED_DIMENSION,
+        severity="warn",
+        message=ORDERING_UNVERIFIED_MESSAGE,
     )
+    return ordered, ORDER_BASIS_FILENAME, (flag,)
 
 
 def analyse_eustack_bundle(
