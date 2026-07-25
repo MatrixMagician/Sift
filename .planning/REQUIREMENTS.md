@@ -19,9 +19,10 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 ### Thread classification
 
-- [ ] **EUS-01**: User gets every thread in a dump classified as `idle-parked`,
+- [x] **EUS-01**: User gets every thread in a dump classified as `idle-parked`,
   `blocked-on-external`, `blocked-on-lock`, `running`, or `unclassified`, driven by a versioned
   rules file that can be edited without touching Python
+
 - [ ] **EUS-02**: User sees unrecognised frames counted and reported as `unclassified` — never
   silently bucketed into a known role and never guessed
 
@@ -29,8 +30,10 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 - [ ] **EUS-03**: User sees per-pool occupancy so an idle pool of parked workers reads as healthy
   rather than saturated
+
 - [ ] **EUS-04**: User sees threads converging on a lock-acquisition path, always reported as
   ownership-blind
+
 - [ ] **EUS-05**: User sees external-wait concentration split by dependency (warehouse, HTTP, IPC)
 - [ ] **EUS-06**: User sees the thread population collapsed to distinct stack signatures, ranked by
   thread count
@@ -39,6 +42,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 - [ ] **EUS-07**: User gets full analysis from a single dump, and per-signature population deltas
   when two or more dumps are present
+
 - [ ] **EUS-08**: User sees dumps ordered without invented timestamps, with the ordering basis
   stated and unresolvable ordering flagged loudly rather than assumed
 
@@ -46,10 +50,13 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 - [ ] **EUS-09**: User runs `sift eustack <case>` to get a deterministic report plus CSV export,
   working with no DSSErrors log present in the case
+
 - [ ] **EUS-10**: User sees eu-stack figures inside `sift analyze` as cited evidence, with the
   prompt byte-identical to today when a case contains no eu-stack data
+
 - [ ] **EUS-11**: Eu-stack thread events stop competing in dedup/embed/cluster/salience while
   remaining individually citable
+
 - [ ] **EUS-12**: A regression-gated golden eval covers both the real healthy capture (must not
   report a hang) and synthetic hang fixtures (must)
 
@@ -122,7 +129,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EUS-01 | Phase 15 | Pending |
+| EUS-01 | Phase 15 | Complete |
 | EUS-02 | Phase 15 | Pending |
 | EUS-03 | Phase 16 | Pending |
 | EUS-04 | Phase 16 | Pending |

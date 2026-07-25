@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 15
-status: planning
-stopped_at: Phase 15 planned and verified (6 plans, 4 waves) — stopped at planning boundary
-last_updated: "2026-07-25T10:40:35.588Z"
+current_phase_name: thread-role-taxonomy-rules-file
+status: executing
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-07-25T10:51:07.046Z"
 last_activity: 2026-07-25
-last_activity_desc: v1.3 roadmap created (Phases 15–20, 13/13 requirements mapped)
+last_activity_desc: Phase 15 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 6
-  completed_plans: 0
+  completed_plans: 1
   percent: 0
-current_phase_name: thread-role-taxonomy-rules-file
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: thread-role-taxonomy-rules-file
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** v1.3 EU-Stack Hang & Slowdown Diagnosis — Phases 15–20 roadmapped, ready to plan Phase 15
+**Current focus:** Phase 15 — thread-role-taxonomy-rules-file
 
 ## Current Position
 
-Phase: 15 — Thread-Role Taxonomy & Rules File (not started)
-Plan: —
-Status: Roadmap complete — ready for `/gsd-plan-phase 15`
-Last activity: 2026-07-25 — v1.3 roadmap created (Phases 15–20, 13/13 requirements mapped)
+Phase: 15 (thread-role-taxonomy-rules-file) — EXECUTING
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-07-25 — Phase 15 execution started
 
 ## Performance Metrics
 
@@ -129,6 +129,7 @@ Last activity: 2026-07-25 — v1.3 roadmap created (Phases 15–20, 13/13 requir
 | Phase 14 P03 | 35m | 2 tasks | 4 files |
 | Phase 14 P04 | 40m | 2 tasks | 3 files |
 | Phase 14 P05 | 6 | 2 tasks | 3 files |
+| Phase 15 P01 | 9min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -236,6 +237,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 14-01: overlap guard test_fixture_overlaps asserts >=1 non-None at_denial_event_id (cited in store), proven RED on the non-overlapping shipped pair — PERF-07/PERF-08 remain OPEN (satisfied in 14-03/14-04/14-05)
 - [Phase ?]: 14-02: episodes-present untimestamped perfmon samples disclosed via a synthetic hazard-only TrendGroup (Option B add-alongside), reusing _hazard_unplaceable_samples verbatim; appended in a fixed position for D-21 determinism
 - [Phase ?]: PERF-07 delivered: perfmon facts spliced + unioned into prompted_ids (citable); no-perfmon prompt byte-identical (block-stripping restores ef5b76801235d179)
+- [Phase ?]: [Phase 15]: 15-01: normalise() splits on FIRST '@' not '@@' — reference capture carries single-@ GLIBC suffixes (clock_nanosleep@GLIBC_2.2.5) that a literal @@ split would leave version-suffixed
+- [Phase ?]: [Phase 15]: 15-01: tracer proves D-01 rule-major first-match-wins, D-08 shared iter_frames, D-16 rules/ package layout — no pyproject.toml change needed (verified via real uv build --wheel)
 
 ### Pending Todos
 
@@ -318,9 +321,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T10:40:35.576Z
-Stopped at: Phase 15 planned and verified (6 plans, 4 waves) — stopped at planning boundary
-Resume file: .planning/phases/15-thread-role-taxonomy-rules-file/15-01-PLAN.md
+Last session: 2026-07-25T10:51:07.034Z
+Stopped at: Completed 15-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
