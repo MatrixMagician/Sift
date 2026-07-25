@@ -19,9 +19,15 @@ report and perfmon figures fed into `sift analyze` as computed-never-authored ci
 
 **Codebase:** ~10,800 LOC Python across `src/sift`; five adapters (genericlog, journald,
 dsserrors, eustack, dssperfmon); `sift` CLI subcommands new/ingest/analyze/report/show/mcm/perfmon/
-eval/doctor. Quality gate green: `ruff` clean, `pyright` 0 errors, `pytest` 658 passed.
+eval/doctor. Quality gate green: `ruff` clean, `pyright` 0 errors, `pytest` 719 passed.
 
 **In flight:** v1.3 EU-Stack Hang & Slowdown Diagnosis (see Current Milestone below).
+Phase 15 complete (2026-07-25) — every thread in an eu-stack dump now carries a deterministic
+role label from a versioned TOML rules file at `src/sift/rules/eustack_roles.toml` that an
+engineer can edit without touching Python (`[eustack] rules_path` / `SIFT_EUSTACK_RULES_PATH`).
+Validated in Phase 15: EUS-01, EUS-02. On the reference capture the day-one 24-rule taxonomy
+classifies 98.67% of 3,902 threads, with the remainder honestly reported as `unclassified`
+rather than guessed. Phase 17 still owns wiring `rules_path` through a CLI entry point (D-13).
 Backlog carries PERFV2-01 (recovery-trend), PERFV2-02 (multi-host correlation), and PERFV2-03
 (perfmon-only anomaly detection), all deferred beyond v1.2.
 
