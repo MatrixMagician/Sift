@@ -122,16 +122,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EUS-01 | TBD | Pending |
-| EUS-02 | TBD | Pending |
-| EUS-03 | TBD | Pending |
-| EUS-04 | TBD | Pending |
-| EUS-05 | TBD | Pending |
-| EUS-06 | TBD | Pending |
-| EUS-07 | TBD | Pending |
-| EUS-08 | TBD | Pending |
-| EUS-09 | TBD | Pending |
-| EUS-10 | TBD | Pending |
-| EUS-11 | TBD | Pending |
-| EUS-12 | TBD | Pending |
-| DET-01 | TBD | Pending |
+| EUS-01 | Phase 15 | Pending |
+| EUS-02 | Phase 15 | Pending |
+| EUS-03 | Phase 16 | Pending |
+| EUS-04 | Phase 16 | Pending |
+| EUS-05 | Phase 16 | Pending |
+| EUS-06 | Phase 16 | Pending |
+| EUS-07 | Phase 17 | Pending |
+| EUS-08 | Phase 17 | Pending |
+| EUS-09 | Phase 17 | Pending |
+| EUS-10 | Phase 18 | Pending |
+| EUS-11 | Phase 19 | Pending |
+| EUS-12 | Phase 19 | Pending |
+| DET-01 | Phase 20 | Pending |
+
+**Coverage: 13/13 requirements mapped to exactly one phase each.** No orphans, no duplicates.
+
+Phase-to-requirement view:
+
+| Phase | Requirements |
+|-------|--------------|
+| 15 — Thread-Role Taxonomy & Rules File | EUS-01, EUS-02 |
+| 16 — Saturation, Contention & Signature Collapse | EUS-03, EUS-04, EUS-05, EUS-06 |
+| 17 — Multi-Dump Progression & `sift eustack` Report + CSV | EUS-07, EUS-08, EUS-09 |
+| 18 — Eu-Stack Facts into `sift analyze` | EUS-10 |
+| 19 — Ranking Exclusion & Regression-Gated Golden Eval | EUS-11, EUS-12 |
+| 20 — SEED-002 Embedding Vector Reuse | DET-01 |

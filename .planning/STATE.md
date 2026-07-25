@@ -3,14 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 status: planning
-last_updated: "2026-07-25T09:02:18.874Z"
+stopped_at: Roadmap complete — Phase 15 not started
+last_updated: "2026-07-25T10:30:00.000Z"
 last_activity: 2026-07-25
+last_activity_desc: "v1.3 roadmap created (Phases 15-20, 13/13 requirements mapped)"
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
   percent: 0
+current_phase: 15
+current_phase_name: thread-role-taxonomy-rules-file
 ---
 
 # Project State
@@ -20,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Planning next milestone (`/gsd-new-milestone`) — v1.2 shipped 2026-07-20
+**Current focus:** v1.3 EU-Stack Hang & Slowdown Diagnosis — Phases 15–20 roadmapped, ready to plan Phase 15
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 15 — Thread-Role Taxonomy & Rules File (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-25 — Milestone v1.3 started
+Status: Roadmap complete — ready for `/gsd-plan-phase 15`
+Last activity: 2026-07-25 — v1.3 roadmap created (Phases 15–20, 13/13 requirements mapped)
 
 ## Performance Metrics
 
@@ -133,6 +137,13 @@ Last activity: 2026-07-25 — Milestone v1.3 started
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Roadmap v1.3]: v1.3 is 6 phases (15→16→17→18→19→20), numbering continued from Phase 14; EUS-01..12 + DET-01 mapped one requirement to exactly one phase (15: EUS-01/02, 16: EUS-03/04/05/06, 17: EUS-07/08/09, 18: EUS-10, 19: EUS-11/12, 20: DET-01)
+- [Roadmap v1.3]: The thread-role taxonomy (Phase 15) is the load-bearing foundation — every other analysis requirement is a grouping or rendering layer over taxonomy-labelled threads, so it lands first and gets the most eval scrutiny
+- [Roadmap v1.3]: EUS-11 (ranking exclusion) is sequenced AFTER both EUS-09 (`sift eustack`) and EUS-10 (facts into `sift analyze`) have shipped — eu-stack events currently produce working clusters and hypotheses for eu-stack-only cases, so excluding them before the replacement exists opens a regression window. This ordering is EUS-11's own wording, not a preference
+- [Roadmap v1.3]: Within Phase 19, EUS-11 lands before EUS-12's golden fixtures are authored, so the fixtures reflect final ranking behaviour rather than a moving target
+- [Roadmap v1.3]: DET-01 (Phase 20, SEED-002 vector reuse) is fully independent of EUS-01..12 — it touches `pipeline/cluster.py` and the vectors table, not the eu-stack analyser. Sequenceable anywhere; only coupling to Phase 19 is diff proximity in `store.py`/`cluster.py`. Natural drop candidate if the milestone runs hot
+- [Roadmap v1.3]: v1.3 mirrors the v1.1/v1.2 shape one layer out — deterministic analyser → standalone report + CSV → LLM facts → eval — with the deterministic-core-vs-LLM boundary preserved verbatim (figures COMPUTED, model narrates)
+- [Roadmap v1.3]: The intuitive mechanism was killed before scoping — "identical stack after 60 s = stuck" flags 98.9% of threads (3,849 of 3,893 common TIDs) on a HEALTHY server. Composition, not motion, is the signal (3,902 threads → 93 signatures). Any phase reintroducing a motion-based check reopens the falsified mechanism
 - [Roadmap v1.2]: v1.2 is 3 phases (12→13→14), numbering continued from Phase 11; PERF-01..08 mapped one requirement to exactly one phase (12: PERF-01/02/03, 13: PERF-04/05/06, 14: PERF-07/08)
 - [Roadmap v1.2]: v1.2 deliberately mirrors v1.1's shape one layer out — adapter → deterministic analyser/correlator → report → LLM facts → eval; the deterministic-core-vs-LLM boundary is preserved (figures COMPUTED, never model-authored)
 - [Roadmap v1.2]: PERF-04 REUSES the auto-selected lead-up window MCM-04 already computes (v1.1, Phase 10) — a dependency on existing code, not new window logic
@@ -260,6 +271,14 @@ Earlier: the three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --lis
   kept — removing it would change shipped MCM prompt bytes for no behavioural gain.
 
 ### Blockers/Concerns
+
+- [Phase 15]: **Research flag — frame-matching strategy is unresolved.** Enclosing application frame vs leaf priority; match precedence when several rules hit one stack (research recommends first-match-wins in file order, but the schema decision is explicit and unmade); symbol brittleness across build variants — anchor on qualified names, mirroring ADR 0013's bare-substring collision. Classification must read `Event.raw`, not `Event.message` (`adapters/eustack.py:150-152` caps `message` at `CONDENSED_FRAMES = 5`; the classifying frame sits 8–19 deep). Needs a design pass at plan time.
+
+- [Phase 18]: **Research flag — unsolved design question.** How does an aggregate fact ("1,715 idle job-queue threads") resolve back to a citable `event_id` set? Explicitly NOT solved by analogy to MCM/perfmon: those cite episodes and samples that are already one-to-one with events; a signature population is one-to-many. Research recommends an ADR before the plan freezes. Also: `eustack_facts.py` must stay a leaf module (hypothesise imports it, never the reverse) and needs its own fixed cap — fact blocks bypass `PromptBudget.fit`, so `_MAX_EPISODES`/`_MAX_GROUPS` is the precedent.
+
+- [Phase 20]: **ADR is a recording task, not a re-decision.** The batch-knob decision is settled: an `embeddings.context`/`batch_size`/`max_input_chars` change does NOT invalidate reused vectors (`analyze --re-embed` is the escape hatch); a model or dimension change DOES. Record it in `docs/decisions/`. Invalidating on a knob change would re-embed under a new batch layout on the first run after any reconfiguration, reopening the hysteresis SEED-002 exists to eliminate.
+
+- [Phase 19]: The known evidence gap — the reference capture is a healthy, near-idle server, so it proves the analyser does not cry wolf but cannot prove hang-detection recall. Positive fixtures are synthetic and must be labelled as authored, not observed, and derived from the documented hang scenario rather than from the rules-file strings, or the eval proves only that the code runs.
 
 - [Phase 12]: PERF-03 (exclude perfmon events from dedup/embed/cluster/salience by source kind) touches EXISTING shipped pipeline stages — `pipeline/dedup.py`, `pipeline/cluster.py`, `pipeline/salience.py` — not just the new adapter module. Cross-cutting regression risk to v1.0/v1.1 cluster output; keep the exclusion predicate in ONE place rather than re-implementing per stage. Guard: cluster output byte-identical with and without a perfmon CSV ingested.
 - [Phase 13]: `sift perfmon` must work on a case with a perfmon CSV and NO DSSErrors log at all (PERF-06) — the episode-annotation path must degrade to a plain trend report, not an empty-episode traceback.
