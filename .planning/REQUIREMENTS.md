@@ -34,8 +34,8 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 - [x] **EUS-04**: User sees threads converging on a lock-acquisition path, always reported as
   ownership-blind
 
-- [ ] **EUS-05**: User sees external-wait concentration split by dependency (warehouse, HTTP, IPC)
-- [ ] **EUS-06**: User sees the thread population collapsed to distinct stack signatures, ranked by
+- [x] **EUS-05**: User sees external-wait concentration split by dependency (warehouse, HTTP, IPC)
+- [x] **EUS-06**: User sees the thread population collapsed to distinct stack signatures, ranked by
   thread count
 
 ### Multi-dump progression
@@ -133,8 +133,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EUS-02 | Phase 15 | Complete |
 | EUS-03 | Phase 16 | Complete |
 | EUS-04 | Phase 16 | Complete |
-| EUS-05 | Phase 16 | Pending |
-| EUS-06 | Phase 16 | Pending |
+| EUS-05 | Phase 16 | Complete |
+| EUS-06 | Phase 16 | Complete |
 | EUS-07 | Phase 17 | Pending |
 | EUS-08 | Phase 17 | Pending |
 | EUS-09 | Phase 17 | Pending |

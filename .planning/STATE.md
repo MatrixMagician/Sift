@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 16
 current_phase_name: Saturation, Contention & Signature Collapse
 status: executing
-stopped_at: Completed 16-02-PLAN.md
-last_updated: "2026-07-25T19:24:34.786Z"
+stopped_at: Completed 16-03-PLAN.md
+last_updated: "2026-07-25T19:34:51.342Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
   percent: 17
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 16 (Saturation, Contention & Signature Collapse) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-25 — Phase 16 execution started
 
@@ -127,6 +127,7 @@ Last activity: 2026-07-25 — Phase 16 execution started
 | Phase 15 P06 | ~25min | 3 tasks | 3 files |
 | Phase 16 P01 | 25min | 3 tasks | 3 files |
 | Phase 16 P02 | 20min | 3 tasks | 2 files |
+| Phase 16 P03 | ~15min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -251,6 +252,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 16-02: D-04 denylist implemented as str.startswith(tuple) leading-namespace prefix test — proven against real fixture shapes (std::condition_variable::wait, boost::asio::detail::scheduler::do_run_one) and hand-built template-argument-list frames in both directions
 - [Phase ?]: 16-02: lock_finding_note lives on SaturationAnalysis, not per-LockSite row, so the ownership-blind label (D-05) appears exactly once per report and a renderer cannot omit it by construction
 - [Phase ?]: 16-02: S-7 — the shipped whole-source ownership grep stays byte-for-byte unchanged (eustack_roles.toml's 'holder' is a non-goal comment, documentation not output); the three-term D-05 prohibition is enforced as a second assertion over strings analyse_saturation() actually emits, word-boundary matched, non-vacuity guarded
+- [Phase ?]: [Phase 16]: 16-03: DependencyWait groups blocked-on-external signatures by verbatim subsystem (not matched pattern) — Rules 16/19 both warehouse aggregate into one row (D-06); derivative fixture split reads warehouse 8, http 5, ipc 2
+- [Phase ?]: [Phase 16]: 16-03: no_resolvable_frame_pct divides by total_threads, same denominator as unclassified_thread_pct (S-5/D-07 amended) — closes the three-flag D-07 set; EUS-06 closed mechanically via SaturationAnalysis.model_fields pin (no duplicated signature list)
 
 ### Pending Todos
 
@@ -333,8 +336,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T19:24:34.777Z
-Stopped at: Completed 16-02-PLAN.md
+Last session: 2026-07-25T19:34:51.332Z
+Stopped at: Completed 16-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

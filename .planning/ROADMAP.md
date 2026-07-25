@@ -98,13 +98,13 @@ Plans:
   4. The thread population is collapsed to distinct stack signatures ranked by thread count (3,902 → 93 on the reference capture), each signature carrying its role
   5. Every graded flag prints its raw computed value beside the configured threshold, thresholds are config keys, and the healthy reference capture raises zero flags
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 
 - [x] 16-01-PLAN.md — Tracer: per-pool occupancy end-to-end, config key through grouping and grading to a new frozen `SaturationAnalysis` (EUS-03)
 - [x] 16-02-PLAN.md — Ownership-blind lock convergence: the D-04 enclosing-frame walk, `LockSite`, the count flag and the synthetic scenario (EUS-04)
-- [ ] 16-03-PLAN.md — External-wait split by dependency, the no-resolvable-frame flag, signature passthrough and whole-model determinism (EUS-05, EUS-06)
+- [x] 16-03-PLAN.md — External-wait split by dependency, the no-resolvable-frame flag, signature passthrough and whole-model determinism (EUS-05, EUS-06)
 - [ ] 16-04-PLAN.md — The D-09 zero-flags gate against the measured reference composition, plus ADR 0016 (EUS-03..06)
 
 **Pattern note**: Graded flags follow the shipped MCM-03 pattern (info/warn/critical, config-tunable). No graded saturation thresholds are invented — EUSV2-03 is explicitly deferred; flags here report measured composition, not authored percentages.
