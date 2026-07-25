@@ -62,21 +62,51 @@ output.
   leaf), so `SignatureGroup.frame_index` points at glibc — the site must be
   found by walking *up* from that index.
 
-- **D-04:** The enclosing application frame is the first resolvable frame above
-  `frame_index` whose normalised symbol contains `::`. MicroStrategy code is
-  uniformly C++-namespaced; glibc/pthread is C and unqualified. Zero authored
-  data, no prefix denylist to maintain, and it mirrors ADR 0013's
-  qualified-name anchoring.
+- **D-04 (AMENDED 2026-07-25 after research — see note below):** The enclosing
+  application frame is the first resolvable frame above `frame_index` whose
+  normalised symbol contains `::` **and does not begin with a third-party
+  runtime namespace**. "Above" means **increasing** frame index — `iter_frames()`
+  yields `#1`, `#2`, `#3` … from leaf toward thread entry point, so the walk is
+  `frame_index + 1, frame_index + 2, …`.
+
+  The runtime-namespace denylist is exactly: `std::`, `boost::`, `__gnu_cxx::`,
+  `abi::`. The first two are evidence-backed; the latter two are defensive
+  entries for the same libstdc++/libgcc family.
   — **Reversibility:** reversible — the walk is one helper function over an
-  existing frames tuple; swapping it for a denylist later touches one call site.
-  - Rejected: a runtime-prefix denylist (`__`, `pthread_`, `std::`, `boost::`) —
-    a second authored vocabulary living in Python rather than the TOML, which
-    will drift across build variants; and `frame_index + 1`, which is wrong
-    whenever glibc has more than one frame between the futex wait and our code
-    (the normal case).
-  - Edge case the planner must handle explicitly: **no `::`-qualified frame
-    exists above the leaf.** The site is then reported as unknown-but-counted,
-    never dropped and never attributed to the leaf.
+  existing frames tuple.
+
+  **Why amended:** the original decision was "first `::`-qualified frame", on
+  the reasoning that MicroStrategy is C++-namespaced and glibc is unqualified C.
+  That reasoning holds for glibc but not for the C++ runtime. Verified in
+  `tests/fixtures/eustack/reference_capture_derivative.txt`: `#1
+  pthread_cond_wait@@GLIBC_2.3.2` is followed directly by `#2
+  boost::asio::detail::scheduler::do_run_one(...)`, and elsewhere by `#2
+  std::condition_variable::wait(...)`. An unfiltered `::` test would report
+  `boost::asio::detail::scheduler::do_run_one` as the lock site on real data.
+
+  **Why a denylist and not an allowlist:** counted over the reference capture,
+  ~110 distinct top-level namespaces appear and exactly two are third-party
+  (`std::` 14 frames, `boost::` 10). Every other one — `MSynch::` (155),
+  `CDSSQueryEngine::` (74), `MSIThread::` (61), `MSIThreadPoolTask::` (47),
+  `MCE::`, `MDb::`, `DFC*::`, `CDSS*::` … — is MicroStrategy. A denylist is two
+  entries; an allowlist would be 110 and would grow with every build.
+  - Still rejected: a full runtime-*prefix* denylist (`__`, `pthread_`, …) —
+    unnecessary, because the `::` test already eliminates every unqualified C
+    symbol; and `frame_index + 1`, which is wrong whenever more than one runtime
+    frame sits between the futex wait and our code (the normal case).
+  - Edge cases the planner must handle explicitly:
+    1. **No qualifying frame exists above the leaf** — reported as
+       unknown-but-counted, never dropped, never attributed to the leaf.
+    2. **Unresolvable (`??`/bare-address) frames** — skipped and walked past,
+       not treated as a stopping point (`_is_resolvable()` is the existing test).
+    3. **A template argument list containing `::`** (e.g.
+       `std::thread::_State_impl<std::tuple<MBase::ThreadedRepeater...>>`) —
+       the denylist test must be applied to the symbol's **leading** namespace,
+       not "contains `std::` anywhere", or a genuine `MBase::` frame nested in a
+       template argument would be misjudged. Match on prefix, never substring.
+    4. **The leaf is the last frame** — no frames above it; falls to case 1.
+    5. **Multiple `__lll_lock_wait` frames in one stack** — the walk starts from
+       the rule's reported `frame_index` (the matched one), not from a re-scan.
 
 - **D-05:** Every lock output is labelled ownership-blind at the point of
   reporting, and the site is reported with its thread count. The output
@@ -113,12 +143,36 @@ output.
   — **Reversibility:** reversible — adding an occupancy flag later is additive;
   removing a shipped wrong threshold is not.
 
-- **D-08:** Flags reuse the shipped MCM-03 pattern: `DiagnosticFlag` with
-  `severity` in info/warn/critical and the `_grade()` two-cut-point helper in
-  `src/sift/pipeline/mcm.py`. Every flag prints its raw computed value beside
-  the configured threshold. Thresholds are config keys under `[eustack]` in
-  `SiftConfig` (extending the existing `EustackConfig`, which currently holds
-  only `rules_path`).
+  **Denominators (settled 2026-07-25 after research — both flags key on
+  THREADS, not signatures):** the reference capture's unclassified share is
+  1.33% thread-weighted (52 / 3,902) but 43.01% signature-weighted — the two
+  differ by more than an order of magnitude, so the choice is load-bearing, not
+  cosmetic. Both ratio flags use the thread-weighted denominator (share of all
+  threads), because a long tail of one-thread signatures is a curation backlog,
+  not an operational signal, and D-09 requires zero flags on a capture that is
+  operationally healthy. The signature-weighted figure is still *reported* as a
+  raw figure (Phase 15 already emits the full uncapped unclassified list per
+  D-15); it simply does not drive a flag.
+
+- **D-08 (AMENDED 2026-07-25 after research):** Flags follow the shipped MCM-03
+  pattern — `severity` in info/warn/critical, graded by the two-cut-point
+  `_grade()` helper in `src/sift/pipeline/mcm.py`. Every flag prints its raw
+  computed value beside the configured threshold. Thresholds are config keys
+  under `[eustack]` in `SiftConfig` (extending the existing `EustackConfig`,
+  which currently holds only `rules_path`).
+
+  **Amendment — `DiagnosticFlag` cannot carry the lock-convergence count.** Its
+  docstring states `value_pct` is "ALWAYS a ratio `part / whole * 100` — never
+  an absolute", which is a milestone-locked machine-independence invariant. Two
+  of D-07's three flags are true ratios and fit; the lock-convergence flag is a
+  raw thread count and does not. `perfmon.py` hit this same mismatch and
+  resolved it by minting `PerfmonHazard` rather than bending `DiagnosticFlag` —
+  follow that precedent: reuse `_grade()` verbatim, and mint one sibling record
+  type for the count flag. Do NOT widen `DiagnosticFlag`'s contract.
+
+  `_grade()` is private to `mcm.py`. The planner decides between promoting it to
+  a shared home and importing it as-is; either is acceptable provided `mcm.py`'s
+  existing tests stay green and the helper is not duplicated.
 
 - **D-09:** The healthy reference capture must raise **zero** flags. This is a
   verification gate on the chosen defaults, not an aspiration — if a default
