@@ -5,8 +5,8 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 17
 current_phase_name: Multi-Dump Progression & `sift eustack` Report + CSV
 status: executing
-stopped_at: Completed 17-01-PLAN.md
-last_updated: "2026-07-25T21:10:10.389Z"
+stopped_at: "Phase 17 wave 2 halted: plan 17-02 tasks 1-2 committed (8c7d805, 827b306), task 3 + SUMMARY outstanding — executor killed 3x by upstream API 529"
+last_updated: "2026-07-25T21:33:02.128Z"
 last_activity: 2026-07-25
 last_activity_desc: Phase 17 execution started
 progress:
@@ -340,9 +340,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T21:10:10.379Z
-Stopped at: Completed 17-01-PLAN.md
-Resume file: None
+Last session: 2026-07-25T21:33:02.114Z
+Stopped at: Phase 17 wave 2 halted: plan 17-02 tasks 1-2 committed (8c7d805, 827b306), task 3 + SUMMARY outstanding — executor killed 3x by upstream API 529
+Resume file: .planning/phases/17-multi-dump-progression-sift-eustack-report-csv/17-02-PLAN.md
 
 ## Operator Next Steps
 
