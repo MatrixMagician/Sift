@@ -238,10 +238,16 @@ Recent decisions affecting current work:
   **degraded** (0 hypotheses, exit 3) on 2026-07-21 where the prior run gave 1. Cause NOT
   yet attributed — likely a marginal model on a changed prompt, not a regression.
 - [pipeline] `.planning/todos/pending/2026-07-21-embedding-batch-composition-determinism.md`
-  — cluster count moved 814 → 813 when `embeddings.context` went 8192 → 32768, i.e. when the
-  batch layout changed. UNCONFIRMED (one observation; HDBSCAN margin noise is equally likely).
-  Matters because it would make a config knob determinism-affecting. Settle it at the
-  embed level, not by re-running analyze.
+  — **CONFIRMED 2026-07-25** at the embed level. Batch layout changes the vectors far above
+  float noise (1385/1781 vectors differ between `context` 8192 and 32768; max component
+  delta 4.8e-3). Severity is confined to the near-duplicate tail — 4% of exemplars get a
+  different nearest neighbour — which is a sufficient mechanism for the ±1 cluster wobble.
+  The trigger is the layout *transition*, not the context value: steady-state re-runs are
+  bit-identical, but a differently-batched predecessor perturbs the next run (replicated 3×).
+  The determinism invariant holds in steady state but is conditional on embedding-backend
+  state Sift neither controls nor records, and `cluster.py:333` re-embeds every run.
+  **Remedy outstanding** — record the knob in case `meta`, qualify the docs claim, or reuse
+  persisted vectors (the only option that closes rather than documents the exposure).
 
 Earlier: the three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --list`):
 
