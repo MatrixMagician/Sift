@@ -3,6 +3,7 @@ type: todo
 created: 2026-07-21
 area: pipeline
 status: pending
+resolves_phase: 20
 ---
 
 # Does embedding batch composition perturb clustering? (determinism invariant)
