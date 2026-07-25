@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 17
 current_phase_name: Multi-Dump Progression & `sift eustack` Report + CSV
 status: executing
-stopped_at: Phase 17 context gathered
-last_updated: "2026-07-25T20:56:26.725Z"
+stopped_at: Completed 17-01-PLAN.md
+last_updated: "2026-07-25T21:10:10.389Z"
 last_activity: 2026-07-25
-last_activity_desc: Phase 16 complete, transitioned to Phase 17
+last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 33
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 16 — Saturation, Contention & Signature Collapse
+**Current focus:** Phase 17 — Multi-Dump Progression & `sift eustack` Report + CSV
 
 ## Current Position
 
-Phase: 17 — Multi-Dump Progression & `sift eustack` Report + CSV
-Plan: Not started
+Phase: 17 (Multi-Dump Progression & `sift eustack` Report + CSV) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-25 — Phase 16 complete, transitioned to Phase 17
+Last activity: 2026-07-25 — Phase 17 execution started
 
 ## Performance Metrics
 
@@ -129,6 +129,7 @@ Last activity: 2026-07-25 — Phase 16 complete, transitioned to Phase 17
 | Phase 16 P02 | 20min | 3 tasks | 2 files |
 | Phase 16 P03 | ~15min | 3 tasks | 2 files |
 | Phase 16 P04 | ~15min | 2 tasks | 3 files |
+| Phase 17 P01 | 25min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -255,6 +256,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 16-02: S-7 — the shipped whole-source ownership grep stays byte-for-byte unchanged (eustack_roles.toml's 'holder' is a non-goal comment, documentation not output); the three-term D-05 prohibition is enforced as a second assertion over strings analyse_saturation() actually emits, word-boundary matched, non-vacuity guarded
 - [Phase ?]: [Phase 16]: 16-03: DependencyWait groups blocked-on-external signatures by verbatim subsystem (not matched pattern) — Rules 16/19 both warehouse aggregate into one row (D-06); derivative fixture split reads warehouse 8, http 5, ipc 2
 - [Phase ?]: [Phase 16]: 16-03: no_resolvable_frame_pct divides by total_threads, same denominator as unclassified_thread_pct (S-5/D-07 amended) — closes the three-flag D-07 set; EUS-06 closed mechanically via SaturationAnalysis.model_fields pin (no duplicated signature list)
+- [Phase ?]: 17-01: Zero-dump case needs no special branch — analyse_eustack_bundle falls through to analyse_eustack([], ...)'s zero-events contract for empty-case exit 0
+- [Phase ?]: 17-01: resolve_dump_order implements the full D-01 (2+ dumps, all timestamped) path now; D-02 fallback raises NotImplementedError naming 17-02 as owner
 
 ### Pending Todos
 
@@ -337,9 +340,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T20:20:28.091Z
-Stopped at: Phase 17 context gathered
-Resume file: .planning/phases/17-multi-dump-progression-sift-eustack-report-csv/17-CONTEXT.md
+Last session: 2026-07-25T21:10:10.379Z
+Stopped at: Completed 17-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

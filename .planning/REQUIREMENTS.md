@@ -48,7 +48,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 ### Reporting and integration
 
-- [ ] **EUS-09**: User runs `sift eustack <case>` to get a deterministic report plus CSV export,
+- [x] **EUS-09**: User runs `sift eustack <case>` to get a deterministic report plus CSV export,
   working with no DSSErrors log present in the case
 
 - [ ] **EUS-10**: User sees eu-stack figures inside `sift analyze` as cited evidence, with the
@@ -137,7 +137,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EUS-06 | Phase 16 | Complete |
 | EUS-07 | Phase 17 | Pending |
 | EUS-08 | Phase 17 | Pending |
-| EUS-09 | Phase 17 | Pending |
+| EUS-09 | Phase 17 | Complete |
 | EUS-10 | Phase 18 | Pending |
 | EUS-11 | Phase 19 | Pending |
 | EUS-12 | Phase 19 | Pending |
