@@ -22,7 +22,7 @@ import tomllib
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 # Shared, not copied (D-08): iter_frames and _condense_symbol live on the
 # shipped adapter; a second frame regex here would be free to drift from it.
@@ -50,8 +50,9 @@ Reason = Literal["matched-no-rule", "no-resolvable-frame"]
 
 
 class Rule(BaseModel):
-    """One curated `[[rule]]` row. Validators (duplicate/normalisation
-    rejection) are 15-04's scope — this model only shapes the row."""
+    """One curated `[[rule]]` row. `pattern` must already be in `normalise()`
+    canonical form (D-06) — a curator who pastes a raw versioned symbol is
+    told the canonical form to use, not silently corrected."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -59,6 +60,23 @@ class Rule(BaseModel):
     subsystem: str
     match: MatchKind = "exact"  # D-09: omitting `match` means exact, never contains.
     pattern: str
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern_nonempty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("rule pattern must not be empty")
+        return value
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern_must_be_normalised(cls, value: str) -> str:
+        canonical = normalise(value)
+        if canonical != value:
+            raise ValueError(
+                f"rule pattern {value!r} is not normalised; use {canonical!r}"
+            )
+        return value
 
 
 class RulesMeta(BaseModel):
@@ -79,7 +97,21 @@ class ThreadRoleRules(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     meta: RulesMeta
-    rule: tuple[Rule, ...]
+    # Default () so a [meta]-only file is valid: every signature then
+    # classifies unclassified, a legitimate diagnostic state, not an error.
+    rule: tuple[Rule, ...] = ()
+
+    @model_validator(mode="after")
+    def _no_duplicate_rules(self) -> ThreadRoleRules:
+        seen: set[tuple[MatchKind, str]] = set()
+        for r in self.rule:
+            key = (r.match, r.pattern)
+            if key in seen:
+                raise ValueError(
+                    f"duplicate rule (match={r.match!r}, pattern={r.pattern!r})"
+                )
+            seen.add(key)
+        return self
 
 
 class Classification(BaseModel):
@@ -131,7 +163,13 @@ def load_rules(rules_path: str | None = None) -> tuple[ThreadRoleRules, str]:
     """
     if rules_path is not None:
         source = rules_path
-        text = Path(rules_path).read_text(encoding="utf-8")
+        path = Path(rules_path)
+        if not path.is_file():
+            # An override that silently reverts to the packaged default is
+            # the same failure class D-06 exists to prevent: the operator
+            # believes their edit is live and it is not.
+            raise ValueError(f"rules file not found: {rules_path}")
+        text = path.read_text(encoding="utf-8")
     else:
         source = f"{_RULES_PACKAGE}/{_RULES_FILE}"
         text = (
