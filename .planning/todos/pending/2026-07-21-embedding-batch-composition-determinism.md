@@ -38,7 +38,7 @@ Lemonade, dim 1024.
 
 | Probe | Layouts compared | Vectors differing | max abs component delta |
 |-------|------------------|-------------------|-------------------------|
-| A | each text alone (24 requests) vs all together (1 request) | **24/24** | 3.19e-3 |
+| A | each text alone (24 requests) vs all together (1 request) | **24/24** | 3.21e-3 |
 | B | full list at `context=8192` (62 requests) vs `32768` (32 requests) | **1385/1781** | 4.76e-3 |
 
 Float32 epsilon is ~1e-7, so this is four orders of magnitude above numerical noise.
