@@ -126,9 +126,16 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 17-01-PLAN.md — Tracer: `sift eustack` end-to-end on a dumps-only case — report + CSV written, exit 0, byte-identical re-run (EUS-09)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 17-02-PLAN.md — Multi-dump ordering (D-01 timestamp basis, D-02 declared fallback + loud flag) and per-signature population deltas (EUS-07, EUS-08)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 17-03-PLAN.md — Progression rendering, per-dump CSV delta columns, and the byte-identity, formula-injection and ownership-blind gates (EUS-07, EUS-09)
 
 **Planning note**: `analyse_eustack`/`analyse_saturation` have shipped since Phase 15/16 but have **zero CLI callers** — this phase is their first wiring, so the CLI integration is net-new work, not a small addition. Both committed eu-stack fixtures were run through the adapter at plan time: `threaddump.txt` carries a real header timestamp (`ts_confidence="exact"`, exercises D-01) while `reference_capture_derivative.txt` carries none (`"missing"`), and the real out-of-repo two-dump reference capture also carries none — so **D-02 is the path real data exercises**, and D-01 needs the synthetic fixture 17-02 authors.
