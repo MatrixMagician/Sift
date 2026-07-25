@@ -69,8 +69,17 @@ Full detail: `.planning/milestones/v1.2-ROADMAP.md`.
   3. Frames matching no rule are counted and reported as `unclassified` with an example frame shown — never folded into a known role, never guessed
   4. The 1,715 `MSIQTask::GetNextPreferredJob` threads in the healthy reference capture read as `idle-parked`, not as blocked or stuck — the 98.9% composition-blind false positive does not reproduce
   5. Classification work scales with distinct stack signatures (93 in the reference capture), not with thread count (3,902)
-**Plans**: TBD
-**Research flag**: **Needs a design pass at plan time.** Frame-matching strategy is unresolved: enclosing application frame vs leaf priority; match precedence when several rules hit one stack (research recommends first-match-wins in file order, but the schema decision is explicit and unmade); and symbol brittleness across build variants — anchor on qualified names, mirroring ADR 0013's bare-substring collision. Classification reads `Event.raw`, not `Event.message` (`CONDENSED_FRAMES = 5` caps the message; the classifying frame sits 8–19 deep).
+**Plans**: 6 plans
+
+Plans:
+- [ ] 15-01-PLAN.md — Tracer: one thread end-to-end, adapter frames through packaged TOML to a role
+- [ ] 15-02-PLAN.md — `[eustack] rules_path` config key with CLI > env > TOML > default precedence
+- [ ] 15-03-PLAN.md — Signature-preserving CI fixture plus its role-blind derivation script
+- [ ] 15-04-PLAN.md — Strict rules schema, hardened loader, and the rules_path override proof (SC2)
+- [ ] 15-05-PLAN.md — `analyse_eustack`: role partition, ranked signatures, unclassified reporting
+- [ ] 15-06-PLAN.md — Curated 24-rule taxonomy, coverage gates and ADR 0015
+
+**Research flag** (resolved at plan time — see `15-CONTEXT.md` D-01/D-05/D-09 and ADR 0015 in plan 15-06): **Needed a design pass at plan time.** Frame-matching strategy is unresolved: enclosing application frame vs leaf priority; match precedence when several rules hit one stack (research recommends first-match-wins in file order, but the schema decision is explicit and unmade); and symbol brittleness across build variants — anchor on qualified names, mirroring ADR 0013's bare-substring collision. Classification reads `Event.raw`, not `Event.message` (`CONDENSED_FRAMES = 5` caps the message; the classifying frame sits 8–19 deep).
 
 ### Phase 16: Saturation, Contention & Signature Collapse
 **Goal**: An engineer sees why the server is — or demonstrably is not — saturated, from occupancy, lock convergence, external-wait concentration and signature population, every figure computed model-free
@@ -145,7 +154,7 @@ Full detail: `.planning/milestones/v1.2-ROADMAP.md`.
 | 12. `dssperfmon` Adapter & Pipeline Exclusion | v1.2 | 4/4 | Complete | 2026-07-20 |
 | 13. Correlation, Flags, `sift perfmon` | v1.2 | 6/6 | Complete | 2026-07-20 |
 | 14. Perfmon Facts into `sift analyze` | v1.2 | 5/5 | Complete | 2026-07-20 |
-| 15. Thread-Role Taxonomy & Rules File | v1.3 | 0/? | Not started | - |
+| 15. Thread-Role Taxonomy & Rules File | v1.3 | 0/6 | Planned | - |
 | 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Not started | - |
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/? | Not started | - |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Not started | - |
