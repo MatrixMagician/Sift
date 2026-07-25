@@ -4,9 +4,9 @@ milestone: v1.2
 milestone_name: "v1.2 is v1.1's shape, one layer out: **adapter → deterministic analyser/correlator → report →"
 status: Awaiting next milestone
 stopped_at: Completed 14-05-PLAN.md
-last_updated: "2026-07-20T21:13:52.529Z"
-last_activity: 2026-07-20
-last_activity_desc: Milestone v1.2 completed and archived
+last_updated: "2026-07-25T09:00:00.000Z"
+last_activity: 2026-07-25
+last_activity_desc: "Quick task 260725-cxs: embedding batch knobs in case meta + ADR 0014"
 progress:
   total_phases: 3
   completed_phases: 3
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 Phase: Milestone v1.2 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-07-20 — Milestone v1.2 completed and archived
+Last activity: 2026-07-25 — Completed quick task 260725-cxs: embedding batch knobs recorded in case `meta`, determinism claim qualified, ADR 0014 added
 
 ## Performance Metrics
 
@@ -278,6 +278,7 @@ Earlier: the three v1.2-era todos were closed on 2026-07-21 (`/gsd-capture --lis
 |------|------|-----------|
 | 2026-07-21 | [delete-case](quick/20260721-delete-case/SUMMARY.md) | `sift delete <case> [--force]` — removes the case directory (`case.db` + `mcm/`/`perfmon/`), confirm-by-default, no analysed-gate |
 | 2026-07-21 | [list-cases](quick/20260721-list-cases/SUMMARY.md) | `sift list` — case/created/events/hypotheses/size table; read-only by construction so listing cannot migrate a case |
+| 2026-07-25 | [embedding-batch-knobs](quick/260725-cxs-record-embedding-batch-knobs-in-case-met/260725-cxs-SUMMARY.md) | `embedding_context` / `embedding_batch_size` / `embedding_max_input_chars` recorded in case `meta` (overwrite semantics, never hard-fails a re-analyze); determinism claim qualified in CONTRIBUTING.md; ADR 0014 records the embedding-stage scope |
 
 ## Deferred Items
 
