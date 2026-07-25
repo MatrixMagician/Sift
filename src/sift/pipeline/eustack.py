@@ -543,20 +543,45 @@ class PoolOccupancy(BaseModel):
     signature_count: int
 
 
+class LockSite(BaseModel):
+    """One enclosing application frame that threads are converging on while
+    waiting inside ``__lll_lock_wait`` (EUS-04, D-03/D-05).
+
+    ``site`` is typed ``str``, never ``str | None`` — ``UNKNOWN_LOCK_SITE``
+    is substituted at construction so the sort key ``(-thread_count, site)``
+    stays total (16-RESEARCH.md Pitfall 4: comparing ``None`` against ``str``
+    raises ``TypeError``). This record carries a count of threads observed
+    at a site and nothing more — it reports contention, never lock
+    possession; eu-stack carries no monitor-ownership edges, so a wait-for
+    graph cannot be built at all (see ADR 0015's permanent non-goal).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    site: str
+    thread_count: int
+    signature_count: int
+
+
 class SaturationAnalysis(BaseModel):
     """Phase 16's aggregate surface over ``EustackAnalysis`` (D-10): a NEW
     frozen model consuming Phase 15's output read-only. Phase 17 renders both
-    objects. ``lock_sites`` (16-02) and ``dependencies`` (16-03) are added by
-    later plans, each with a default so this task's callers never break — no
-    placeholder fields exist here for them, and no ``signatures`` field is
+    objects. ``dependencies`` (16-03) is added by a later plan, with a
+    default so this task's callers never break — no ``signatures`` field is
     ever added (EUS-06 is satisfied by reading ``EustackAnalysis.signatures``
     directly; duplicating it here is exactly what 16-03's passthrough test
     guards against).
+
+    ``lock_finding_note`` lives here rather than on each ``LockSite`` row so
+    the ownership-blind label (D-05) appears exactly once per report and
+    Phase 17 cannot render the lock table without it.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     pools: tuple[PoolOccupancy, ...]
+    lock_sites: tuple[LockSite, ...] = ()
+    lock_finding_note: str = LOCK_FINDING_NOTE
     flags: tuple[SaturationFlag, ...]
 
 
@@ -606,8 +631,40 @@ def analyse_saturation(
     # raises TypeError in Python 3.
     pools.sort(key=lambda p: (-p.total_threads, p.subsystem is None, p.subsystem or ""))
 
-    # Fixed, authored check order (mcm.compute_flags' precedent) — this
-    # tracer emits the first check only; 16-02/16-03 append the rest.
+    # --- Lock convergence (EUS-04, D-03/D-04) ---
+    # Filter to blocked-on-lock signatures and walk each to its enclosing
+    # application frame. `frame_index` is structurally non-None here:
+    # classify_signature() sets it only when a rule matched, and
+    # `unclassified` is the sole role without one — assert rather than
+    # silently skip so pyright is satisfied and a future role change without
+    # frame_index fails loudly instead of quietly dropping threads.
+    lock_totals: dict[str, int] = {}
+    lock_signature_counts: dict[str, int] = {}
+    for group in analysis.signatures:
+        if group.role != "blocked-on-lock":
+            continue
+        assert group.frame_index is not None, (
+            "blocked-on-lock groups always carry a matched frame_index"
+        )
+        found = enclosing_application_frame(group.frames, group.frame_index)
+        site = found if found is not None else UNKNOWN_LOCK_SITE
+        lock_totals[site] = lock_totals.get(site, 0) + group.thread_count
+        lock_signature_counts[site] = lock_signature_counts.get(site, 0) + 1
+
+    lock_sites: list[LockSite] = [
+        LockSite(
+            site=site,
+            thread_count=count,
+            signature_count=lock_signature_counts[site],
+        )
+        for site, count in lock_totals.items()
+    ]
+    # Explicit total order: thread count descending, ties broken ascending on
+    # the site string. Never Counter.most_common(), never set iteration.
+    lock_sites.sort(key=lambda s: (-s.thread_count, s.site))
+
+    # Fixed, authored check order (mcm.compute_flags' precedent): unclassified
+    # share, then (16-03) no-resolvable-frame share, then lock convergence.
     flags: list[SaturationFlag] = []
     if analysis.total_threads:
         unclassified_pct = round(
@@ -639,4 +696,38 @@ def analyse_saturation(
     # No per-pool occupancy flag is emitted — D-07 forbids it and EUSV2-03 is
     # deferred; no authoritative source exists for "N% busy = warning".
 
-    return SaturationAnalysis(pools=tuple(pools), flags=tuple(flags))
+    # One flag per over-threshold LockSite row, iterating lock_sites in its
+    # already-sorted order so the flag sub-list inherits that explicit order
+    # without needing a second sort key. Zero lock sites therefore emits zero
+    # lock flags — exactly why the healthy reference capture raises none
+    # (D-09): Rule 6 (__lll_lock_wait) matches it zero times by design.
+    for site in lock_sites:
+        lock_severity = cast(
+            "FlagSeverity",
+            _grade(
+                float(site.thread_count),
+                thresholds.lock_convergence_count.warn,
+                thresholds.lock_convergence_count.critical,
+            ),
+        )
+        flags.append(
+            SaturationFlag(
+                dimension="lock_convergence_count",
+                severity=lock_severity,
+                value=float(site.thread_count),
+                unit="threads",
+                warn=thresholds.lock_convergence_count.warn,
+                critical=thresholds.lock_convergence_count.critical,
+                message=(
+                    f"{site.thread_count} threads are converging on the lock "
+                    f"site {site.site}."
+                ),
+            )
+        )
+
+    return SaturationAnalysis(
+        pools=tuple(pools),
+        lock_sites=tuple(lock_sites),
+        lock_finding_note=LOCK_FINDING_NOTE,
+        flags=tuple(flags),
+    )

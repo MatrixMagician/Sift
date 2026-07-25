@@ -19,6 +19,8 @@ from sift.config import EustackThresholdsConfig
 from sift.models import Event
 from sift.pipeline import eustack as _eustack_module
 from sift.pipeline.eustack import (
+    UNKNOWN_LOCK_SITE,
+    SaturationAnalysis,
     analyse_eustack,
     analyse_saturation,
     classify_signature,
@@ -852,3 +854,82 @@ def test_lock_site_walk_starts_at_reported_frame_index() -> None:
     )
     assert enclosing_application_frame(frames, 0) == "MSynch::First::Enter"
     assert enclosing_application_frame(frames, 2) == "MSynch::Second::Enter"
+
+
+# ------------------------------------------------------- lock convergence ---
+# Phase 16 plan 02 (EUS-04): LockSite grouping, the count flag, D-11.
+
+
+def test_synthetic_lock_convergence() -> None:
+    """HAND-AUTHORED, SYNTHETIC scenario (D-11) — NOT a redacted real
+    capture. The healthy reference capture matches Rule 6 (__lll_lock_wait,
+    the only blocked-on-lock rule in eustack_roles.toml) zero times by
+    design, so no real capture can exercise the blocked-on-lock path. Built
+    inline via _thread_raw()/_event() per 16-VALIDATION.md's Wave 0 note,
+    rather than as a fixture file that would have to look synthetic and
+    parse like a real capture at the same time.
+
+    Threads converge on ONE site (MSynch::CriticalSection::Enter, frame #2)
+    via THREE different outer frames (#3), so several distinct signatures
+    collapse to the same site — that convergence, not the raw thread count,
+    is what EUS-04 reports.
+    """
+    rules, rules_hash = load_rules()
+    outers = ("Alpha::Caller", "Bravo::Caller", "Charlie::Caller")
+
+    def _run(thread_count: int) -> SaturationAnalysis:
+        events: list[Event] = []
+        for i in range(thread_count):
+            raw = _thread_raw(
+                "__lll_lock_wait",
+                "pthread_mutex_lock",
+                "MSynch::CriticalSection::Enter",
+                outers[i % len(outers)],
+            )
+            events.append(_event(raw, thread=f"t{i}"))
+        analysis = analyse_eustack(events, rules, rules_hash)
+        return analyse_saturation(analysis, EustackThresholdsConfig())
+
+    # Below warn (default warn=5.0, critical=20.0): 3 threads -> info.
+    below_warn = _run(3)
+    assert len(below_warn.lock_sites) == 1
+    site = below_warn.lock_sites[0]
+    assert site.site == "MSynch::CriticalSection::Enter"
+    assert site.thread_count == 3
+    assert site.signature_count > 1
+    flag = next(f for f in below_warn.flags if f.dimension == "lock_convergence_count")
+    assert flag.severity == "info"
+
+    # At warn: 5 threads -> warn.
+    at_warn = _run(5)
+    flag = next(f for f in at_warn.flags if f.dimension == "lock_convergence_count")
+    assert flag.severity == "warn"
+
+    # At/above critical: 20 threads -> critical.
+    at_critical = _run(20)
+    flag = next(f for f in at_critical.flags if f.dimension == "lock_convergence_count")
+    assert flag.severity == "critical"
+
+    # Unknown-but-counted: __lll_lock_wait with no qualifying frame above it
+    # — never dropped, never attributed to the leaf.
+    unknown_raw = _thread_raw("__lll_lock_wait", "pthread_mutex_lock", "malloc")
+    unknown_events = [_event(unknown_raw, thread=f"u{i}") for i in range(4)]
+    unknown_analysis = analyse_eustack(unknown_events, rules, rules_hash)
+    unknown_saturation = analyse_saturation(unknown_analysis, EustackThresholdsConfig())
+    assert len(unknown_saturation.lock_sites) == 1
+    unknown_site = unknown_saturation.lock_sites[0]
+    assert unknown_site.site == UNKNOWN_LOCK_SITE
+    assert unknown_site.thread_count == 4
+
+
+def test_reference_derivative_yields_no_lock_sites() -> None:
+    """D-09: the healthy reference capture raises zero lock sites and zero
+    lock_convergence_count flags — Rule 6 (__lll_lock_wait) matches it zero
+    times by design."""
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    assert saturation.lock_sites == ()
+    assert not any(f.dimension == "lock_convergence_count" for f in saturation.flags)
