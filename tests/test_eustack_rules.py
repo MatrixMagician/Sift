@@ -996,3 +996,82 @@ def test_reference_derivative_yields_no_lock_sites() -> None:
 
     assert saturation.lock_sites == ()
     assert not any(f.dimension == "lock_convergence_count" for f in saturation.flags)
+
+
+# ---------------------------------------------------- dependency split ---
+# Phase 16 plan 03 (EUS-05): DependencyWait, the external-wait split by
+# verbatim subsystem.
+
+
+def test_dependency_split_by_subsystem() -> None:
+    """Rules 16/warehouse, 17/http, 18/ipc, and 19/warehouse (a second rule
+    sharing the warehouse subsystem) must aggregate MDb::Wrapper::
+    InterpretStatus into the SAME warehouse row as CDSSQueryEngine::
+    WaitUntilFinished, proving the grouping key is subsystem, not pattern."""
+    warehouse_raw = _thread_raw("CDSSQueryEngine::WaitUntilFinished")
+    warehouse_raw_2 = _thread_raw("MDb::Wrapper::InterpretStatus")
+    http_raw = _thread_raw("curl_multi_poll")
+    ipc_raw = _thread_raw("SharedMemoryImpl::WaitOnSemaphore")
+    events = (
+        [_event(warehouse_raw, thread=f"w{i}") for i in range(5)]
+        + [_event(warehouse_raw_2, thread=f"w2-{i}") for i in range(2)]
+        + [_event(http_raw, thread=f"h{i}") for i in range(3)]
+        + [_event(ipc_raw, thread=f"p{i}") for i in range(1)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    assert len(saturation.dependencies) == 3
+    by_subsystem = {d.subsystem: d for d in saturation.dependencies}
+
+    # Two rules (CDSSQueryEngine::WaitUntilFinished, MDb::Wrapper::
+    # InterpretStatus) both map to warehouse and must aggregate into one row
+    # — 5 + 2 threads, TWO distinct signatures.
+    warehouse = by_subsystem["warehouse"]
+    assert warehouse.thread_count == 7
+    assert warehouse.signature_count == 2
+
+    http = by_subsystem["http"]
+    assert http.thread_count == 3
+
+    ipc = by_subsystem["ipc"]
+    assert ipc.thread_count == 1
+
+    # Axes are genuinely separate, never merged into one blocked total: no
+    # row's thread count equals the sum of the others.
+    for row in saturation.dependencies:
+        others_sum = sum(
+            other.thread_count
+            for other in saturation.dependencies
+            if other is not row
+        )
+        assert row.thread_count != others_sum
+
+    # A blocked-on-external row's subsystem is never None.
+    assert all(d.subsystem is not None for d in saturation.dependencies)
+
+
+def test_reference_derivative_dependency_split_not_merged() -> None:
+    """Derivative-fixture figures (measured, not the real-capture figures):
+    the committed CI fixture caps thread counts at 1 per signature (5 for the
+    three highest-population signatures), so its absolute dependency counts
+    (warehouse 8, http 5, ipc 2) differ from the real out-of-repo reference
+    capture (79 warehouse, 78 HTTP) by design. CI asserts the SPLIT's shape —
+    warehouse and http are distinct, non-merged rows in the declared sort
+    order — while the absolute real-capture figures are a manual verification
+    (16-VALIDATION.md § Manual-Only Verifications)."""
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    assert [(d.subsystem, d.thread_count) for d in saturation.dependencies] == [
+        ("warehouse", 8),
+        ("http", 5),
+        ("ipc", 2),
+    ]
+    warehouse = saturation.dependencies[0]
+    http = saturation.dependencies[1]
+    assert warehouse.thread_count != http.thread_count
+    assert warehouse.thread_count != (warehouse.thread_count + http.thread_count)

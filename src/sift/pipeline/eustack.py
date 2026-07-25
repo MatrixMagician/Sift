@@ -563,14 +563,43 @@ class LockSite(BaseModel):
     signature_count: int
 
 
+class DependencyWait(BaseModel):
+    """One external dependency's wait concentration (EUS-05, D-06).
+
+    ``subsystem`` is the verbatim ``Rule.subsystem`` of every
+    ``blocked-on-external`` signature grouped into this row — never a mapped
+    or renamed vocabulary. ``Rule.subsystem`` is a REQUIRED non-optional
+    field, so every ``blocked-on-external`` group carries a real ``str``;
+    the only groups carrying ``subsystem=None`` are ``unclassified``, and
+    those never reach this pass (D-02). Typed ``str``, never ``str | None``,
+    for exactly that reason.
+
+    Grouping is on ``subsystem``, not on the matched pattern text: rules 16
+    and 19 in ``eustack_roles.toml`` (``CDSSQueryEngine::WaitUntilFinished``
+    and ``MDb::Wrapper::InterpretStatus``) both carry ``subsystem =
+    "warehouse"`` and must aggregate into ONE row, or the same dependency
+    would misleadingly appear to be two.
+
+    Accepted consequence (D-06, stated so it is not a surprise later): the
+    TOML curator owns this report's dependency axis. Adding a rule with a
+    new ``subsystem`` silently adds a report row here, with no Python edit —
+    the same single-source-of-truth coupling ADR 0015 chose over a second
+    ``subsystem -> dependency`` mapping table living in Python.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subsystem: str
+    thread_count: int
+    signature_count: int
+
+
 class SaturationAnalysis(BaseModel):
     """Phase 16's aggregate surface over ``EustackAnalysis`` (D-10): a NEW
     frozen model consuming Phase 15's output read-only. Phase 17 renders both
-    objects. ``dependencies`` (16-03) is added by a later plan, with a
-    default so this task's callers never break — no ``signatures`` field is
-    ever added (EUS-06 is satisfied by reading ``EustackAnalysis.signatures``
-    directly; duplicating it here is exactly what 16-03's passthrough test
-    guards against).
+    objects. No ``signatures`` field is ever added (EUS-06 is satisfied by
+    reading ``EustackAnalysis.signatures`` directly; duplicating it here is
+    exactly what the signature-passthrough test guards against).
 
     ``lock_finding_note`` lives here rather than on each ``LockSite`` row so
     the ownership-blind label (D-05) appears exactly once per report and
@@ -582,6 +611,7 @@ class SaturationAnalysis(BaseModel):
     pools: tuple[PoolOccupancy, ...]
     lock_sites: tuple[LockSite, ...] = ()
     lock_finding_note: str = LOCK_FINDING_NOTE
+    dependencies: tuple[DependencyWait, ...] = ()
     flags: tuple[SaturationFlag, ...]
 
 
@@ -663,8 +693,43 @@ def analyse_saturation(
     # the site string. Never Counter.most_common(), never set iteration.
     lock_sites.sort(key=lambda s: (-s.thread_count, s.site))
 
+    # --- Dependency split (EUS-05, D-06) ---
+    # Filter to blocked-on-external signatures and group by verbatim
+    # `subsystem` — not by matched pattern text, because rules 16 and 19
+    # (CDSSQueryEngine::WaitUntilFinished, MDb::Wrapper::InterpretStatus)
+    # both carry subsystem="warehouse" and must aggregate into one row.
+    # `Rule.subsystem` is a required non-optional field, so every group
+    # reaching this pass carries a real str; unclassified groups (the only
+    # ones carrying None) never have role == "blocked-on-external".
+    dependency_totals: dict[str, int] = {}
+    dependency_signature_counts: dict[str, int] = {}
+    for group in analysis.signatures:
+        if group.role != "blocked-on-external":
+            continue
+        assert group.subsystem is not None, (
+            "blocked-on-external groups always carry a rule subsystem"
+        )
+        dependency_totals[group.subsystem] = (
+            dependency_totals.get(group.subsystem, 0) + group.thread_count
+        )
+        dependency_signature_counts[group.subsystem] = (
+            dependency_signature_counts.get(group.subsystem, 0) + 1
+        )
+
+    dependencies: list[DependencyWait] = [
+        DependencyWait(
+            subsystem=subsystem,
+            thread_count=count,
+            signature_count=dependency_signature_counts[subsystem],
+        )
+        for subsystem, count in dependency_totals.items()
+    ]
+    # Explicit total order: thread count descending, ties broken ascending on
+    # the subsystem name. Never Counter.most_common(), never set iteration.
+    dependencies.sort(key=lambda d: (-d.thread_count, d.subsystem))
+
     # Fixed, authored check order (mcm.compute_flags' precedent): unclassified
-    # share, then (16-03) no-resolvable-frame share, then lock convergence.
+    # share, then no-resolvable-frame share, then lock convergence.
     flags: list[SaturationFlag] = []
     if analysis.total_threads:
         unclassified_pct = round(
@@ -729,5 +794,6 @@ def analyse_saturation(
         pools=tuple(pools),
         lock_sites=tuple(lock_sites),
         lock_finding_note=LOCK_FINDING_NOTE,
+        dependencies=tuple(dependencies),
         flags=tuple(flags),
     )
