@@ -13,12 +13,18 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from sift.adapters.eustack import EustackAdapter
+from sift.models import Event
+from sift.pipeline import eustack as _eustack_module
 from sift.pipeline.eustack import (
+    analyse_eustack,
     classify_signature,
     load_rules,
     normalise,
     signature_of,
 )
+
+FIXTURES = Path(__file__).parent / "fixtures" / "eustack"
 
 # TID 4242: pthread_cond_timedwait@@GLIBC_2.3.2 (idle wait) ->
 # Semaphore::SmartLock::WaitForResource -> MSIQTask::WaitForWork ->
@@ -282,3 +288,191 @@ def test_rule_order_is_the_precedence_knob(tmp_path: Path) -> None:
     )
     rules, _ = load_rules(str(second_wins))
     assert classify_signature(signature, rules).role == "idle-parked"
+
+
+# ----------------------------------------------------------- analyse_eustack ---
+
+_ALL_ROLE_KEYS = {
+    "idle-parked",
+    "blocked-on-external",
+    "blocked-on-lock",
+    "running",
+    "unclassified",
+}
+
+
+def _thread_raw(*frames: str) -> str:
+    """One synthetic ``TID N:`` block with the given (already-normalised)
+    frame symbols, in the ``#N 0xADDR symbol`` shape ``iter_frames`` expects."""
+    lines = ["TID 1:\n"]
+    for index, frame in enumerate(frames):
+        lines.append(f"#{index}  0x{index:016x} {frame}\n")
+    return "".join(lines)
+
+
+def _event(raw: str, thread: str | None) -> Event:
+    """A minimal, otherwise-inert Event carrying only what analyse_eustack
+    reads: `.raw` (signature source) and `.thread` (the is-a-thread marker)."""
+    return Event(
+        event_id="0" * 16,
+        case_id="case",
+        ts=None,
+        ts_confidence="missing",
+        source="eustack",
+        source_file="dump.txt",
+        line_start=1,
+        line_end=1,
+        severity="unknown",
+        component=None,
+        thread=thread,
+        session=None,
+        message="",
+        attrs={},
+        raw=raw,
+    )
+
+
+def _parse_derivative_fixture() -> list[Event]:
+    adapter = EustackAdapter()
+    return list(
+        adapter.parse(FIXTURES / "reference_capture_derivative.txt", "case-1")
+    )
+
+
+def test_classification_partitions_all_threads() -> None:
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    assert set(analysis.threads_by_role) == _ALL_ROLE_KEYS
+    assert set(analysis.signatures_by_role) == _ALL_ROLE_KEYS
+    assert sum(analysis.threads_by_role.values()) == analysis.total_threads
+    assert analysis.total_threads == sum(1 for e in events if e.thread is not None)
+
+
+def test_unmatched_signature_reports_count_and_example() -> None:
+    raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+    events = [_event(raw, thread=str(i)) for i in range(3)]
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    assert len(analysis.unclassified) == 1
+    group = analysis.unclassified[0]
+    assert group.thread_count == 3
+    assert group.frames == ("TotallyUnrecognisedApplicationFrame::Nobody",)
+    assert group.role == "unclassified"
+    assert group.pattern is None
+    assert group.reason == "matched-no-rule"
+    # Not folded into any known role.
+    assert analysis.threads_by_role["idle-parked"] == 0
+    assert analysis.threads_by_role["running"] == 0
+    assert analysis.threads_by_role["blocked-on-external"] == 0
+    assert analysis.threads_by_role["blocked-on-lock"] == 0
+    assert analysis.threads_by_role["unclassified"] == 3
+
+
+def test_all_unresolved_frames_is_distinct_category() -> None:
+    unresolved_raw = _thread_raw("??", "??")
+    matched_no_rule_raw = _thread_raw("TotallyUnrecognisedApplicationFrame::Nobody")
+    events = [
+        _event(unresolved_raw, thread="1"),
+        _event(matched_no_rule_raw, thread="2"),
+    ]
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    reasons = {g.frames: g.reason for g in analysis.unclassified}
+    assert reasons[("??", "??")] == "no-resolvable-frame"
+    assert (
+        reasons[("TotallyUnrecognisedApplicationFrame::Nobody",)] == "matched-no-rule"
+    )
+    unresolved_group = next(
+        g for g in analysis.unclassified if g.reason == "no-resolvable-frame"
+    )
+    assert unresolved_group.frames == ("??", "??")
+
+
+def test_unclassified_list_is_ranked_by_thread_count() -> None:
+    small = _thread_raw("Alpha::Unrecognised")
+    medium = _thread_raw("Bravo::Unrecognised")
+    large = _thread_raw("Charlie::Unrecognised")
+    events = (
+        [_event(small, thread=f"s{i}") for i in range(1)]
+        + [_event(medium, thread=f"m{i}") for i in range(3)]
+        + [_event(large, thread=f"l{i}") for i in range(5)]
+    )
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    assert [g.thread_count for g in analysis.unclassified] == [5, 3, 1]
+    assert len(analysis.unclassified) == 3  # full list, no cap
+
+
+def test_equal_thread_counts_break_ties_on_frames_tuple() -> None:
+    alpha = _thread_raw("Alpha::Unrecognised")
+    bravo = _thread_raw("Bravo::Unrecognised")
+    events = [
+        _event(bravo, thread="b1"),
+        _event(bravo, thread="b2"),
+        _event(alpha, thread="a1"),
+        _event(alpha, thread="a2"),
+    ]
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+
+    assert [g.frames for g in analysis.unclassified] == [
+        ("Alpha::Unrecognised",),
+        ("Bravo::Unrecognised",),
+    ]
+
+
+def test_classification_is_per_signature_not_per_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+
+    real_classify = _eustack_module.classify_signature
+    call_count = 0
+
+    def counting_classify(
+        signature: tuple[str, ...], rules: _eustack_module.ThreadRoleRules
+    ) -> _eustack_module.Classification:
+        nonlocal call_count
+        call_count += 1
+        return real_classify(signature, rules)
+
+    monkeypatch.setattr(_eustack_module, "classify_signature", counting_classify)
+    analysis = _eustack_module.analyse_eustack(events, rules, rules_hash)
+
+    assert call_count == analysis.total_signatures
+    assert call_count < analysis.total_threads  # strict: cap-5 signatures differ
+
+
+def test_analysis_is_byte_identical_on_rerun() -> None:
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    first = analyse_eustack(events, rules, rules_hash).model_dump_json()
+    second = analyse_eustack(events, rules, rules_hash).model_dump_json()
+    assert first == second
+
+
+def test_empty_event_list_yields_zero_analysis() -> None:
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack([], rules, rules_hash)
+
+    assert analysis.total_threads == 0
+    assert analysis.total_signatures == 0
+    assert set(analysis.threads_by_role) == _ALL_ROLE_KEYS
+    assert set(analysis.signatures_by_role) == _ALL_ROLE_KEYS
+    assert all(v == 0 for v in analysis.threads_by_role.values())
+    assert all(v == 0 for v in analysis.signatures_by_role.values())
+    assert analysis.signatures == ()
+    assert analysis.unclassified == ()
+
+
+def test_preamble_events_are_excluded_from_counts() -> None:
+    events = _parse_derivative_fixture()
+    rules, rules_hash = load_rules()
+    analysis = analyse_eustack(events, rules, rules_hash)
+    assert analysis.total_threads < len(events)
