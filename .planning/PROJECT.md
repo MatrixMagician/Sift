@@ -34,7 +34,16 @@ concentration split by dependency, and signature collapse (3,902 threads → 93 
 graded flags configurable via `[eustack.thresholds]`. Validated in Phase 16: EUS-03, EUS-04,
 EUS-05, EUS-06; recorded in ADR 0016. The healthy reference capture raises zero flags, which is
 the D-09 gate. Deadlock detection is a permanent non-goal — eu-stack carries no monitor-ownership
-edges. Phase 17 still owns wiring `rules_path` through a CLI entry point (D-13).
+edges. Phase 17 complete (2026-07-26) — `sift eustack <case>` is now a standalone command
+mirroring the `sift mcm` / `sift perfmon` contract: it produces a deterministic Markdown report
+plus CSV export from a case containing only eu-stack dumps and no DSSErrors log, and consumes
+`config.eustack.rules_path`, closing D-13. A single dump gives the full classification and
+saturation report; two or more additionally give per-signature population deltas — both the
+consecutive step deltas and the overall first-to-last delta, so a population that grew then
+shrank reads correctly. Dump ordering states its basis explicitly and flags an unresolvable
+ordering loudly rather than inventing a timestamp (ADR 0012 "record, don't apply"). Progression
+is phrased strictly as signature-population change: no per-thread continuity claim is made,
+because TID reuse makes one unsound. Validated in Phase 17: EUS-07, EUS-08, EUS-09.
 Backlog carries PERFV2-01 (recovery-trend), PERFV2-02 (multi-host correlation), and PERFV2-03
 (perfmon-only anomaly detection), all deferred beyond v1.2.
 
@@ -210,4 +219,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-07-25 — milestone v1.3 (EU-Stack Hang & Slowdown Diagnosis) in flight; Phases 15–16 complete. v1.0 + v1.1 + v1.2 complete and archived under `.planning/milestones/`.*
+*Last updated: 2026-07-26 — milestone v1.3 (EU-Stack Hang & Slowdown Diagnosis) in flight; Phases 15–17 complete. v1.0 + v1.1 + v1.2 complete and archived under `.planning/milestones/`.*
