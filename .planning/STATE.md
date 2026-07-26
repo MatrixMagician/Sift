@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 18
 current_phase_name: eu-stack-facts-into-sift-analyze
 status: executing
-stopped_at: Completed 18-01-PLAN.md (Tasks 1-3 + SUMMARY) - Plan 1 of 3 for Phase 18
-last_updated: "2026-07-26T15:00:15.540Z"
+stopped_at: Completed 18-02-PLAN.md
+last_updated: "2026-07-26T15:22:49.125Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 18 (eu-stack-facts-into-sift-analyze) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-26 — Phase 18 execution started
 
@@ -133,6 +133,7 @@ Last activity: 2026-07-26 — Phase 18 execution started
 | Phase 17 P02 | ~30min | 3 tasks | 7 files |
 | Phase 17 P03 | ~50min | 2 tasks | 4 files |
 | Phase 18 P01 | 45min | 3 tasks | 7 files |
+| Phase 18 P02 | 55min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -266,6 +267,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 17-03: _signature_table (full, unfiltered, last-dump listing) kept unchanged and rendered alongside the new _progression_table (D-09 changed-only) rather than replaced — they answer different questions
 - [Phase ?]: 17-03: pipeline.eustack.normalise() strips leading/trailing whitespace off every frame body on the real ingest path, so D-06's leading-space-before-a-trigger case is proven directly against the imported _csv_safe function rather than through a parsed fixture
 - [Phase ?]: [Phase 18]: 18-01: render_eustack_facts(bundle, events) leaf module ships role-composition grouping only (D-17 union-then-sample-3 exemplars); _PERFMON_ONLY_PROMPT_HASH=e3dc94ae1b32cd90 measured against pre-Task-1 triage.md and reproduced identically post-phase, confirming the fourth sentinel block strips residue-free
+- [Phase ?]: Lock-convergence flag maps to its LockSite via lockstep iteration over bundle.saturation.lock_sites (ADR 0016 S-6's documented 1:1 order), never value-matching on thread_count (ambiguous under ties).
+- [Phase ?]: Tasks 1 and 2 of plan 18-02 landed in a single commit — both extend the same render_eustack_facts body in one contiguous 208-line insertion with no git-hunk boundary between them.
 
 ### Pending Todos
 
@@ -348,8 +351,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-26T15:00:15.521Z
-Stopped at: Completed 18-01-PLAN.md (Tasks 1-3 + SUMMARY) - Plan 1 of 3 for Phase 18
+Last session: 2026-07-26T15:22:49.113Z
+Stopped at: Completed 18-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

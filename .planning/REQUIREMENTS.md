@@ -51,7 +51,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 - [x] **EUS-09**: User runs `sift eustack <case>` to get a deterministic report plus CSV export,
   working with no DSSErrors log present in the case
 
-- [ ] **EUS-10**: User sees eu-stack figures inside `sift analyze` as cited evidence, with the
+- [x] **EUS-10**: User sees eu-stack figures inside `sift analyze` as cited evidence, with the
   prompt byte-identical to today when a case contains no eu-stack data
 
 - [ ] **EUS-11**: Eu-stack thread events stop competing in dedup/embed/cluster/salience while
@@ -138,7 +138,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EUS-07 | Phase 17 | Complete |
 | EUS-08 | Phase 17 | Complete |
 | EUS-09 | Phase 17 | Complete |
-| EUS-10 | Phase 18 | Pending |
+| EUS-10 | Phase 18 | Complete |
 | EUS-11 | Phase 19 | Pending |
 | EUS-12 | Phase 19 | Pending |
 | DET-01 | Phase 20 | Pending |

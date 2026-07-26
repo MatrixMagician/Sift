@@ -152,7 +152,7 @@ Plans:
   3. The `eustack_facts.md` template contains zero authored digits, and a planted wrong figure provably never reaches the prompt (anti-hallucination test, MCM-06/PERF-07 pattern)
   4. Every aggregate figure quoted in the fact block resolves to a concrete, verifiable `event_id` set that exists in the case store
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -161,7 +161,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-02-PLAN.md — Four Phase-16 groupings as union-then-sample-3 cited aggregates, plus the capped drop-disclosing signature listing (wave 2)
+- [x] 18-02-PLAN.md — Four Phase-16 groupings as union-then-sample-3 cited aggregates, plus the capped drop-disclosing signature listing (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
