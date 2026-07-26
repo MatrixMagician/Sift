@@ -40,10 +40,10 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 ### Multi-dump progression
 
-- [ ] **EUS-07**: User gets full analysis from a single dump, and per-signature population deltas
+- [x] **EUS-07**: User gets full analysis from a single dump, and per-signature population deltas
   when two or more dumps are present
 
-- [ ] **EUS-08**: User sees dumps ordered without invented timestamps, with the ordering basis
+- [x] **EUS-08**: User sees dumps ordered without invented timestamps, with the ordering basis
   stated and unresolvable ordering flagged loudly rather than assumed
 
 ### Reporting and integration
@@ -135,8 +135,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EUS-04 | Phase 16 | Complete |
 | EUS-05 | Phase 16 | Complete |
 | EUS-06 | Phase 16 | Complete |
-| EUS-07 | Phase 17 | Pending |
-| EUS-08 | Phase 17 | Pending |
+| EUS-07 | Phase 17 | Complete |
+| EUS-08 | Phase 17 | Complete |
 | EUS-09 | Phase 17 | Complete |
 | EUS-10 | Phase 18 | Pending |
 | EUS-11 | Phase 19 | Pending |

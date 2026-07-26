@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 17
 current_phase_name: Multi-Dump Progression & `sift eustack` Report + CSV
 status: executing
-stopped_at: "Phase 17 wave 2 halted: plan 17-02 tasks 1-2 committed (8c7d805, 827b306), task 3 + SUMMARY outstanding — executor killed 3x by upstream API 529"
-last_updated: "2026-07-25T21:33:02.128Z"
-last_activity: 2026-07-25
+stopped_at: Completed 17-02-PLAN.md (Task 3 + SUMMARY, resumed after 3x API 529 interruption)
+last_updated: "2026-07-26T07:34:47.173Z"
+last_activity: 2026-07-26
 last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 33
 ---
 
@@ -31,7 +31,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 Phase: 17 (Multi-Dump Progression & `sift eustack` Report + CSV) — EXECUTING
 Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-07-25 — Phase 17 execution started
+Last activity: 2026-07-26 — Phase 17 execution started
 
 ## Performance Metrics
 
@@ -130,6 +130,7 @@ Last activity: 2026-07-25 — Phase 17 execution started
 | Phase 16 P03 | ~15min | 3 tasks | 2 files |
 | Phase 16 P04 | ~15min | 2 tasks | 3 files |
 | Phase 17 P01 | 25min | 2 tasks | 4 files |
+| Phase 17 P02 | ~30min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -258,6 +259,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 16]: 16-03: no_resolvable_frame_pct divides by total_threads, same denominator as unclassified_thread_pct (S-5/D-07 amended) — closes the three-flag D-07 set; EUS-06 closed mechanically via SaturationAnalysis.model_fields pin (no duplicated signature list)
 - [Phase ?]: 17-01: Zero-dump case needs no special branch — analyse_eustack_bundle falls through to analyse_eustack([], ...)'s zero-events contract for empty-case exit 0
 - [Phase ?]: 17-01: resolve_dump_order implements the full D-01 (2+ dumps, all timestamped) path now; D-02 fallback raises NotImplementedError naming 17-02 as owner
+- [Phase ?]: compute_progression joins signature groups across dumps on the full frames tuple; classification fields come from the LAST dump where a signature actually appears (non-zero count), not the last dump overall, so vanished signatures still carry a real classification
+- [Phase ?]: D-10 test bans continuity verbs and concrete thread-identifier VALUE tokens (TID\d+), not the bare word TID — PROGRESSION_SCOPE_NOTE legitimately explains that TID reuse means continuity cannot be established, which is the D-10 rationale itself
 
 ### Pending Todos
 
@@ -340,9 +343,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-25T21:33:02.114Z
-Stopped at: Phase 17 wave 2 halted: plan 17-02 tasks 1-2 committed (8c7d805, 827b306), task 3 + SUMMARY outstanding — executor killed 3x by upstream API 529
-Resume file: .planning/phases/17-multi-dump-progression-sift-eustack-report-csv/17-02-PLAN.md
+Last session: 2026-07-26T07:34:40.657Z
+Stopped at: Completed 17-02-PLAN.md (Task 3 + SUMMARY, resumed after 3x API 529 interruption)
+Resume file: None
 
 ## Operator Next Steps
 

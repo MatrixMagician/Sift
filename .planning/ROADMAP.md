@@ -123,7 +123,7 @@ Plans:
   4. Progression is expressed as signature-population change; no unqualified per-TID causal claim appears, because TID reuse is measured (9 exited / 10 new in 60 s on an idle server)
   5. Re-running the command on an unchanged case produces a byte-identical report and CSV, and CSV string cells carrying C++ symbol text pass the formula-injection guard (`_csv_safe` pattern)
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -132,7 +132,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-02-PLAN.md — Multi-dump ordering (D-01 timestamp basis, D-02 declared fallback + loud flag) and per-signature population deltas (EUS-07, EUS-08)
+- [x] 17-02-PLAN.md — Multi-dump ordering (D-01 timestamp basis, D-02 declared fallback + loud flag) and per-signature population deltas (EUS-07, EUS-08)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
