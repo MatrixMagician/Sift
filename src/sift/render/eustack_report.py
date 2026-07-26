@@ -79,6 +79,21 @@ _NO_PROGRESSION_SINGLE_DUMP = (
 )
 _NO_PROGRESSION_UNCHANGED = "_No signature's thread count changed across dumps._"
 
+# WR-02: ``## Signatures`` carries the all-dump UNION (``ProgressionAnalysis.
+# signatures``, D-04/D-09's "no cap, keep vanished signatures" requirement),
+# which can include signatures at a zero thread count in the last dump —
+# unlike ``## Role composition``/``## Saturation`` immediately above it, both
+# scoped to the last dump only (D-11), and unlike the "Total signatures"
+# figure in that same section, which is ``EustackAnalysis.total_signatures``
+# (last-dump-only). Stated once here so the scope is on the same screen as
+# the table (mirrors ``ProgressionAnalysis.scope_note``'s house style).
+_SIGNATURES_SCOPE_NOTE = (
+    "_Every signature observed in any dump is listed below, including "
+    "signatures at a zero thread count in the last dump — a wider scope "
+    "than the \"Total signatures\" figure above, which counts only the "
+    "last dump._"
+)
+
 
 def _eustack_csv_header(bundle: EustackBundle) -> tuple[str, ...]:
     """The full D-05 CSV header: base columns, one per-dump column named for
@@ -287,6 +302,8 @@ def _saturation_section(saturation: SaturationAnalysis) -> list[str]:
 
 def _signature_table(signatures: tuple[SignatureProgression, ...]) -> list[str]:
     lines = ["## Signatures", ""]
+    lines.append(_SIGNATURES_SCOPE_NOTE)
+    lines.append("")
     if not signatures:
         lines.append("_No signatures present._")
         lines.append("")

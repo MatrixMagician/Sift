@@ -209,6 +209,40 @@ def test_order_basis_and_flag_are_rendered() -> None:
     assert ORDERING_UNVERIFIED_MESSAGE in fallback_text
 
 
+def test_signatures_table_carries_scope_note_and_can_outnumber_total_signatures() -> (
+    None
+):
+    """WR-02 regression: ``## Signatures`` is the all-dump union
+    (``ProgressionAnalysis.signatures``, D-04/D-09) and can hold more rows
+    than the last-dump-only ``Total signatures`` figure in ``## Role
+    composition`` immediately above it — e.g. a vanished signature at a zero
+    last-dump count. A scope note on the ``## Signatures`` heading states the
+    difference explicitly rather than leaving it to be discovered by
+    counting rows.
+
+    Reproduces the review's own numbers on the charlie/bravo/alpha trio:
+    ``total_signatures`` (last dump, alpha) is 4, but the union carries the
+    vanished ``departing`` signature too, for 5 rows.
+    """
+    bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
+    assert bundle.analysis.total_signatures == 4
+    assert len(bundle.progression.signatures) == 5
+
+    markdown_text = render_eustack_markdown(bundle)
+    role_section = _section(markdown_text, "Role composition")
+    assert "Total signatures: 4" in role_section
+
+    signatures_section = _section(markdown_text, "Signatures")
+    assert "any dump" in signatures_section.lower()
+    assert "Total signatures" in signatures_section
+    data_rows = [
+        line
+        for line in signatures_section.splitlines()
+        if line.startswith("| ") and "Role" not in line and "---" not in line
+    ]
+    assert len(data_rows) == 5
+
+
 def test_dumps_table_and_progression_table_preserve_resolved_order(
     tmp_path: Path,
 ) -> None:
