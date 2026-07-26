@@ -311,7 +311,17 @@ def _flag_lines(
     ``lock_convergence_count`` flags are emitted by ``analyse_saturation()``
     exactly once per ``lock_sites`` row, in that same order (S-6, ADR 0016) —
     a plain iterator walks both in lockstep rather than matching on ``value``,
-    which would be ambiguous under a thread-count tie between two sites.
+    which would be ambiguous under a thread-count tie between two sites. The
+    iterator is asserted fully consumed afterwards (WR-01) so a future
+    ``analyse_saturation`` change that breaks the 1:1 flags/lock_sites
+    correspondence fails loudly instead of silently mis-citing.
+
+    D-03 requires every line here to carry the same mandatory sampling
+    disclosure every other grouping in this module carries: each branch below
+    threads its own aggregate's true population alongside its exemplar tuple,
+    never the flag's own percentage/count ``value``, so the arithmetic in the
+    sentence is honest for the population the exemplars were actually drawn
+    from (CR-01).
     """
     no_resolvable_frame_tuples = [
         group.frames
@@ -321,21 +331,35 @@ def _flag_lines(
     no_resolvable_exemplars = _union_exemplars(
         no_resolvable_frame_tuples, per_dump_sig_ids
     )
+    no_resolvable_population = sum(
+        group.thread_count
+        for group in bundle.analysis.signatures
+        if group.role == "unclassified" and group.reason == "no-resolvable-frame"
+    )
 
     lines: list[str] = []
     lock_sites_in_order = iter(bundle.saturation.lock_sites)
     for flag in bundle.saturation.flags:
         if flag.dimension == "unclassified_thread_pct":
             exemplars = pool_exemplars.get(None, ())
+            population = bundle.analysis.threads_by_role["unclassified"]
         elif flag.dimension == "no_resolvable_frame_pct":
             exemplars = no_resolvable_exemplars
+            population = no_resolvable_population
         elif flag.dimension == "lock_convergence_count":
             site = next(lock_sites_in_order, None)
             exemplars = (
                 lock_site_exemplars.get(site.site, ()) if site is not None else ()
             )
+            population = site.thread_count if site is not None else 0
         else:
-            exemplars = ()
+            # WR-02: an unrecognised dimension must never disappear silently
+            # (CLAUDE.md "nothing disappears silently") — fail loudly so a
+            # future analyse_saturation addition is caught here rather than
+            # quietly vanishing from the prompt.
+            raise AssertionError(
+                f"unhandled SaturationFlag.dimension {flag.dimension!r}"
+            )
         if not exemplars:
             continue
         prefix = _cite_prefix(exemplars, ids)
@@ -343,8 +367,12 @@ def _flag_lines(
             f"{prefix} eu-stack saturation flag ({sanitise(flag.severity)}) "
             f"{sanitise(flag.dimension)}: {flag.value:,} {sanitise(flag.unit)} "
             f"(warn {flag.warn:,}, critical {flag.critical:,}). "
-            f"{sanitise(flag.message)}"
+            f"{sanitise(flag.message)} "
+            f"{_sampling_sentence(len(exemplars), population)}"
         )
+    assert next(lock_sites_in_order, None) is None, (
+        "lock_convergence_count flag count must equal len(lock_sites)"
+    )
     return lines
 
 

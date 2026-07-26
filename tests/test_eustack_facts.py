@@ -261,6 +261,33 @@ def test_sampling_sentence_states_true_population() -> None:
     )
 
 
+def test_every_cited_line_carries_sampling_sentence() -> None:
+    """CR-01 whole-block invariant: every line carrying at least one
+    ``[evt:...]`` citation token must also carry the D-03 sampling
+    disclosure sentence — not just the pool line
+    ``test_sampling_sentence_states_true_population`` already covers.
+    ``_flag_lines`` was the sole exception (a ``SaturationFlag`` line printed
+    citations beside a figure with no disclosure at all); the derivative
+    fixture's real saturation flags exercise exactly that renderer."""
+    events, bundle = _derivative_bundle()
+    assert bundle.saturation.flags, (
+        "fixture must produce >=1 SaturationFlag for this test to exercise "
+        "_flag_lines (non-vacuity guard)"
+    )
+    block, _ids = render_eustack_facts(bundle, events)
+
+    cited_lines_without_sentence = [
+        line
+        for line in block.splitlines()
+        if _EVT_TOKEN_RE.search(line) and _SAMPLING_RE.search(line) is None
+    ]
+    assert cited_lines_without_sentence == [], (
+        "every line carrying an [evt:] citation must also carry the "
+        "'(N of M thread events cited as exemplars)' disclosure sentence; "
+        f"offending lines: {cited_lines_without_sentence}"
+    )
+
+
 def test_multi_signature_aggregate_unions_before_sampling() -> None:
     """D-17: a pool backed by two signatures with disjoint, interleaved id
     ranges must union both event pools BEFORE sampling the lowest three —
