@@ -152,8 +152,14 @@ Plans:
   3. The `eustack_facts.md` template contains zero authored digits, and a planted wrong figure provably never reaches the prompt (anti-hallucination test, MCM-06/PERF-07 pattern)
   4. Every aggregate figure quoted in the fact block resolves to a concrete, verifiable `event_id` set that exists in the case store
 
-**Plans**: TBD
-**Research flag**: **Unsolved design question — resolve before detailed planning.** How does an aggregate fact ("1,715 idle job-queue threads") resolve back to a citable `event_id` set? This is explicitly **not** solved by analogy to MCM or perfmon: those cite episodes and samples, which are already one-to-one with events; a signature population is one-to-many. Research recommends an ADR before the plan freezes. Fourth copy of the fact-injection pattern — `eustack_facts.py` stays a leaf module (hypothesise imports it, never the reverse) and needs its own fixed cap, matching `_MAX_EPISODES`/`_MAX_GROUPS`, since fact blocks bypass `PromptBudget.fit`.
+**Plans**: 3 plans
+
+Plans:
+- [ ] 18-01-PLAN.md — Tracer: role composition end-to-end into the triage prompt, fourth sentinel block, byte-identity and anti-hallucination gates (wave 1)
+- [ ] 18-02-PLAN.md — Four Phase-16 groupings as union-then-sample-3 cited aggregates, plus the capped drop-disclosing signature listing (wave 2)
+- [ ] 18-03-PLAN.md — Multi-dump progression with unverified-order delta suppression, V5 sanitisation gate, measured D-14 headroom, ADR 0017 (wave 3)
+
+**Research flag** (RESOLVED at discuss/plan time — D-01..D-04 in `18-CONTEXT.md` settle it; D-17 resolves the multi-signature sub-case; recorded as ADR 0017 in plan 18-03): **Was an unsolved design question.** How does an aggregate fact ("1,715 idle job-queue threads") resolve back to a citable `event_id` set? This is explicitly **not** solved by analogy to MCM or perfmon: those cite episodes and samples, which are already one-to-one with events; a signature population is one-to-many. Research recommends an ADR before the plan freezes. Fourth copy of the fact-injection pattern — `eustack_facts.py` stays a leaf module (hypothesise imports it, never the reverse) and needs its own fixed cap, matching `_MAX_EPISODES`/`_MAX_GROUPS`, since fact blocks bypass `PromptBudget.fit`.
 
 ### Phase 19: Ranking Exclusion & Regression-Gated Golden Eval
 
