@@ -5,16 +5,16 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 17
 current_phase_name: Multi-Dump Progression & `sift eustack` Report + CSV
 status: executing
-stopped_at: Completed 17-02-PLAN.md (Task 3 + SUMMARY, resumed after 3x API 529 interruption)
-last_updated: "2026-07-26T07:34:47.173Z"
+stopped_at: Completed 17-03-PLAN.md (Task 2 + SUMMARY) - Phase 17 complete
+last_updated: "2026-07-26T07:54:56.763Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 17 execution started
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
-  completed_plans: 12
-  percent: 33
+  completed_plans: 13
+  percent: 50
 ---
 
 # Project State
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 17 (Multi-Dump Progression & `sift eustack` Report + CSV) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-07-26 — Phase 17 execution started
 
@@ -131,6 +131,7 @@ Last activity: 2026-07-26 — Phase 17 execution started
 | Phase 16 P04 | ~15min | 2 tasks | 3 files |
 | Phase 17 P01 | 25min | 2 tasks | 4 files |
 | Phase 17 P02 | ~30min | 3 tasks | 7 files |
+| Phase 17 P03 | ~50min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -261,6 +262,8 @@ Recent decisions affecting current work:
 - [Phase ?]: 17-01: resolve_dump_order implements the full D-01 (2+ dumps, all timestamped) path now; D-02 fallback raises NotImplementedError naming 17-02 as owner
 - [Phase ?]: compute_progression joins signature groups across dumps on the full frames tuple; classification fields come from the LAST dump where a signature actually appears (non-zero count), not the last dump overall, so vanished signatures still carry a real classification
 - [Phase ?]: D-10 test bans continuity verbs and concrete thread-identifier VALUE tokens (TID\d+), not the bare word TID — PROGRESSION_SCOPE_NOTE legitimately explains that TID reuse means continuity cannot be established, which is the D-10 rationale itself
+- [Phase ?]: 17-03: _signature_table (full, unfiltered, last-dump listing) kept unchanged and rendered alongside the new _progression_table (D-09 changed-only) rather than replaced — they answer different questions
+- [Phase ?]: 17-03: pipeline.eustack.normalise() strips leading/trailing whitespace off every frame body on the real ingest path, so D-06's leading-space-before-a-trigger case is proven directly against the imported _csv_safe function rather than through a parsed fixture
 
 ### Pending Todos
 
@@ -343,8 +346,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-26T07:34:40.657Z
-Stopped at: Completed 17-02-PLAN.md (Task 3 + SUMMARY, resumed after 3x API 529 interruption)
+Last session: 2026-07-26T07:54:56.752Z
+Stopped at: Completed 17-03-PLAN.md (Task 2 + SUMMARY) - Phase 17 complete
 Resume file: None
 
 ## Operator Next Steps

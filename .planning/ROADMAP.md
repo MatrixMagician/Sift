@@ -123,7 +123,7 @@ Plans:
   4. Progression is expressed as signature-population change; no unqualified per-TID causal claim appears, because TID reuse is measured (9 exited / 10 new in 60 s on an idle server)
   5. Re-running the command on an unchanged case produces a byte-identical report and CSV, and CSV string cells carrying C++ symbol text pass the formula-injection guard (`_csv_safe` pattern)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 **Wave 1**
@@ -136,7 +136,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 17-03-PLAN.md — Progression rendering, per-dump CSV delta columns, and the byte-identity, formula-injection and ownership-blind gates (EUS-07, EUS-09)
+- [x] 17-03-PLAN.md — Progression rendering, per-dump CSV delta columns, and the byte-identity, formula-injection and ownership-blind gates (EUS-07, EUS-09)
 
 **Planning note**: `analyse_eustack`/`analyse_saturation` have shipped since Phase 15/16 but have **zero CLI callers** — this phase is their first wiring, so the CLI integration is net-new work, not a small addition. Both committed eu-stack fixtures were run through the adapter at plan time: `threaddump.txt` carries a real header timestamp (`ts_confidence="exact"`, exercises D-01) while `reference_capture_derivative.txt` carries none (`"missing"`), and the real out-of-repo two-dump reference capture also carries none — so **D-02 is the path real data exercises**, and D-01 needs the synthetic fixture 17-02 authors.
 
