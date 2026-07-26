@@ -33,7 +33,14 @@ from sift.render.perfmon_report import _csv_safe  # pyright: ignore[reportPrivat
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from sift.pipeline.eustack import Role, SaturationAnalysis
+    from sift.pipeline.eustack import (
+        DependencyWait,
+        LockSite,
+        PoolOccupancy,
+        Role,
+        SaturationAnalysis,
+        SaturationFlag,
+    )
     from sift.pipeline.eustack_progression import (
         EustackBundle,
         ProgressionAnalysis,
@@ -200,7 +207,7 @@ def _role_composition_section(
     return lines
 
 
-def _pool_table(pools: tuple[object, ...]) -> list[str]:
+def _pool_table(pools: tuple[PoolOccupancy, ...]) -> list[str]:
     lines = ["### Pool occupancy", ""]
     if not pools:
         lines.append("_No pools present._")
@@ -209,16 +216,16 @@ def _pool_table(pools: tuple[object, ...]) -> list[str]:
     lines.append("| Subsystem | Total | Idle | Busy | Occupancy | Signatures |")
     lines.append("| --- | --- | --- | --- | --- | --- |")
     for p in pools:
-        subsystem = p.subsystem if p.subsystem is not None else _ABSENT  # type: ignore[attr-defined]
+        subsystem = p.subsystem if p.subsystem is not None else _ABSENT
         lines.append(
-            f"| {_field(subsystem)} | {p.total_threads} | {p.idle_threads} "  # type: ignore[attr-defined]
-            f"| {p.busy_threads} | {p.occupancy} | {p.signature_count} |"  # type: ignore[attr-defined]
+            f"| {_field(subsystem)} | {p.total_threads} | {p.idle_threads} "
+            f"| {p.busy_threads} | {p.occupancy} | {p.signature_count} |"
         )
     lines.append("")
     return lines
 
 
-def _lock_table(lock_sites: tuple[object, ...], lock_finding_note: str) -> list[str]:
+def _lock_table(lock_sites: tuple[LockSite, ...], lock_finding_note: str) -> list[str]:
     lines = ["### Lock sites", ""]
     lines.append(_field(lock_finding_note))
     lines.append("")
@@ -230,13 +237,13 @@ def _lock_table(lock_sites: tuple[object, ...], lock_finding_note: str) -> list[
     lines.append("| --- | --- | --- |")
     for s in lock_sites:
         lines.append(
-            f"| {_field(s.site)} | {s.thread_count} | {s.signature_count} |"  # type: ignore[attr-defined]
+            f"| {_field(s.site)} | {s.thread_count} | {s.signature_count} |"
         )
     lines.append("")
     return lines
 
 
-def _dependency_table(dependencies: tuple[object, ...]) -> list[str]:
+def _dependency_table(dependencies: tuple[DependencyWait, ...]) -> list[str]:
     lines = ["### Dependency waits", ""]
     if not dependencies:
         lines.append("_No dependency waits observed._")
@@ -246,13 +253,13 @@ def _dependency_table(dependencies: tuple[object, ...]) -> list[str]:
     lines.append("| --- | --- | --- |")
     for d in dependencies:
         lines.append(
-            f"| {_field(d.subsystem)} | {d.thread_count} | {d.signature_count} |"  # type: ignore[attr-defined]
+            f"| {_field(d.subsystem)} | {d.thread_count} | {d.signature_count} |"
         )
     lines.append("")
     return lines
 
 
-def _flag_table(flags: tuple[object, ...]) -> list[str]:
+def _flag_table(flags: tuple[SaturationFlag, ...]) -> list[str]:
     lines = ["### Saturation flags", ""]
     if not flags:
         lines.append("_No saturation flags raised._")
@@ -262,8 +269,8 @@ def _flag_table(flags: tuple[object, ...]) -> list[str]:
     lines.append("| --- | --- | --- | --- | --- | --- |")
     for f in flags:
         lines.append(
-            f"| {_field(f.dimension)} | {_field(f.severity)} | {f.value} "  # type: ignore[attr-defined]
-            f"| {f.warn} | {f.critical} | {_field(f.message)} |"  # type: ignore[attr-defined]
+            f"| {_field(f.dimension)} | {_field(f.severity)} | {f.value} "
+            f"| {f.warn} | {f.critical} | {_field(f.message)} |"
         )
     lines.append("")
     return lines
