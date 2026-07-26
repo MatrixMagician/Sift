@@ -11,6 +11,7 @@ properties they're chosen to exercise).
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sift.adapters.eustack import EustackAdapter
@@ -26,6 +27,7 @@ from sift.pipeline.eustack_progression import (
     PROGRESSION_SCOPE_NOTE,
     EustackBundle,
     analyse_eustack_bundle,
+    resolve_dump_order,
 )
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "eustack" / "progression"
@@ -79,6 +81,66 @@ def test_order_fallback_flagged_when_any_dump_untimestamped() -> None:
     assert bundle.progression.ordering_flags[0].dimension == (
         ORDERING_UNVERIFIED_DIMENSION
     )
+
+
+def _threadless_event(source_file: str) -> Event:
+    """A preamble-only event with no ``TID`` line — the shape a truncated or
+    failed eu-stack capture, or any file an operator routes to the
+    ``eustack`` adapter via ``--adapter glob=name`` without a ``TID <n>:``
+    line, produces."""
+    return Event(
+        event_id="0" * 16,
+        case_id="c",
+        ts=None,
+        ts_confidence="missing",
+        source="eustack",
+        source_file=source_file,
+        line_start=1,
+        line_end=1,
+        severity="unknown",
+        component=None,
+        thread=None,
+        session=None,
+        message="",
+        attrs={},
+        raw="",
+    )
+
+
+def _threaded_event(source_file: str) -> Event:
+    return Event(
+        event_id="1" * 16,
+        case_id="c",
+        ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ts_confidence="exact",
+        source="eustack",
+        source_file=source_file,
+        line_start=1,
+        line_end=1,
+        severity="unknown",
+        component=None,
+        thread="1",
+        session=None,
+        message="",
+        attrs={},
+        raw="",
+    )
+
+
+def test_order_resolves_without_crash_when_a_dump_has_no_thread_events() -> None:
+    """CR-01 regression: a dump group with zero thread-bearing events (e.g. a
+    truncated capture) must not crash ``resolve_dump_order`` with an
+    unhandled ``StopIteration``. A ``None`` representative is treated the
+    same as ``ts_confidence == "missing"``, forcing the D-02 filename
+    fallback under its flag rather than raising."""
+    dumps = {
+        "dump_good.txt": [_threaded_event("dump_good.txt")],
+        "dump_empty.txt": [_threadless_event("dump_empty.txt")],
+    }
+    order, basis, flags = resolve_dump_order(dumps)
+    assert order == ("dump_empty.txt", "dump_good.txt")
+    assert basis == ORDER_BASIS_FILENAME
+    assert len(flags) == 1
 
 
 def test_order_fallback_still_renders_progression() -> None:
