@@ -1345,6 +1345,7 @@ def eustack(
         from sift.pipeline.eustack import load_rules
         from sift.pipeline.eustack_progression import analyse_eustack_bundle
         from sift.render.eustack_report import (
+            changed_signature_count,
             render_eustack_json,
             render_eustack_markdown,
             write_eustack_signatures_csv,
@@ -1393,11 +1394,16 @@ def eustack(
         dump_plural = "dump" if n_dumps == 1 else "dumps"
         n_signatures = bundle.analysis.total_signatures
         sig_plural = "signature" if n_signatures == 1 else "signatures"
-        print(
+        summary = (
             f"Analysed {n_dumps} eu-stack {dump_plural}, {n_signatures} "
             f"{sig_plural}; wrote {report_name} + eustack_signatures.csv to "
             f"{eustack_dir}"
         )
+        if n_dumps > 1:
+            n_changed = changed_signature_count(bundle.progression)
+            changed_plural = "signature" if n_changed == 1 else "signatures"
+            summary += f"; {n_changed} changed {changed_plural}"
+        print(_sanitise(summary))
         _sev_rank = {"critical": 0, "warn": 1, "info": 2}
         flags = sorted(
             bundle.saturation.flags, key=lambda f: _sev_rank.get(f.severity, 3)

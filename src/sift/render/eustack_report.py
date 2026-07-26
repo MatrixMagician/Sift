@@ -55,28 +55,128 @@ EUSTACK_CSV_BASE_HEADER: tuple[str, ...] = (
     "thread_count",
 )
 
+# D-08: the trailing pair every CSV row carries after its per-dump count
+# columns — declared once so the header builder and its callers cannot drift.
+EUSTACK_CSV_DELTA_HEADER: tuple[str, ...] = ("step_deltas", "overall_delta")
+
 # D-12/EUS-09: a case with no eu-stack dumps at all must state that plainly
 # rather than render an empty set of tables that reads as "nothing happened"
 # (mirrors perfmon_report._NO_EPISODES' house style).
 _NO_DUMPS = "_No eu-stack dumps were present in this case._"
 
+# D-09: a single dump has no prior state to compare against, so the
+# progression section states that plainly rather than rendering an empty
+# table (mirrors _NO_DUMPS' house style).
+_NO_PROGRESSION_SINGLE_DUMP = (
+    "_This case holds one dump; no progression was computed._"
+)
+_NO_PROGRESSION_UNCHANGED = "_No signature's thread count changed across dumps._"
+
+
+def _eustack_csv_header(bundle: EustackBundle) -> tuple[str, ...]:
+    """The full D-05 CSV header: base columns, one per-dump column named for
+    that dump's source file (in the already-resolved ``progression.dumps``
+    order — never re-sorted here), then the D-08 delta columns.
+
+    The per-dump header cells go through ``_csv_safe`` too (T-17-01): a
+    customer-controlled ``source_file`` becomes a column header, a cell class
+    the base-column guard alone would otherwise miss.
+    """
+    dump_names = tuple(d.source_file for d in bundle.progression.dumps)
+    return (
+        *EUSTACK_CSV_BASE_HEADER,
+        *(_csv_safe(name) for name in dump_names),
+        *EUSTACK_CSV_DELTA_HEADER,
+    )
+
+
+def _is_changed_signature(s: SignatureProgression) -> bool:
+    """D-09: a signature "changed" if its overall delta is non-zero OR any
+    consecutive step is non-zero — a population that grew then shrank back to
+    its starting count has a zero overall delta but genuinely changed."""
+    return s.overall_delta != 0 or any(d != 0 for d in s.step_deltas)
+
+
+def changed_signature_count(progression: ProgressionAnalysis) -> int:
+    """The D-09 changed-signature count, reused by the CLI stdout summary so
+    it can never diverge from what ``_progression_table`` actually renders."""
+    return sum(1 for s in progression.signatures if _is_changed_signature(s))
+
+
+def _matched_frame_with_index(s: SignatureProgression) -> str:
+    """D-07: the matched frame together with its index, e.g.
+    ``CDSSQueryEngine::WaitUntilFinished (#1)`` — never the full ``frames``
+    tuple. The absent marker when no frame matched at all."""
+    if s.matched_frame is None:
+        return _ABSENT
+    if s.frame_index is None:
+        return s.matched_frame
+    return f"{s.matched_frame} (#{s.frame_index})"
+
 
 def _dumps_section(progression: ProgressionAnalysis) -> list[str]:
+    """EUS-08: the ordered dump list plus the stated ordering basis. Every
+    ``ordering_flags`` message (D-02) is rendered as its own bold-prefixed
+    paragraph immediately below the table — never buried in a cell — so the
+    unverified-ordering warning cannot be skimmed past."""
     lines = ["## Dumps", ""]
-    lines.append(f"- Order basis: {_field(progression.order_basis)}")
-    names = ", ".join(d.source_file for d in progression.dumps)
-    lines.append(f"- Dumps (ordered): {_field(names)}")
-    lines.append(f"- Scope: {_field(progression.scope_note)}")
+    lines.append(f"Order basis: {_field(progression.order_basis)}")
     lines.append("")
-    if progression.ordering_flags:
-        lines.append("| Dimension | Severity | Message |")
-        lines.append("| --- | --- | --- |")
-        for flag in progression.ordering_flags:
-            lines.append(
-                f"| {_field(flag.dimension)} | {_field(flag.severity)} "
-                f"| {_field(flag.message)} |"
-            )
+    lines.append("| Index | Source file | Timestamp | Thread count |")
+    lines.append("| --- | --- | --- | --- |")
+    for index, d in enumerate(progression.dumps):
+        ts = d.ts if d.ts is not None else _ABSENT
+        lines.append(
+            f"| {index} | {_field(d.source_file)} | {_field(ts)} "
+            f"| {d.thread_count} |"
+        )
+    lines.append("")
+    for flag in progression.ordering_flags:
+        lines.append(
+            f"**{_field(flag.severity.upper())}** ({_field(flag.dimension)}): "
+            f"{_field(flag.message)}"
+        )
         lines.append("")
+    return lines
+
+
+def _progression_table(progression: ProgressionAnalysis) -> list[str]:
+    """EUS-07: the D-09 changed-only signature-population view. Includes
+    every signature whose ``overall_delta`` is non-zero OR whose
+    ``step_deltas`` contains a non-zero value — never the full signature set
+    (that is ``_signature_table``'s job) and never capped. ``scope_note``
+    (D-10) is rendered immediately above the table so the population-level
+    scope is stated on the same screen as the figures."""
+    lines = ["## Progression", ""]
+    lines.append(_field(progression.scope_note))
+    lines.append("")
+    if len(progression.dumps) <= 1:
+        lines.append(_NO_PROGRESSION_SINGLE_DUMP)
+        lines.append("")
+        return lines
+    changed = [s for s in progression.signatures if _is_changed_signature(s)]
+    if not changed:
+        lines.append(_NO_PROGRESSION_UNCHANGED)
+        lines.append("")
+        return lines
+    lines.append(
+        "| Role | Subsystem | Matched frame | Leaf frame | Counts "
+        "| Step deltas | Overall delta | Status |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for s in changed:
+        subsystem = s.subsystem if s.subsystem is not None else _ABSENT
+        leaf_frame = s.leaf_frame if s.leaf_frame is not None else _ABSENT
+        counts = " -> ".join(str(c) for c in s.counts)
+        step_deltas = ";".join(str(d) for d in s.step_deltas)
+        status = "appeared" if s.appeared else "vanished" if s.vanished else "changed"
+        lines.append(
+            f"| {_field(s.role)} | {_field(subsystem)} "
+            f"| {_field(_matched_frame_with_index(s))} | {_field(leaf_frame)} "
+            f"| {_field(counts)} | {_field(step_deltas)} | {s.overall_delta} "
+            f"| {status} |"
+        )
+    lines.append("")
     return lines
 
 
@@ -230,6 +330,7 @@ def render_eustack_markdown(bundle: EustackBundle) -> str:
     )
     out.extend(_saturation_section(bundle.saturation))
     out.extend(_signature_table(progression.signatures))
+    out.extend(_progression_table(progression))
     return "\n".join(out)
 
 
@@ -256,13 +357,7 @@ def write_eustack_signatures_csv(bundle: EustackBundle, path: Path) -> None:
     its sign — never guarded, matching ``write_perfmon_trend_csv``'s own
     string-cells-only guarding discipline.
     """
-    dump_names = tuple(d.source_file for d in bundle.progression.dumps)
-    header = (
-        *EUSTACK_CSV_BASE_HEADER,
-        *(_csv_safe(name) for name in dump_names),
-        "step_deltas",
-        "overall_delta",
-    )
+    header = _eustack_csv_header(bundle)
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(header)
