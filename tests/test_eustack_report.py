@@ -312,6 +312,13 @@ def test_csv_safe_guards_formula_trigger_symbol(tmp_path: Path) -> None:
     header, row = rows[0], rows[1]
     assert row[header.index("leaf_frame")] == f"'{trigger_frame}"
     assert row[header.index("overall_delta")] == "-3"
+    # CR-02 regression: step_deltas is a semicolon-joined STRING cell (unlike
+    # overall_delta's bare int) and must go through the same guard — a
+    # negative-leading step_deltas cell is exactly the kind of cell D-06
+    # requires quoting, per the perfmon precedent
+    # (``boundaries = _csv_safe(";".join(...))``, perfmon_report.py:257).
+    assert signature.step_deltas == (-3,)
+    assert row[header.index("step_deltas")] == "'-3"
 
 
 _LOCK_FRAMES = (
