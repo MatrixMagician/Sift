@@ -15,12 +15,15 @@ per-signature listing.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 from pathlib import Path
 
 from sift.adapters.eustack import EustackAdapter
-from sift.config import EustackThresholdsConfig
+from sift.config import EustackThresholdsConfig, McmThresholdsConfig, load_config
 from sift.models import Event
+from sift.pipeline import hypothesise
 from sift.pipeline.eustack import (
     EustackAnalysis,
     PoolOccupancy,
@@ -41,6 +44,11 @@ from sift.pipeline.eustack_progression import (
     ProgressionAnalysis,
     analyse_eustack_bundle,
 )
+from sift.pipeline.mcm import analyse_mcm
+from sift.pipeline.mcm_facts import render_mcm_facts
+from sift.pipeline.perfmon import analyse_perfmon
+from sift.pipeline.perfmon_facts import render_perfmon_facts
+from sift.render._util import sanitise
 from sift.store import CaseStore
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures" / "eustack"
@@ -549,3 +557,117 @@ def test_no_continuity_or_ownership_claim_in_emitted_strings(tmp_path: Path) -> 
         for term in prohibited:
             found = re.search(rf"\b{re.escape(term)}\b", block, re.IGNORECASE)
             assert found is None, f"prohibited term {term!r} found in rendered block"
+
+
+# --- Plan 18-03 Task 2: V5 sanitisation gate + D-14 measured headroom -------
+
+
+def test_control_chars_sanitised() -> None:
+    """T-18-03/V5: a control-char-laden rules-derived subsystem string and a
+    frame symbol are sanitised before interpolation, while the template's own
+    untrusted-data framing sentence survives untouched (mirrors
+    ``tests/test_perfmon_facts.py``'s injection/sanitisation test shape)."""
+    hostile_subsystem = "job\x1b[31m\x07-queue"
+    hostile_frame = "Frame\x9bWith\x00Control"
+    frames = (hostile_frame,)
+    events = [_synthetic_thread_event("dumpA.txt", frames, "c" * 16, "t0")]
+    signatures = (
+        SignatureGroup(
+            frames=frames,
+            thread_count=1,
+            role="idle-parked",
+            subsystem=hostile_subsystem,
+            pattern=hostile_frame,
+            frame_index=0,
+            reason=None,
+        ),
+    )
+    pools = (
+        PoolOccupancy(
+            subsystem=hostile_subsystem,
+            total_threads=1,
+            idle_threads=1,
+            busy_threads=0,
+            occupancy=0.0,
+            signature_count=1,
+        ),
+    )
+    bundle = _synthetic_bundle(signatures, pools)
+
+    block, _ids = render_eustack_facts(bundle, events)
+
+    assert sanitise(hostile_subsystem) in block
+    assert sanitise(hostile_frame) in block
+    assert "\x1b" not in block
+    assert "\x9b" not in block
+    assert "\x00" not in block
+    assert "these facts ARE evidence" in block
+
+
+def test_combined_fact_block_headroom_measured(tmp_path: Path) -> None:
+    """D-14: measure the combined MCM + perfmon + eu-stack fact-block size
+    (plus the triage template) against the excerpt budget ``PromptBudget.fit``
+    reserves (``ctx_fallback=8192`` minus ``reserve_out=1024`` = 7168 tokens),
+    using the identical ``len(text) // 4`` heuristic ``PromptBudget.estimate``
+    falls back to. This is a regression bound on block growth, not a
+    functional assertion — the message always prints the measured figure so
+    it is recoverable from CI output."""
+    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+
+    repo_root = Path(__file__).resolve().parents[1]
+    perfmon_case_input = repo_root / "eval" / "cases" / "perfmon-denial" / "input"
+
+    combined_input = tmp_path / "input"
+    combined_input.mkdir()
+    for src in perfmon_case_input.iterdir():
+        (combined_input / src.name).write_bytes(src.read_bytes())
+    (combined_input / "reference_capture_derivative.txt").write_bytes(
+        (_FIXTURES_DIR / "reference_capture_derivative.txt").read_bytes()
+    )
+
+    config = load_config({})
+    noise = io.StringIO()
+    db = tmp_path / "case.db"
+    with contextlib.redirect_stdout(noise), contextlib.redirect_stderr(noise):
+        store = CaseStore(db)
+        store.set_meta("input_dir", str(combined_input.resolve()))
+        store.set_meta("adapter_overrides", "[]")
+        _ingest(db.parent.name, config, store)
+    try:
+        events = store.query_events()
+        mcm_analysis = analyse_mcm(events, McmThresholdsConfig())
+        mcm_text, _ = render_mcm_facts(mcm_analysis)
+        perfmon_text, _ = render_perfmon_facts(analyse_perfmon(mcm_analysis, events))
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        eustack_text, _ = render_eustack_facts(bundle, events)
+    finally:
+        store.close()
+
+    assert mcm_text, "the combined case must yield a non-empty MCM block"
+    assert perfmon_text, "the combined case must yield a non-empty perfmon block"
+    assert eustack_text, "the combined case must yield a non-empty eu-stack block"
+
+    template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
+    combined = template + mcm_text + perfmon_text + eustack_text
+    estimated_tokens = max(1, len(combined) // 4)
+
+    # Ceiling frozen at plan 18-03 authoring time (2026-07-26): measured
+    # 4,528 tokens (18,115 chars) over this exact combined case (MCM 1,953 +
+    # perfmon 2,161 + eu-stack 10,152 chars of fact-block text, plus the
+    # 3,849-char triage template). Headroom to the ceiling below is
+    # deliberate — this is a regression bound on unbounded growth, not a
+    # tight pin on the current figure.
+    _CEILING_TOKENS = 6000
+    _EXCERPT_BUDGET_TOKENS = 8192 - 1024
+
+    assert estimated_tokens < _CEILING_TOKENS, (
+        f"combined fact-block+template size grew to an estimated "
+        f"{estimated_tokens:,} tokens (ceiling {_CEILING_TOKENS:,}); against "
+        f"the {_EXCERPT_BUDGET_TOKENS:,}-token excerpt budget PromptBudget.fit "
+        f"reserves for cluster excerpts, this combined figure is "
+        f"{'OVER' if estimated_tokens > _EXCERPT_BUDGET_TOKENS else 'under'} "
+        "that budget on its own, before any excerpt is added"
+    )
