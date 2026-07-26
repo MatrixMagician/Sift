@@ -373,7 +373,7 @@ def write_eustack_signatures_csv(bundle: EustackBundle, path: Path) -> None:
                 _csv_safe(s.leaf_frame) if s.leaf_frame is not None else "",
                 thread_count,
                 *s.counts,
-                ";".join(str(d) for d in s.step_deltas),
+                _csv_safe(";".join(str(d) for d in s.step_deltas)),
                 s.overall_delta,
             ]
             writer.writerow(row)
