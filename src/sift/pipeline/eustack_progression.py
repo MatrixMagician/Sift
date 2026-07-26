@@ -191,12 +191,21 @@ def resolve_dump_order(
         return tuple(keys), ORDER_BASIS_SINGLE, ()
 
     representatives = {
-        key: next(e for e in events if e.thread is not None)
+        key: next((e for e in events if e.thread is not None), None)
         for key, events in dumps.items()
     }
-    if all(representatives[key].ts_confidence != "missing" for key in keys):
+    # A threadless dump group (e.g. a truncated capture) is treated the same
+    # as a "missing" ts_confidence — it forces the D-02 filename fallback
+    # rather than crashing on the old bare next() (mirrors the guarded
+    # ``dump_slices`` construction below).
+    timestamped = {
+        key: rep
+        for key, rep in representatives.items()
+        if rep is not None and rep.ts_confidence != "missing"
+    }
+    if len(timestamped) == len(keys):
         ordered = tuple(
-            sorted(keys, key=lambda k: (representatives[k].ts, k))
+            sorted(keys, key=lambda k: (timestamped[k].ts, k))
         )
         return ordered, ORDER_BASIS_TIMESTAMP, ()
 

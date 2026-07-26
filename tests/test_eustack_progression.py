@@ -11,7 +11,7 @@ properties they're chosen to exercise).
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sift.adapters.eustack import EustackAdapter
@@ -111,7 +111,7 @@ def _threaded_event(source_file: str) -> Event:
     return Event(
         event_id="1" * 16,
         case_id="c",
-        ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        ts=datetime(2026, 1, 1, tzinfo=UTC),
         ts_confidence="exact",
         source="eustack",
         source_file=source_file,
