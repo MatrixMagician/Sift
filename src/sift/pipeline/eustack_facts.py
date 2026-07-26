@@ -45,6 +45,17 @@ sorted by ``analyse_eustack`` — no second sort here). Composition-independent:
 a flagged signature below the cut is never force-included. Dropped signatures
 are stated as dropped whenever any exist, never mentioned when none are.
 
+Multi-dump progression (D-09/D-10/D-11, Plan 18-03): when the resolved dump
+order (``bundle.progression.order_basis``, read directly — never re-derived)
+is the unverified sorted-filename fallback, or fewer than two dumps are
+present, NO delta figure is emitted anywhere — a real figure carried in the
+wrong order is indistinguishable from a correct one to citation validation,
+so the whole layer is withheld rather than guessed at. Otherwise the resolved
+dump sequence is stated, followed by capped, cited population deltas for
+CHANGED signatures only, under the same ``_MAX_SIGNATURES`` cap.
+``bundle.progression.scope_note`` is emitted verbatim in every branch so the
+population-level-only caveat can never be omitted by construction.
+
 This is a leaf module: it reads the analyser's model tree and the prompt
 fragment only. It must NOT import from ``sift.pipeline.hypothesise`` or
 ``sift.cli`` (hypothesise imports this, not the reverse).
@@ -60,7 +71,7 @@ from sift.pipeline.eustack import (
     enclosing_application_frame,
     signature_of,
 )
-from sift.pipeline.eustack_progression import group_dumps
+from sift.pipeline.eustack_progression import ORDER_BASIS_FILENAME, group_dumps
 from sift.render._util import sanitise
 
 if TYPE_CHECKING:
@@ -379,6 +390,109 @@ def _signature_listing_lines(
     return lines
 
 
+def _suppression_statement() -> str:
+    """D-10/D-11: the single sentence emitted whenever the multi-dump
+    progression layer is suppressed. No delta figure is emitted anywhere
+    else in the block alongside this line, in either triggering case: a real
+    figure carried in a wrong or absent order is indistinguishable from a
+    correct one to citation validation, so the whole layer is withheld
+    rather than guessed at. Worded to name both possible reasons (an
+    unverified order, or too few dumps to compare) so it stays truthful
+    regardless of which one applies.
+    """
+    return (
+        "Signature-population progression across dumps was not reported for "
+        "this case: either the dump order could not be verified, or fewer "
+        "than two dumps were available, so no population-change figure "
+        "appears anywhere in this block."
+    )
+
+
+def _progression_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    ids: set[str],
+) -> list[str]:
+    """The multi-dump progression section (D-09/D-10/D-11).
+
+    Suppressed entirely — no delta figure anywhere — whenever the resolved
+    order basis is ``ORDER_BASIS_FILENAME`` (the unverified sorted-filename
+    fallback) or fewer than two dumps are present. The basis is read
+    directly off ``bundle.progression.order_basis``, never re-derived: the
+    ordering decision was already made once by ``resolve_dump_order``.
+    ``bundle.progression.ordering_flags`` (only ever non-empty in the
+    unverified case) is carried through as graded lines so the structural
+    fact and its severity reach the model, with no direction-of-travel claim
+    attached. ``bundle.progression.scope_note`` is emitted verbatim in EVERY
+    branch so the population-level-only caveat can never be omitted.
+    """
+    lines = [bundle.progression.scope_note]
+
+    unverified = (
+        bundle.progression.order_basis == ORDER_BASIS_FILENAME
+        or len(bundle.progression.dumps) < 2
+    )
+    if unverified:
+        lines.append(_suppression_statement())
+        for flag in bundle.progression.ordering_flags:
+            lines.append(
+                f"eu-stack dump-ordering flag ({sanitise(flag.severity)}) "
+                f"{sanitise(flag.dimension)}: {sanitise(flag.message)}"
+            )
+        return lines
+
+    # Verified branch (D-09): the resolved dump sequence, then capped,
+    # cited per-signature population deltas for CHANGED signatures only —
+    # never re-sorted, sliced from bundle.progression.signatures' own rank
+    # order (-abs(overall_delta), -counts[-1], frames).
+    for dump in bundle.progression.dumps:
+        ts = sanitise(dump.ts) if dump.ts is not None else "no timestamp recorded"
+        lines.append(
+            f"eu-stack dump: {sanitise(dump.source_file)}, {ts} "
+            f"(confidence {sanitise(dump.ts_confidence)}), "
+            f"{dump.thread_count:,} threads."
+        )
+
+    changed = [
+        sig
+        for sig in bundle.progression.signatures
+        if sig.overall_delta != 0 or any(d != 0 for d in sig.step_deltas)
+    ]
+    selected = changed[:_MAX_SIGNATURES]
+    for sig in selected:
+        exemplars = _union_exemplars([sig.frames], per_dump_sig_ids)
+        if not exemplars:
+            # No line without an [evt:] token — an uncited figure is forbidden.
+            continue
+        population = 0
+        for sig_ids in reversed(per_dump_sig_ids):
+            if sig.frames in sig_ids:
+                population = len(sig_ids[sig.frames])
+                break
+        prefix = _cite_prefix(exemplars, ids)
+        step_deltas = ", ".join(f"{d:+,}" for d in sig.step_deltas)
+        parts = [
+            f"{prefix} eu-stack signature population change: role "
+            f"{sanitise(sig.role)}."
+        ]
+        if sig.subsystem is not None:
+            parts.append(f" subsystem {sanitise(sig.subsystem)}.")
+        parts.append(
+            f" step deltas {step_deltas}; overall change "
+            f"{sig.overall_delta:+,} threads."
+        )
+        parts.append(f" {_sampling_sentence(len(exemplars), population)}")
+        lines.append("".join(parts))
+
+    dropped = len(changed) - len(selected)
+    if dropped > 0:
+        lines.append(
+            f"{dropped:,} further changed signatures not shown "
+            f"(of {len(changed):,} changed signatures)."
+        )
+    return lines
+
+
 def render_eustack_facts(
     bundle: EustackBundle, events: list[Event]
 ) -> tuple[str, set[str]]:
@@ -439,6 +553,8 @@ def render_eustack_facts(
     )
 
     lines.extend(_signature_listing_lines(bundle, per_dump_sig_ids, ids))
+
+    lines.extend(_progression_lines(bundle, per_dump_sig_ids, ids))
 
     return _load_eustack_fragment().replace(_EUSTACK_LINES_SLOT, "\n".join(lines)), ids
 

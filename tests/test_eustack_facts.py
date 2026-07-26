@@ -29,10 +29,13 @@ from sift.pipeline.eustack import (
     load_rules,
 )
 from sift.pipeline.eustack_facts import (
+    _MAX_SIGNATURES,  # pyright: ignore[reportPrivateUsage]
     _load_eustack_fragment,  # pyright: ignore[reportPrivateUsage]
     render_eustack_facts,
 )
 from sift.pipeline.eustack_progression import (
+    ORDER_BASIS_FILENAME,
+    ORDER_BASIS_TIMESTAMP,
     DumpSlice,
     EustackBundle,
     ProgressionAnalysis,
@@ -41,9 +44,15 @@ from sift.pipeline.eustack_progression import (
 from sift.store import CaseStore
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures" / "eustack"
+_PROGRESSION_FIXTURES_DIR = _FIXTURES_DIR / "progression"
 _REQUIREMENTS_MD = Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
 _EVT_TOKEN_RE = re.compile(r"\[evt:([0-9a-f]{16})\]")
 _SAMPLING_RE = re.compile(r"\((\d+) of (\d+) thread events cited as exemplars\)")
+
+# Mirrored from tests/test_eustack_report.py's own continuity-verb gate
+# (D-10) — the per-thread continuity vocabulary a progression narrative must
+# never use, since eu-stack carries no per-thread identity link across dumps.
+_CONTINUITY_VERBS = ("persisted", "remained", "stayed", "still blocked")
 
 _ALL_ROLES = (
     "idle-parked",
@@ -431,3 +440,112 @@ def test_signature_cap_no_dropped_sentence_when_at_or_under_cap() -> None:
 
     block, _ids = render_eustack_facts(bundle, events)
     assert "further signatures not shown" not in block
+
+
+# --- Plan 18-03: multi-dump progression, D-09/D-10/D-11 ---------------------
+
+
+def _parse_progression_fixture(name: str) -> list[Event]:
+    adapter = EustackAdapter()
+    adapter.input_root = _PROGRESSION_FIXTURES_DIR
+    return list(adapter.parse(_PROGRESSION_FIXTURES_DIR / name, "progression-test"))
+
+
+def _progression_bundle(*names: str) -> tuple[list[Event], EustackBundle]:
+    """Concatenate several progression fixtures' events into one bundle,
+    exactly as ``sift eustack``/``sift analyze`` would (mirrors
+    ``tests/test_eustack_report.py``'s own ``_bundle_for``)."""
+    events: list[Event] = []
+    for name in names:
+        events.extend(_parse_progression_fixture(name))
+    rules, rules_hash = load_rules()
+    bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, EustackThresholdsConfig()
+    )
+    return events, bundle
+
+
+def _two_untimestamped_dumps(tmp_path: Path) -> tuple[list[Event], EustackBundle]:
+    """The real-shaped, header-timestamp-less derivative fixture ingested
+    TWICE under distinct filenames, so the case is genuinely multi-dump while
+    neither dump carries a header timestamp — the D-11 primary path: the real
+    reference capture takes exactly this route."""
+    input_root = tmp_path / "input"
+    input_root.mkdir()
+    first = input_root / "reference_capture_derivative.txt"
+    second = input_root / "reference_capture_derivative_copy.txt"
+    original = _FIXTURES_DIR / "reference_capture_derivative.txt"
+    first.write_bytes(original.read_bytes())
+    second.write_bytes(original.read_bytes())
+
+    adapter = EustackAdapter()
+    adapter.input_root = input_root
+    events = list(adapter.parse(first, "case1")) + list(
+        adapter.parse(second, "case1")
+    )
+    rules, rules_hash = load_rules()
+    bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, EustackThresholdsConfig()
+    )
+    return events, bundle
+
+
+def test_deltas_suppressed_on_unverified_order(tmp_path: Path) -> None:
+    """D-10/D-11 PRIMARY path: a multi-dump case whose ordering basis falls
+    back to sorted file names (neither dump carries a header timestamp, the
+    real reference capture's own shape) renders last-dump state plus an
+    explicit suppression statement and NO delta figure anywhere."""
+    events, bundle = _two_untimestamped_dumps(tmp_path)
+    assert bundle.progression.order_basis == ORDER_BASIS_FILENAME
+    assert len(bundle.progression.dumps) == 2
+
+    block, _ids = render_eustack_facts(bundle, events)
+    assert block, "the two-dump case must still yield a non-empty block"
+    assert "progression across dumps was not reported" in block, (
+        "the suppression statement must be present"
+    )
+    assert "eu-stack signature population change:" not in block, (
+        "no delta-vocabulary figure may appear when the order is unverified"
+    )
+    assert not re.search(r"overall change [+-][\d,]+ threads", block), (
+        "no signed-integer delta token may appear when the order is unverified"
+    )
+    assert bundle.progression.scope_note in block
+
+
+def test_deltas_rendered_on_verified_order() -> None:
+    """D-09: a multi-dump case with a VERIFIED (timestamp-ordered) dump order
+    renders capped, cited per-signature population deltas, never more than
+    ``_MAX_SIGNATURES`` rows, alongside the verbatim scope note."""
+    events, bundle = _progression_bundle(
+        "dump_alpha.txt", "dump_bravo.txt", "dump_charlie.txt"
+    )
+    assert bundle.progression.order_basis == ORDER_BASIS_TIMESTAMP
+
+    block, _ids = render_eustack_facts(bundle, events)
+    assert bundle.progression.scope_note in block
+    assert "eu-stack signature population change:" in block, (
+        "at least one delta row must render"
+    )
+    assert block.count("eu-stack signature population change:") <= _MAX_SIGNATURES
+
+
+def test_no_continuity_or_ownership_claim_in_emitted_strings(tmp_path: Path) -> None:
+    """D-10/T-18-10: neither the verified nor the suppressed progression
+    rendering ever uses a per-thread continuity verb or a lock-possession
+    claim — mirrors ``tests/test_eustack_report.py``'s own vocabulary gate,
+    asserted over rendered output, never source text."""
+    verified_events, verified_bundle = _progression_bundle(
+        "dump_alpha.txt", "dump_bravo.txt", "dump_charlie.txt"
+    )
+    suppressed_events, suppressed_bundle = _two_untimestamped_dumps(tmp_path)
+
+    verified_block, _ = render_eustack_facts(verified_bundle, verified_events)
+    suppressed_block, _ = render_eustack_facts(suppressed_bundle, suppressed_events)
+    assert verified_block and suppressed_block, "non-vacuity guard"
+
+    prohibited = (*_CONTINUITY_VERBS, "deadlock", "owner", "holder")
+    for block in (verified_block, suppressed_block):
+        for term in prohibited:
+            found = re.search(rf"\b{re.escape(term)}\b", block, re.IGNORECASE)
+            assert found is None, f"prohibited term {term!r} found in rendered block"

@@ -383,6 +383,50 @@ def test_model_cannot_alter_eustack_figures(tmp_path: Path) -> None:
         store.close()
 
 
+def test_eustack_suppression_reaches_prompt_on_real_shaped_fixture(
+    tmp_path: Path,
+) -> None:
+    """D-10/D-11 PRIMARY path: a case ingesting the real-shaped,
+    header-timestamp-less derivative fixture TWICE under distinct file names
+    (genuinely multi-dump, neither dump carrying a header timestamp — exactly
+    the real reference capture's own shape) reaches ``sift analyze``'s
+    assembled prompt with the suppression statement present and its ids
+    citable."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        input_root = tmp_path / "input"
+        input_root.mkdir()
+        original = _EUSTACK_FIXTURES_DIR / "reference_capture_derivative.txt"
+        first = input_root / "reference_capture_derivative.txt"
+        second = input_root / "reference_capture_derivative_copy.txt"
+        first.write_bytes(original.read_bytes())
+        second.write_bytes(original.read_bytes())
+
+        adapter = EustackAdapter()
+        adapter.input_root = input_root
+        events = list(adapter.parse(first, "case1")) + list(
+            adapter.parse(second, "case1")
+        )
+        with store.transaction():
+            store.insert_events(events)
+
+        stored_events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            stored_events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        assert bundle.progression.dumps and len(bundle.progression.dumps) == 2
+        block, block_ids = render_eustack_facts(bundle, stored_events)
+        assert "progression across dumps was not reported" in block
+
+        ids, prompt = _assemble_blocks(store, _client(), with_eustack=True)
+        assert "progression across dumps was not reported" in prompt
+        assert block_ids, "the block must print >=1 citable id"
+        assert block_ids <= ids
+    finally:
+        store.close()
+
+
 def test_eval_path_parity_default_eustack_config(tmp_path: Path) -> None:
     """``hypothesise`` called WITHOUT ``eustack_rules_path``/``eustack_thresholds``
     (as the eval harness does) still injects the eu-stack block for an
