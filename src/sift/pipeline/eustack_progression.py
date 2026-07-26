@@ -30,6 +30,7 @@ from sift.pipeline.eustack import (
     Reason,
     Role,
     SaturationAnalysis,
+    SignatureGroup,
     analyse_eustack,
     analyse_saturation,
 )
@@ -208,6 +209,93 @@ def resolve_dump_order(
     return ordered, ORDER_BASIS_FILENAME, (flag,)
 
 
+def compute_progression(
+    ordered_analyses: tuple[EustackAnalysis, ...],
+    dump_slices: tuple[DumpSlice, ...],
+) -> tuple[SignatureProgression, ...]:
+    """Join per-dump signature groups on the full ``frames`` tuple (D-08/D-09).
+
+    ``dump_slices`` is read only for its length — a defensive assertion that
+    the caller passed one analysis per resolved dump, never a lookup — so
+    every signature's ``counts`` has exactly one entry per dump in order.
+
+    For each signature appearing in ANY dump, ``counts`` holds its thread
+    count per dump (``0`` where absent), ``step_deltas`` the consecutive-pair
+    differences (D-08), and ``overall_delta`` the last count minus the first
+    — always both, so a population that grew then shrank is visible rather
+    than flattened to one figure. ``appeared``/``vanished`` are derived from
+    ``counts`` alone (D-09), never tracked as independent state. Display and
+    classification fields come from the signature's group in the LAST dump
+    where it appears — not necessarily the last dump overall — so a vanished
+    signature still carries a meaningful classification instead of empty
+    cells.
+
+    Ranked on the explicit total key ``(-abs(overall_delta), -counts[-1],
+    frames)`` (D-09): absolute delta first, current count as a tie-break,
+    the frames tuple as the final tie-break so the order is total and the
+    output is byte-identical on re-run — a sort on absolute delta alone is
+    not a total order over ties. No cap: D-09's changed-only filter is a
+    rendering concern for 17-03, so every signature is carried here.
+    """
+    assert len(ordered_analyses) == len(dump_slices)
+
+    per_dump_groups: tuple[dict[tuple[str, ...], SignatureGroup], ...] = tuple(
+        {group.frames: group for group in analysis.signatures}
+        for analysis in ordered_analyses
+    )
+
+    # First-appearance order across dumps, via dict-key insertion — never a
+    # set — so the join is deterministic before the explicit re-sort below.
+    frame_keys: dict[tuple[str, ...], None] = {}
+    for groups in per_dump_groups:
+        for frames in groups:
+            frame_keys.setdefault(frames, None)
+
+    progressions: list[SignatureProgression] = []
+    for frames in frame_keys:
+        counts = tuple(
+            groups[frames].thread_count if frames in groups else 0
+            for groups in per_dump_groups
+        )
+        step_deltas = tuple(
+            counts[i + 1] - counts[i] for i in range(len(counts) - 1)
+        )
+        overall_delta = counts[-1] - counts[0]
+        appeared = counts[0] == 0 and counts[-1] != 0
+        vanished = counts[0] != 0 and counts[-1] == 0
+
+        classification = next(
+            groups[frames] for groups in reversed(per_dump_groups) if frames in groups
+        )
+        matched_frame = (
+            classification.frames[classification.frame_index]
+            if classification.frame_index is not None
+            else None
+        )
+        leaf_frame = classification.frames[0] if classification.frames else None
+
+        progressions.append(
+            SignatureProgression(
+                frames=frames,
+                role=classification.role,
+                subsystem=classification.subsystem,
+                pattern=classification.pattern,
+                frame_index=classification.frame_index,
+                reason=classification.reason,
+                matched_frame=matched_frame,
+                leaf_frame=leaf_frame,
+                counts=counts,
+                step_deltas=step_deltas,
+                overall_delta=overall_delta,
+                appeared=appeared,
+                vanished=vanished,
+            )
+        )
+
+    progressions.sort(key=lambda s: (-abs(s.overall_delta), -s.counts[-1], s.frames))
+    return tuple(progressions)
+
+
 def analyse_eustack_bundle(
     events: list[Event],
     rules: ThreadRoleRules,
@@ -226,13 +314,14 @@ def analyse_eustack_bundle(
     dumps = group_dumps(events)
     order, order_basis, ordering_flags = resolve_dump_order(dumps)
 
-    if order:
-        analyses = {
-            key: analyse_eustack(dumps[key], rules, rules_hash) for key in order
-        }
-        last_analysis = analyses[order[-1]]
-    else:
-        last_analysis = analyse_eustack([], rules, rules_hash)
+    ordered_analyses = tuple(
+        analyse_eustack(dumps[key], rules, rules_hash) for key in order
+    )
+    last_analysis = (
+        ordered_analyses[-1]
+        if ordered_analyses
+        else analyse_eustack([], rules, rules_hash)
+    )
 
     saturation = analyse_saturation(last_analysis, thresholds)
 
@@ -260,40 +349,13 @@ def analyse_eustack_bundle(
             )
         )
 
-    signatures: list[SignatureProgression] = []
-    for group in last_analysis.signatures:
-        matched_frame = (
-            group.frames[group.frame_index] if group.frame_index is not None else None
-        )
-        leaf_frame = group.frames[0] if group.frames else None
-        signatures.append(
-            SignatureProgression(
-                frames=group.frames,
-                role=group.role,
-                subsystem=group.subsystem,
-                pattern=group.pattern,
-                frame_index=group.frame_index,
-                reason=group.reason,
-                matched_frame=matched_frame,
-                leaf_frame=leaf_frame,
-                counts=(group.thread_count,),
-                step_deltas=(),
-                overall_delta=0,
-                appeared=False,
-                vanished=False,
-            )
-        )
-    # Explicit total order, mirroring analyse_eustack()'s own
-    # "-thread_count, frames" discipline: descending on the LAST (current)
-    # count, ties broken ascending on the frames tuple. Never
-    # Counter.most_common(), never a set iteration.
-    signatures.sort(key=lambda s: (-s.counts[-1], s.frames))
+    signatures = compute_progression(ordered_analyses, tuple(dump_slices))
 
     progression = ProgressionAnalysis(
         dumps=tuple(dump_slices),
         order_basis=order_basis,
         ordering_flags=ordering_flags,
-        signatures=tuple(signatures),
+        signatures=signatures,
     )
     return EustackBundle(
         analysis=last_analysis, saturation=saturation, progression=progression

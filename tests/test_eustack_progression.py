@@ -10,6 +10,7 @@ properties they're chosen to exercise).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from sift.adapters.eustack import EustackAdapter
@@ -21,6 +22,8 @@ from sift.pipeline.eustack_progression import (
     ORDER_BASIS_SINGLE,
     ORDER_BASIS_TIMESTAMP,
     ORDERING_UNVERIFIED_DIMENSION,
+    ORDERING_UNVERIFIED_MESSAGE,
+    PROGRESSION_SCOPE_NOTE,
     EustackBundle,
     analyse_eustack_bundle,
 )
@@ -103,3 +106,141 @@ def test_single_dump_needs_no_ordering() -> None:
     bundle = _bundle_for("dump_alpha.txt")
     assert bundle.progression.order_basis == ORDER_BASIS_SINGLE
     assert bundle.progression.ordering_flags == ()
+
+
+def _signature(bundle: EustackBundle, label: str) -> object:
+    """Find the progression row for a fixture signature by its matched
+    frame — normalised (``pipeline.eustack.normalise``: tail dropped,
+    version suffix dropped) since that is the exact string ``compute_
+    progression`` stores, distinct for each of the five fixture signatures
+    (``derive_progression_fixtures.py``)."""
+    matched_frame = {
+        "warehouse": "CDSSQueryEngine::WaitUntilFinished",
+        "parked": "MSIQTask::GetNextPreferredJob",
+        "stable": "_shi_allocBlock",
+        "newcomer": "curl_multi_poll",
+        "departing": "MSICommandQTask::GetNextCommand",
+    }[label]
+    for signature in bundle.progression.signatures:
+        if signature.matched_frame == matched_frame:
+            return signature
+    raise AssertionError(f"no progression row found for signature {label!r}")
+
+
+def test_step_and_overall_deltas_disagree_on_grew_then_shrank() -> None:
+    """D-08: warehouse over charlie/bravo/alpha runs 3 -> 7 -> 5 — step
+    deltas +4/-2 disagree with the overall +2, and the module carries both
+    rather than flattening the sequence to one figure."""
+    bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
+    warehouse = _signature(bundle, "warehouse")
+    assert warehouse.counts == (3, 7, 5)
+    assert warehouse.step_deltas == (4, -2)
+    assert warehouse.overall_delta == 2
+
+
+def test_appeared_and_vanished_signatures() -> None:
+    """D-09: newcomer (absent in charlie, present in bravo/alpha) is
+    appeared-not-vanished; departing (present in charlie only) is the
+    converse."""
+    bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
+
+    newcomer = _signature(bundle, "newcomer")
+    assert newcomer.counts == (0, 2, 2)
+    assert newcomer.appeared is True
+    assert newcomer.vanished is False
+
+    departing = _signature(bundle, "departing")
+    assert departing.counts == (2, 0, 0)
+    assert departing.appeared is False
+    assert departing.vanished is True
+
+
+def test_unchanged_signature_has_zero_delta() -> None:
+    """A signature present with the same count in every dump has a zero
+    overall delta and all-zero step deltas, and still appears in
+    ``ProgressionAnalysis.signatures`` (no cap, D-09)."""
+    bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
+    stable = _signature(bundle, "stable")
+    assert stable.counts == (4, 4, 4)
+    assert stable.overall_delta == 0
+    assert stable.step_deltas == (0, 0)
+    assert stable in bundle.progression.signatures
+
+
+def test_progression_carries_every_signature_no_cap() -> None:
+    """No cap is applied to the signature set (D-09's changed-only filter is
+    a rendering concern for 17-03): all five fixture signatures — including
+    the unchanged ``stable`` — are present in ``ProgressionAnalysis.
+    signatures`` so the CSV can export the unchanged ones too."""
+    bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
+    labels = ("warehouse", "parked", "stable", "newcomer", "departing")
+    assert len(bundle.progression.signatures) == len(labels)
+    for label in labels:
+        _signature(bundle, label)  # raises AssertionError if missing
+
+
+def test_progression_ranking_is_a_total_order() -> None:
+    """Two independent ``analyse_eustack_bundle`` calls over the same events,
+    one with the input event list reversed, produce an identical
+    ``signatures`` tuple — the sort key is a true total order, not merely
+    stable over one particular input ordering."""
+    events: list[Event] = []
+    for name in ("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt"):
+        events.extend(_parse_progression_fixture(name))
+
+    forward = analyse_eustack_bundle(events, _RULES, _RULES_HASH, _THRESHOLDS)
+    reversed_bundle = analyse_eustack_bundle(
+        list(reversed(events)), _RULES, _RULES_HASH, _THRESHOLDS
+    )
+    assert forward.progression.signatures == reversed_bundle.progression.signatures
+
+
+def test_saturation_computed_on_last_dump_only() -> None:
+    """D-11: adding dumps never changes which dump the classification and
+    saturation figures come from — ``total_threads`` equals the LAST dump's
+    (alpha's) own 17 threads, not the 55-thread sum across all three dumps."""
+    bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
+    assert bundle.analysis.total_threads == 17
+    assert bundle.analysis.total_threads != 55
+
+
+def test_no_per_tid_claim_in_progression_strings() -> None:
+    """D-10: no module-level string or emitted ``OrderingFlag.message`` makes
+    a per-thread continuity claim. Mirrors the word-boundary,
+    non-vacuity-guarded technique
+    ``test_ownership_blind_vocabulary_absent_from_source_and_emitted_output``
+    (tests/test_eustack_rules.py) already uses.
+
+    ``PROGRESSION_SCOPE_NOTE`` legitimately contains the bare word "TID"
+    while explaining that TID reuse means continuity CANNOT be established
+    — that is the D-10 rationale itself, not a claim. What must never appear
+    is a continuity VERB (persisted/remained/stayed/"still blocked") or an
+    actual thread-identifier VALUE token (e.g. "TID 100001") standing in for
+    a specific thread.
+    """
+    candidates: list[str] = [
+        ORDER_BASIS_SINGLE,
+        ORDER_BASIS_TIMESTAMP,
+        ORDER_BASIS_FILENAME,
+        PROGRESSION_SCOPE_NOTE,
+        ORDERING_UNVERIFIED_MESSAGE,
+    ]
+    bundle = _bundle_for("dump_charlie.txt", "dump_delta_nots.txt")
+    candidates.extend(flag.message for flag in bundle.progression.ordering_flags)
+
+    assert candidates, "candidate string set must be non-empty"
+
+    continuity_verbs = ("persisted", "remained", "stayed", "still blocked")
+    for candidate in candidates:
+        for verb in continuity_verbs:
+            found = re.search(rf"\b{re.escape(verb)}\b", candidate, re.IGNORECASE)
+            assert found is None, (
+                f"continuity verb {verb!r} found in emitted string {candidate!r}"
+            )
+        # A concrete thread-identifier VALUE (e.g. "TID 100001") would imply
+        # a specific thread is being tracked across dumps; the bare word
+        # "TID" alone (as in PROGRESSION_SCOPE_NOTE) is not such a claim.
+        identifier_value = re.search(r"\bTID\W{0,3}\d+\b", candidate, re.IGNORECASE)
+        assert identifier_value is None, (
+            f"thread-identifier value found in emitted string {candidate!r}"
+        )
