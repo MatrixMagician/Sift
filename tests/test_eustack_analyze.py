@@ -12,14 +12,22 @@ here for eu-stack).
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
 import httpx
 
 from sift.adapters.eustack import EustackAdapter
-from sift.config import EustackThresholdsConfig, McmThresholdsConfig
+from sift.config import (
+    EustackThresholdsConfig,
+    McmThresholdsConfig,
+    SiftConfig,
+    load_config,
+)
 from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import hypothesise
@@ -35,6 +43,8 @@ from sift.store import CaseStore
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_PERFMON_CASE = _REPO_ROOT / "eval" / "cases" / "perfmon-denial"
 _EUSTACK_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "eustack"
 _EUSTACK_FIXTURE = _EUSTACK_FIXTURES_DIR / "threaddump.txt"
 
@@ -42,6 +52,23 @@ _EUSTACK_FIXTURE = _EUSTACK_FIXTURES_DIR / "threaddump.txt"
 _VALID_HYPSET = json.dumps(
     {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
 )
+
+# Frozen pre-eu-stack-phase byte-identity baselines (D-12), copied verbatim
+# from ``tests/test_perfmon_analyze.py`` — the fourth sentinel block must not
+# perturb them.
+_NEITHER_PROMPT_HASH = "8c4341e77deee439"
+_MCM_ONLY_PROMPT_HASH = "0e49cb2cbf6ebb27"
+
+# The one missing baseline (D-18): PERFMON-ONLY over the perfmon-denial case,
+# measured against the PRE-PHASE (pre-Task-1) ``triage.md`` — i.e. against
+# ``git show HEAD~1:src/sift/prompts/triage.md`` at the commit immediately
+# before this eu-stack phase's Task 1 landed — via ``hypothesise._assemble``
+# with ``mcm_block=None`` and the real ``render_perfmon_facts`` block. It is
+# also reproduced identically against the CURRENT ``triage.md`` with
+# ``eustack_block=None`` (the residue-free strip this task's byte-identity
+# tests below assert), confirming the fourth sentinel block adds no bytes
+# when eu-stack data is absent.
+_PERFMON_ONLY_PROMPT_HASH = "e3dc94ae1b32cd90"
 
 
 def _handler(
@@ -88,6 +115,43 @@ def _seed_eustack(store: CaseStore, rel: str = "threaddump.txt") -> None:
     events = list(adapter.parse(_EUSTACK_FIXTURES_DIR / rel, "case1"))
     with store.transaction():
         store.insert_events(events)
+
+
+@contextlib.contextmanager
+def _ingested_store(config: SiftConfig, input_dir: Path, db: Path):
+    """Ingest ``input_dir`` into a PERSISTENT store (kept open) via the real
+    `sift ingest` path — mirrors ``test_perfmon_analyze._perfmon_store``."""
+    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+
+    noise = io.StringIO()
+    with contextlib.redirect_stdout(noise), contextlib.redirect_stderr(noise):
+        store = CaseStore(db)
+        store.set_meta("input_dir", str(input_dir.resolve()))
+        store.set_meta("adapter_overrides", "[]")
+        _ingest(db.parent.name, config, store)
+    try:
+        yield store
+    finally:
+        store.close()
+
+
+def _perfmon_store(config: SiftConfig, db: Path):
+    """The perfmon-denial case (no eu-stack data) as a persistent store."""
+    return _ingested_store(config, _PERFMON_CASE / "input", db)
+
+
+def _eustack_carrying_store(config: SiftConfig, tmp_path: Path, db: Path):
+    """The perfmon-denial input files PLUS the eu-stack fixture, ingested once
+    into one store — the D-18 EUSTACK-ONLY / ALL-THREE combinations must be
+    compared within this SAME store (never cross-store), since ingesting
+    eu-stack events changes the cluster set and therefore the excerpt lines.
+    """
+    combined_input = tmp_path / "input"
+    combined_input.mkdir(parents=True, exist_ok=True)
+    for src in (_PERFMON_CASE / "input").iterdir():
+        shutil.copy2(src, combined_input / src.name)
+    shutil.copy2(_EUSTACK_FIXTURE, combined_input / _EUSTACK_FIXTURE.name)
+    return _ingested_store(config, combined_input, db)
 
 
 def _assemble_blocks(
@@ -163,3 +227,93 @@ def test_eustack_block_injected_and_ids_citable(tmp_path: Path) -> None:
             assert eid in by_id
     finally:
         store.close()
+
+
+# --- Task 2: byte-identity gate (D-12, D-18) ---------------------------------
+
+
+def test_no_eustack_data_byte_identical_to_baseline(tmp_path: Path) -> None:
+    """D-12/SC2: over a store with NO eu-stack events at all (the
+    perfmon-denial case), ``render_eustack_facts`` returns ``("", set())`` and
+    the assembled NEITHER, MCM-ONLY and PERFMON-ONLY prompt hashes equal their
+    three frozen pre-phase constants exactly — the fourth sentinel block strips
+    residue-free."""
+    config = load_config({})
+    with _perfmon_store(config, tmp_path / "case.db") as store:
+        events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        assert render_eustack_facts(bundle, events) == ("", set())
+
+        client = _client()
+        _in, p_neither = _assemble_blocks(store, client)
+        _im, p_mcm = _assemble_blocks(store, client, with_mcm=True)
+        _ip, p_perfmon = _assemble_blocks(store, client, with_perfmon=True)
+
+    assert hypothesise._prompt_hash(p_neither) == _NEITHER_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    assert hypothesise._prompt_hash(p_mcm) == _MCM_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    assert hypothesise._prompt_hash(p_perfmon) == _PERFMON_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+
+
+def test_five_combination_byte_identity(tmp_path: Path) -> None:
+    """D-18: the minimal 5-combination subset, not the full 2x2x2 matrix.
+
+    Combinations 1-3 on the no-eu-stack store (perfmon-denial): NEITHER,
+    MCM-ONLY and PERFMON-ONLY each equal their frozen constant — unchanged by
+    this phase. Combinations 4-5 on an eu-stack-carrying store (perfmon-denial
+    input files plus the eu-stack fixture, ingested once): EUSTACK-ONLY must
+    differ from that SAME store's NEITHER hash, and ALL-THREE must differ from
+    that same store's MCM-plus-perfmon hash. Comparisons stay within one store
+    each — a cross-store hash comparison would be meaningless, since ingesting
+    eu-stack events changes the cluster set and therefore the excerpt lines.
+    """
+    config = load_config({})
+
+    with _perfmon_store(config, tmp_path / "no_eustack" / "case.db") as store:
+        client = _client()
+        _in, p_neither = _assemble_blocks(store, client)
+        _im, p_mcm = _assemble_blocks(store, client, with_mcm=True)
+        _ip, p_perfmon = _assemble_blocks(store, client, with_perfmon=True)
+
+    assert hypothesise._prompt_hash(p_neither) == _NEITHER_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    assert hypothesise._prompt_hash(p_mcm) == _MCM_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    assert hypothesise._prompt_hash(p_perfmon) == _PERFMON_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+
+    with _eustack_carrying_store(
+        config, tmp_path / "eustack_in", tmp_path / "eustack_in" / "case.db"
+    ) as store:
+        client = _client()
+        events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        eustack_block_text, _ids = render_eustack_facts(bundle, events)
+        assert eustack_block_text, (
+            "the eu-stack-carrying store must yield a non-empty block "
+            "(non-vacuity guard)"
+        )
+
+        _sne, es_neither = _assemble_blocks(store, client)
+        _se, es_eustack_only = _assemble_blocks(store, client, with_eustack=True)
+        _smp, es_mcm_perfmon = _assemble_blocks(
+            store, client, with_mcm=True, with_perfmon=True
+        )
+        _sall, es_all_three = _assemble_blocks(
+            store, client, with_mcm=True, with_perfmon=True, with_eustack=True
+        )
+
+    h_es_neither = hypothesise._prompt_hash(es_neither)  # pyright: ignore[reportPrivateUsage]
+    h_eustack_only = hypothesise._prompt_hash(es_eustack_only)  # pyright: ignore[reportPrivateUsage]
+    h_mcm_perfmon = hypothesise._prompt_hash(es_mcm_perfmon)  # pyright: ignore[reportPrivateUsage]
+    h_all_three = hypothesise._prompt_hash(es_all_three)  # pyright: ignore[reportPrivateUsage]
+
+    assert h_eustack_only != h_es_neither, (
+        "eu-stack-present prompt must differ from that store's own no-data prompt"
+    )
+    assert h_all_three != h_mcm_perfmon, (
+        "eu-stack on top of MCM+perfmon must differ from MCM+perfmon-only"
+    )
+    assert len({h_es_neither, h_eustack_only, h_mcm_perfmon, h_all_three}) == 4
