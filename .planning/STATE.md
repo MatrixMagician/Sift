@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 18
 current_phase_name: eu-stack-facts-into-sift-analyze
-status: executing
-stopped_at: Completed 18-02-PLAN.md
-last_updated: "2026-07-26T15:22:49.125Z"
+status: verifying
+stopped_at: Completed 18-03-PLAN.md (phase 18 complete, 3/3 plans)
+last_updated: "2026-07-26T15:44:52.085Z"
 last_activity: 2026-07-26
 last_activity_desc: Phase 18 execution started
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 16
-  completed_plans: 15
-  percent: 50
+  completed_plans: 16
+  percent: 67
 ---
 
 # Project State
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 Phase: 18 (eu-stack-facts-into-sift-analyze) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-07-26 — Phase 18 execution started
 
 ## Performance Metrics
@@ -134,6 +134,7 @@ Last activity: 2026-07-26 — Phase 18 execution started
 | Phase 17 P03 | ~50min | 2 tasks | 4 files |
 | Phase 18 P01 | 45min | 3 tasks | 7 files |
 | Phase 18 P02 | 55min | 2 tasks | 3 files |
+| Phase 18 P03 | 70min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -269,6 +270,8 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 18]: 18-01: render_eustack_facts(bundle, events) leaf module ships role-composition grouping only (D-17 union-then-sample-3 exemplars); _PERFMON_ONLY_PROMPT_HASH=e3dc94ae1b32cd90 measured against pre-Task-1 triage.md and reproduced identically post-phase, confirming the fourth sentinel block strips residue-free
 - [Phase ?]: Lock-convergence flag maps to its LockSite via lockstep iteration over bundle.saturation.lock_sites (ADR 0016 S-6's documented 1:1 order), never value-matching on thread_count (ambiguous under ties).
 - [Phase ?]: Tasks 1 and 2 of plan 18-02 landed in a single commit — both extend the same render_eustack_facts body in one contiguous 208-line insertion with no git-hunk boundary between them.
+- [Phase ?]: D-14 measured combined MCM+perfmon+eu-stack fact-block size: ~4,528 estimated tokens (18,115 chars) against the 7,168-token excerpt budget — comfortably under, ~2,640 tokens headroom remains
+- [Phase ?]: D-10/D-11 suppression: multi-dump progression deltas suppressed entirely (last-dump state only) when the dump order is unverified (filename fallback) or fewer than two dumps are present — proven as the PRIMARY path against the real-shaped, header-timestamp-less reference capture derivative
 
 ### Pending Todos
 
@@ -351,8 +354,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-26T15:22:49.113Z
-Stopped at: Completed 18-02-PLAN.md
+Last session: 2026-07-26T15:44:52.071Z
+Stopped at: Completed 18-03-PLAN.md (phase 18 complete, 3/3 plans)
 Resume file: None
 
 ## Operator Next Steps
