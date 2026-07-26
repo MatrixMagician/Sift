@@ -152,12 +152,12 @@ Plans:
   3. The `eustack_facts.md` template contains zero authored digits, and a planted wrong figure provably never reaches the prompt (anti-hallucination test, MCM-06/PERF-07 pattern)
   4. Every aggregate figure quoted in the fact block resolves to a concrete, verifiable `event_id` set that exists in the case store
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 18-01-PLAN.md — Tracer: role composition end-to-end into the triage prompt, fourth sentinel block, byte-identity and anti-hallucination gates (wave 1)
+- [x] 18-01-PLAN.md — Tracer: role composition end-to-end into the triage prompt, fourth sentinel block, byte-identity and anti-hallucination gates (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -214,7 +214,7 @@ Plans:
 | 15. Thread-Role Taxonomy & Rules File | v1.3 | 0/6 | Complete    | 2026-07-25 |
 | 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Complete    | 2026-07-25 |
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/3 | Complete    | 2026-07-26 |
-| 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Not started | - |
+| 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | In Progress|  |
 | 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Not started | - |
 | 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/? | Not started | - |
 
