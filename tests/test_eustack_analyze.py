@@ -53,6 +53,32 @@ _VALID_HYPSET = json.dumps(
     {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
 )
 
+# A thread-population figure the analyser could never compute for the fixture
+# — orders of magnitude beyond any real thread count, phrased as an eu-stack
+# role claim (T-14-07 pattern, here for eu-stack).
+_MODEL_WRONG_FIGURE = "9,999,999 threads idle-parked"
+
+
+def _hset_body(cited_ids: list[str], narrative: str) -> str:
+    """A schema-valid HypothesisSet JSON string with a caller-chosen narrative."""
+    return json.dumps(
+        {
+            "hypotheses": [
+                {
+                    "title": "Eu-stack thread saturation",
+                    "narrative": narrative,
+                    "confidence": "high",
+                    "confidence_reasoning": "Thread composition corroborates this.",
+                    "supporting_event_ids": cited_ids,
+                    "contradicting_evidence": None,
+                    "suggested_next_steps": ["Inspect the flagged subsystem"],
+                }
+            ],
+            "timeline_summary": "Thread population composition observed at capture.",
+            "unexplained_signals": [],
+        }
+    )
+
 # Frozen pre-eu-stack-phase byte-identity baselines (D-12), copied verbatim
 # from ``tests/test_perfmon_analyze.py`` — the fourth sentinel block must not
 # perturb them.
@@ -317,3 +343,68 @@ def test_five_combination_byte_identity(tmp_path: Path) -> None:
         "eu-stack on top of MCM+perfmon must differ from MCM+perfmon-only"
     )
     assert len({h_es_neither, h_eustack_only, h_mcm_perfmon, h_all_three}) == 4
+
+
+# --- Task 3: anti-hallucination + eval-path parity (SC3, D-05, D-16) --------
+
+
+def test_model_cannot_alter_eustack_figures(tmp_path: Path) -> None:
+    """T-14-07 pattern, here for eu-stack: the surfaced eu-stack figures are a
+    pure function of ``render_eustack_facts``, built BEFORE generation — a
+    model echoing a WRONG figure in its narrative cannot change the fact block
+    spliced into the prompt."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_eustack(store)
+        events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        # The verbatim analyser block, computed independently of any model reply.
+        block, _ids = render_eustack_facts(bundle, events)
+        assert block, "the threaddump.txt fixture must yield a non-empty block"
+
+        prompts: list[str] = []
+        client = _client(
+            _handler(
+                hyp_content=_hset_body([], _MODEL_WRONG_FIGURE),
+                prompts=prompts,
+            )
+        )
+        hypothesise.hypothesise(store, client, top_clusters=20, incident_time=None)
+        assert prompts
+        prompt = prompts[0]
+        # The real eu-stack figures reached the prompt…
+        assert block in prompt
+        # …the model's planted figure never did (prompt built pre-reply).
+        assert _MODEL_WRONG_FIGURE not in prompt
+    finally:
+        store.close()
+
+
+def test_eval_path_parity_default_eustack_config(tmp_path: Path) -> None:
+    """``hypothesise`` called WITHOUT ``eustack_rules_path``/``eustack_thresholds``
+    (as the eval harness does) still injects the eu-stack block for an
+    eu-stack-seeded case — proving the packaged-default rules path and the
+    ``or EustackThresholdsConfig()`` fallback work on the path the eval
+    harness takes, exactly as the MCM/perfmon analogs prove for their own
+    defaults."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_eustack(store)
+        events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        block, _ids = render_eustack_facts(bundle, events)
+        assert block
+
+        prompts: list[str] = []
+        client = _client(_handler(prompts=prompts))
+        hypothesise.hypothesise(store, client, top_clusters=20, incident_time=None)
+        assert prompts
+        assert block in prompts[0]
+    finally:
+        store.close()
