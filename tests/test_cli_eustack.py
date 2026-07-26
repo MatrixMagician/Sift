@@ -24,6 +24,8 @@ runner = CliRunner()
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eustack"
 THREADDUMP = "threaddump.txt"
+PROGRESSION_FIXTURES = FIXTURES / "progression"
+PROGRESSION_DUMPS = ("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
 
 
 def _build_eustack_case(case: str = "eustackonly") -> Path:
@@ -39,6 +41,25 @@ def _build_eustack_case(case: str = "eustackonly") -> Path:
     adapter = EustackAdapter()
     adapter.input_root = FIXTURES
     events = list(adapter.parse(FIXTURES / THREADDUMP, case))
+    store = CaseStore(db_path)
+    try:
+        store.insert_events(events)
+    finally:
+        store.close()
+    return db_path.parent
+
+
+def _build_progression_case(case: str = "eustackmulti") -> Path:
+    """Ingest all three timestamped ``progression/`` fixtures into a real
+    ``case.db`` — a genuine multi-dump case, not the single-dump ``THREADDUMP``
+    fixture the rest of this module uses."""
+    db_path = case_db_path(load_config().data_dir, case)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    adapter = EustackAdapter()
+    adapter.input_root = PROGRESSION_FIXTURES
+    events = []
+    for name in PROGRESSION_DUMPS:
+        events.extend(adapter.parse(PROGRESSION_FIXTURES / name, case))
     store = CaseStore(db_path)
     try:
         store.insert_events(events)
@@ -179,3 +200,37 @@ def test_eustack_byte_identical_rerun_json() -> None:
     runner.invoke(app, ["eustack", "eustackonly", "--format", "json"])
     assert (case_dir / "eustack" / "eustack_report.json").read_bytes() == report
     assert (case_dir / "eustack" / "eustack_signatures.csv").read_bytes() == csv_bytes
+
+
+def test_eustack_multi_dump_byte_identical_rerun() -> None:
+    """D-13 over a GENUINE multi-dump case (not the single-dump N=1 shape
+    ``test_eustack_byte_identical_rerun`` already covers): two runs produce
+    byte-identical Markdown, JSON and CSV."""
+    case_dir = _build_progression_case()
+    runner.invoke(app, ["eustack", "eustackmulti"])
+    report = (case_dir / "eustack" / "eustack_report.md").read_bytes()
+    csv_bytes = (case_dir / "eustack" / "eustack_signatures.csv").read_bytes()
+    runner.invoke(app, ["eustack", "eustackmulti"])
+    assert (case_dir / "eustack" / "eustack_report.md").read_bytes() == report
+    assert (case_dir / "eustack" / "eustack_signatures.csv").read_bytes() == csv_bytes
+
+    runner.invoke(app, ["eustack", "eustackmulti", "--format", "json"])
+    json_report = (case_dir / "eustack" / "eustack_report.json").read_bytes()
+    json_csv = (case_dir / "eustack" / "eustack_signatures.csv").read_bytes()
+    runner.invoke(app, ["eustack", "eustackmulti", "--format", "json"])
+    assert (case_dir / "eustack" / "eustack_report.json").read_bytes() == json_report
+    assert (case_dir / "eustack" / "eustack_signatures.csv").read_bytes() == json_csv
+
+
+def test_eustack_multi_dump_bundle_reports_progression() -> None:
+    """A genuine 3-dump case exits 0, names more than one changed signature
+    in its stdout summary, and its written report carries the progression
+    section heading plus the warehouse population figures."""
+    case_dir = _build_progression_case("eustackprogression")
+    result = runner.invoke(app, ["eustack", "eustackprogression"])
+    assert result.exit_code == 0, result.output
+    assert "changed signature" in result.output
+
+    text = (case_dir / "eustack" / "eustack_report.md").read_text(encoding="utf-8")
+    assert "## Progression" in text
+    assert "CDSSQueryEngine::WaitUntilFinished" in text
