@@ -1,13 +1,15 @@
-"""Deterministic eu-stack fact renderer (EUS-10, Plan 18-01).
+"""Deterministic eu-stack fact renderer (EUS-10, Plans 18-01/18-02).
 
 ``render_eustack_facts(bundle, events) -> (block_text, citable_ids)`` is the
 model-free, byte-identical-on-re-run source of truth for every eu-stack figure
 surfaced to the triage prompt. It fills the versioned
 ``prompts/eustack_facts.md`` fragment (labels and prose only — D-16) with
 figures read from ``EustackBundle`` (Phases 15-17's frozen analysis of the LAST
-dump, D-11) — this plan renders only the role-composition grouping; the other
-three Phase-16 groupings and the per-signature listing land in Plan 18-02.
-Numbers originate in Python; wording lives in the template.
+dump, D-11): the role-composition grouping, the three remaining Phase 16
+groupings (per-pool occupancy, lock-site convergence, external-wait
+concentration), each graded ``SaturationFlag``, and a capped, drop-disclosing
+per-signature listing. Numbers originate in Python; wording lives in the
+template.
 
 Aggregate -> citable ``event_id`` set (the ROADMAP's flagged design question,
 resolved in ``CONTEXT.md``): none of ``EustackAnalysis``/``SaturationAnalysis``/
@@ -19,9 +21,10 @@ re-grouping, never widens the frozen analysis models). A population figure
 cites a **bounded exemplar sample**, not the full population (D-01): the lowest
 ``_EXEMPLAR_K`` event_ids in sort order (D-02), reusing the existing
 ``[evt:<id>]`` citation token unchanged. The block states in words that it is
-sampling — both the exemplar count and the true population size (D-03) — so an
-aggregate figure is never presented as if the population had been enumerated.
-For a multi-signature aggregate the contributing signatures' event pools are
+sampling — both the exemplar count and the true population size (D-03), via
+the single-definition-site ``_sampling_sentence`` helper — so an aggregate
+figure is never presented as if the population had been enumerated. For a
+multi-signature aggregate the contributing signatures' event pools are
 unioned FIRST, then the lowest ``_EXEMPLAR_K`` are taken (D-17), keeping the
 "N of M cited as exemplars" sentence honest for the aggregate's own M.
 
@@ -32,8 +35,15 @@ never expose an id the model was not shown). Emptiness gate:
 data — never ``bundle.saturation.flags`` being empty, since a healthy,
 zero-flag capture is the common case and must still render a useful block
 ("nothing is flagged" is itself a finding, CONTEXT.md ``<specifics>``). Every
-role string is routed through ``render._util.sanitise`` before interpolation
-(V5 prompt-injection defence), mirroring ``mcm_facts``/``perfmon_facts``.
+role/subsystem/site/dimension/message string is routed through
+``render._util.sanitise`` before interpolation (V5 prompt-injection defence),
+mirroring ``mcm_facts``/``perfmon_facts``.
+
+Per-signature listing (D-06/D-07/D-08): capped at ``_MAX_SIGNATURES = 8``, a
+plain slice of ``bundle.analysis.signatures`` (already thread-count-descending
+sorted by ``analyse_eustack`` — no second sort here). Composition-independent:
+a flagged signature below the cut is never force-included. Dropped signatures
+are stated as dropped whenever any exist, never mentioned when none are.
 
 This is a leaf module: it reads the analyser's model tree and the prompt
 fragment only. It must NOT import from ``sift.pipeline.hypothesise`` or
@@ -45,12 +55,17 @@ from __future__ import annotations
 import importlib.resources
 from typing import TYPE_CHECKING
 
-from sift.pipeline.eustack import signature_of
+from sift.pipeline.eustack import (
+    UNKNOWN_LOCK_SITE,
+    enclosing_application_frame,
+    signature_of,
+)
 from sift.pipeline.eustack_progression import group_dumps
 from sift.render._util import sanitise
 
 if TYPE_CHECKING:
     from sift.models import Event
+    from sift.pipeline.eustack import SignatureGroup
     from sift.pipeline.eustack_progression import DumpSlice, EustackBundle
 
 _PROMPT_PACKAGE = "sift.prompts"
@@ -61,6 +76,12 @@ _EUSTACK_LINES_SLOT = "<<EUSTACK_LINES>>"
 # sha256(source_file, byte_offset)[:16], so this selection is stable by
 # construction and needs no tie-break rule.
 _EXEMPLAR_K = 3
+
+# D-06: the per-signature listing cap. One consistent ceiling across all four
+# fact modules (mcm_facts._MAX_EPISODES, perfmon_facts._MAX_GROUPS).
+# ponytail: fixed group ceiling; swap for budget-aware trimming only if real
+# cases ever carry more than this many signatures worth surfacing.
+_MAX_SIGNATURES = 8
 
 
 def _load_eustack_fragment() -> str:
@@ -84,6 +105,16 @@ def _cite_prefix(event_ids: tuple[str, ...], ids: set[str]) -> str:
     """
     ids.update(event_ids)
     return "".join(f"[evt:{eid}]" for eid in event_ids)
+
+
+def _sampling_sentence(k: int, population: int) -> str:
+    """D-03: state both the exemplar count and the aggregate's own true
+    population, so a sampled citation set is never read as an enumeration.
+
+    Single definition site — every grouping's sampling parenthetical routes
+    through this helper so the wording cannot drift between groupings.
+    """
+    return f"({k:,} of {population:,} thread events cited as exemplars)"
 
 
 def _signature_event_ids(dump_events: list[Event]) -> dict[tuple[str, ...], list[str]]:
@@ -140,6 +171,214 @@ def _union_exemplars(
     return tuple(sorted(union)[:_EXEMPLAR_K])
 
 
+def _lock_site_of(group: SignatureGroup) -> str:
+    """The enclosing-application-frame site a ``blocked-on-lock`` group
+    converges on, substituting ``UNKNOWN_LOCK_SITE`` exactly as
+    ``analyse_saturation`` does — the shipped walk and sentinel are reused,
+    never re-derived, so the two can never disagree about a group's site."""
+    assert group.frame_index is not None, (
+        "blocked-on-lock groups always carry a matched frame_index"
+    )
+    found = enclosing_application_frame(group.frames, group.frame_index)
+    return found if found is not None else UNKNOWN_LOCK_SITE
+
+
+def _pool_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    ids: set[str],
+) -> tuple[list[str], dict[str | None, tuple[str, ...]]]:
+    """EUS-03 per-pool occupancy lines, plus the per-subsystem exemplar map
+    (reused by ``_flag_lines`` for the ``unclassified_thread_pct`` flag so
+    that figure is never re-derived from a second pass)."""
+    lines: list[str] = []
+    exemplars_by_subsystem: dict[str | None, tuple[str, ...]] = {}
+    for pool in bundle.saturation.pools:
+        # subsystem stays typed str | None and is compared, never stringified
+        # (a literal "None" subsystem string could collide with the
+        # unclassified row's None key).
+        frame_tuples = [
+            group.frames
+            for group in bundle.analysis.signatures
+            if group.subsystem == pool.subsystem
+        ]
+        exemplars = _union_exemplars(frame_tuples, per_dump_sig_ids)
+        exemplars_by_subsystem[pool.subsystem] = exemplars
+        if not exemplars:
+            # No line without an [evt:] token — an uncited figure is forbidden.
+            continue
+        prefix = _cite_prefix(exemplars, ids)
+        label = (
+            sanitise(pool.subsystem) if pool.subsystem is not None else "unclassified"
+        )
+        lines.append(
+            f"{prefix} eu-stack {label} pool occupancy: {pool.busy_threads:,} busy "
+            f"threads, {pool.idle_threads:,} idle threads of {pool.total_threads:,} "
+            f"total threads across {pool.signature_count:,} signatures "
+            f"({pool.occupancy * 100:.2f}% occupancy). "
+            f"{_sampling_sentence(len(exemplars), pool.total_threads)}"
+        )
+    return lines, exemplars_by_subsystem
+
+
+def _lock_site_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    ids: set[str],
+) -> tuple[list[str], dict[str, tuple[str, ...]]]:
+    """EUS-04 lock-site convergence lines, plus the per-site exemplar map
+    (reused by ``_flag_lines`` for ``lock_convergence_count`` flags).
+
+    ``lock_finding_note`` (the ownership-blind label, D-05) is emitted exactly
+    once, ahead of the site lines, and only when at least one site line
+    actually rendered — never a floating disclaimer over an empty section.
+    The emitted lines report only that threads were observed converging at a
+    site; they never state or imply lock possession or a wait-for graph.
+    """
+    exemplars_by_site: dict[str, tuple[str, ...]] = {}
+    site_lines: list[str] = []
+    for site in bundle.saturation.lock_sites:
+        frame_tuples = [
+            group.frames
+            for group in bundle.analysis.signatures
+            if group.role == "blocked-on-lock" and _lock_site_of(group) == site.site
+        ]
+        exemplars = _union_exemplars(frame_tuples, per_dump_sig_ids)
+        exemplars_by_site[site.site] = exemplars
+        if not exemplars:
+            continue
+        prefix = _cite_prefix(exemplars, ids)
+        site_lines.append(
+            f"{prefix} eu-stack lock-site convergence: {site.thread_count:,} threads "
+            f"across {site.signature_count:,} signatures observed converging at "
+            f"{sanitise(site.site)}. "
+            f"{_sampling_sentence(len(exemplars), site.thread_count)}"
+        )
+    if not site_lines:
+        return [], exemplars_by_site
+    return [bundle.saturation.lock_finding_note, *site_lines], exemplars_by_site
+
+
+def _dependency_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    ids: set[str],
+) -> list[str]:
+    """EUS-05 external-wait concentration lines. Grouped on the row's
+    ``subsystem`` (never on the matched pattern text), because two distinct
+    rules can share one subsystem and must aggregate into one row."""
+    lines: list[str] = []
+    for dep in bundle.saturation.dependencies:
+        frame_tuples = [
+            group.frames
+            for group in bundle.analysis.signatures
+            if group.role == "blocked-on-external" and group.subsystem == dep.subsystem
+        ]
+        exemplars = _union_exemplars(frame_tuples, per_dump_sig_ids)
+        if not exemplars:
+            continue
+        prefix = _cite_prefix(exemplars, ids)
+        lines.append(
+            f"{prefix} eu-stack external-wait concentration: {dep.thread_count:,} "
+            f"threads across {dep.signature_count:,} signatures waiting on "
+            f"{sanitise(dep.subsystem)}. "
+            f"{_sampling_sentence(len(exemplars), dep.thread_count)}"
+        )
+    return lines
+
+
+def _flag_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    pool_exemplars: dict[str | None, tuple[str, ...]],
+    lock_site_exemplars: dict[str, tuple[str, ...]],
+    ids: set[str],
+) -> list[str]:
+    """One graded line per ``SaturationFlag``, giving each flag the exemplar
+    triple of the aggregate it grades — never printing an uncited figure.
+
+    ``lock_convergence_count`` flags are emitted by ``analyse_saturation()``
+    exactly once per ``lock_sites`` row, in that same order (S-6, ADR 0016) —
+    a plain iterator walks both in lockstep rather than matching on ``value``,
+    which would be ambiguous under a thread-count tie between two sites.
+    """
+    no_resolvable_frame_tuples = [
+        group.frames
+        for group in bundle.analysis.signatures
+        if group.role == "unclassified" and group.reason == "no-resolvable-frame"
+    ]
+    no_resolvable_exemplars = _union_exemplars(
+        no_resolvable_frame_tuples, per_dump_sig_ids
+    )
+
+    lines: list[str] = []
+    lock_sites_in_order = iter(bundle.saturation.lock_sites)
+    for flag in bundle.saturation.flags:
+        if flag.dimension == "unclassified_thread_pct":
+            exemplars = pool_exemplars.get(None, ())
+        elif flag.dimension == "no_resolvable_frame_pct":
+            exemplars = no_resolvable_exemplars
+        elif flag.dimension == "lock_convergence_count":
+            site = next(lock_sites_in_order, None)
+            exemplars = (
+                lock_site_exemplars.get(site.site, ()) if site is not None else ()
+            )
+        else:
+            exemplars = ()
+        if not exemplars:
+            continue
+        prefix = _cite_prefix(exemplars, ids)
+        lines.append(
+            f"{prefix} eu-stack saturation flag ({sanitise(flag.severity)}) "
+            f"{sanitise(flag.dimension)}: {flag.value:,} {sanitise(flag.unit)} "
+            f"(warn {flag.warn:,}, critical {flag.critical:,}). "
+            f"{sanitise(flag.message)}"
+        )
+    return lines
+
+
+def _signature_listing_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    ids: set[str],
+) -> list[str]:
+    """The capped, most-populous-first per-signature listing (D-06/D-07/D-08).
+
+    A plain slice of ``bundle.analysis.signatures`` — ``analyse_eustack``
+    already applies the explicit total order ``(-thread_count, frames)``, so
+    a re-sort here would be a second ordering that could silently drift from
+    the analyser's. Composition-independent: a signature carrying a
+    saturation flag is never force-included when it falls below the cut.
+    """
+    selected = bundle.analysis.signatures[:_MAX_SIGNATURES]
+    lines: list[str] = []
+    for group in selected:
+        exemplars = _union_exemplars([group.frames], per_dump_sig_ids)
+        if not exemplars:
+            continue
+        prefix = _cite_prefix(exemplars, ids)
+        parts = [f"{prefix} eu-stack signature: {group.thread_count:,} threads, "
+                 f"role {sanitise(group.role)}."]
+        if group.subsystem is not None:
+            parts.append(f" subsystem {sanitise(group.subsystem)}.")
+        if group.pattern is not None:
+            parts.append(f" matched pattern {sanitise(group.pattern)}.")
+        if group.frame_index is not None:
+            parts.append(f" matched frame {sanitise(group.frames[group.frame_index])}.")
+        if group.reason is not None:
+            parts.append(f" reason {sanitise(group.reason)}.")
+        parts.append(f" {_sampling_sentence(len(exemplars), group.thread_count)}")
+        lines.append("".join(parts))
+
+    dropped = bundle.analysis.total_signatures - len(selected)
+    if dropped > 0:
+        lines.append(
+            f"{dropped:,} further signatures not shown "
+            f"(of {bundle.analysis.total_signatures:,} total signatures)."
+        )
+    return lines
+
+
 def render_eustack_facts(
     bundle: EustackBundle, events: list[Event]
 ) -> tuple[str, set[str]]:
@@ -150,10 +389,6 @@ def render_eustack_facts(
     zero-flag capture still renders: emptiness is never gated on
     ``bundle.saturation.flags``. Each id in the returned set corresponds to an
     ``[evt:<id>]`` token actually printed in the block — nothing more (D-05).
-
-    This plan renders the role-composition grouping only; the remaining three
-    Phase-16 groupings and the capped per-signature listing land in Plan
-    18-02.
     """
     if bundle.analysis.total_threads == 0:
         return "", set()
@@ -187,9 +422,23 @@ def render_eustack_facts(
         lines.append(
             f"{prefix} eu-stack {sanitise(role)} threads: {threads:,} of "
             f"{bundle.analysis.total_threads:,} total threads across "
-            f"{signature_count:,} signatures. ({len(exemplars):,} of "
-            f"{threads:,} thread events cited as exemplars)"
+            f"{signature_count:,} signatures. "
+            f"{_sampling_sentence(len(exemplars), threads)}"
         )
+
+    pool_lines, pool_exemplars = _pool_lines(bundle, per_dump_sig_ids, ids)
+    lines.extend(pool_lines)
+
+    lock_lines, lock_site_exemplars = _lock_site_lines(bundle, per_dump_sig_ids, ids)
+    lines.extend(lock_lines)
+
+    lines.extend(_dependency_lines(bundle, per_dump_sig_ids, ids))
+
+    lines.extend(
+        _flag_lines(bundle, per_dump_sig_ids, pool_exemplars, lock_site_exemplars, ids)
+    )
+
+    lines.extend(_signature_listing_lines(bundle, per_dump_sig_ids, ids))
 
     return _load_eustack_fragment().replace(_EUSTACK_LINES_SLOT, "\n".join(lines)), ids
 

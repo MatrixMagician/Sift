@@ -1,10 +1,16 @@
-"""Unit tests for ``pipeline.eustack_facts`` (EUS-10, D-05, D-16).
+"""Unit tests for ``pipeline.eustack_facts`` (EUS-10, D-05, D-16, D-17).
 
 Mirrors ``tests/test_perfmon_facts.py``/``tests/test_mcm_facts.py``: the
 versioned ``eustack_facts.md`` fragment carries zero authored digits (D-16 —
 every figure originates in Python), and the id set ``render_eustack_facts``
 returns is provably EXACTLY the set of ids printed as ``[evt:<id>]`` tokens in
 its text — neither a superset nor a subset (D-05).
+
+Plan 18-02 adds coverage for the three remaining Phase 16 groupings (pool
+occupancy, lock-site convergence, external-wait concentration), the D-17
+union-then-sample exemplar contract for multi-signature aggregates, the D-03
+sampling-sentence honesty gate, and the D-06/D-07/D-08 capped, drop-disclosing
+per-signature listing.
 """
 
 from __future__ import annotations
@@ -14,12 +20,38 @@ from pathlib import Path
 
 from sift.adapters.eustack import EustackAdapter
 from sift.config import EustackThresholdsConfig
-from sift.pipeline.eustack import load_rules
-from sift.pipeline.eustack_facts import _load_eustack_fragment, render_eustack_facts
-from sift.pipeline.eustack_progression import analyse_eustack_bundle
+from sift.models import Event
+from sift.pipeline.eustack import (
+    EustackAnalysis,
+    PoolOccupancy,
+    SaturationAnalysis,
+    SignatureGroup,
+    load_rules,
+)
+from sift.pipeline.eustack_facts import (
+    _load_eustack_fragment,  # pyright: ignore[reportPrivateUsage]
+    render_eustack_facts,
+)
+from sift.pipeline.eustack_progression import (
+    DumpSlice,
+    EustackBundle,
+    ProgressionAnalysis,
+    analyse_eustack_bundle,
+)
+from sift.store import CaseStore
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures" / "eustack"
+_REQUIREMENTS_MD = Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
 _EVT_TOKEN_RE = re.compile(r"\[evt:([0-9a-f]{16})\]")
+_SAMPLING_RE = re.compile(r"\((\d+) of (\d+) thread events cited as exemplars\)")
+
+_ALL_ROLES = (
+    "idle-parked",
+    "blocked-on-external",
+    "blocked-on-lock",
+    "running",
+    "unclassified",
+)
 
 
 def test_fragment_holds_no_authored_number() -> None:
@@ -49,3 +81,353 @@ def test_id_set_equals_printed_evt_tokens() -> None:
     printed = set(_EVT_TOKEN_RE.findall(block))
     assert printed, "the block must print >=1 [evt:] token (non-vacuity guard)"
     assert printed == ids
+
+
+# --- Plan 18-02 fixtures/helpers ---------------------------------------------
+
+
+def _derivative_bundle() -> tuple[list[Event], EustackBundle]:
+    """The committed 93-signature derivative fixture (D-17/D-06 test bed)."""
+    adapter = EustackAdapter()
+    adapter.input_root = _FIXTURES_DIR
+    events = list(
+        adapter.parse(_FIXTURES_DIR / "reference_capture_derivative.txt", "case1")
+    )
+    rules, rules_hash = load_rules()
+    bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, EustackThresholdsConfig()
+    )
+    return events, bundle
+
+
+def _synthetic_thread_event(
+    source_file: str, frames: tuple[str, ...], event_id_val: str, thread: str
+) -> Event:
+    """One synthetic thread block on ``source_file``, hand-built rather than
+    parsed so a crafted event_id/frame chain reaches the pipeline byte-for-byte
+    (mirrors ``tests/test_eustack_report.py::_synthetic_dump``)."""
+    lines = [f"TID {thread}:\n"]
+    for idx, frame in enumerate(frames):
+        lines.append(f"#{idx}  0x{idx:016x} {frame}\n")
+    return Event(
+        event_id=event_id_val,
+        case_id="case",
+        ts=None,
+        ts_confidence="missing",
+        source="eustack",
+        source_file=source_file,
+        line_start=1,
+        line_end=1,
+        severity="unknown",
+        component=None,
+        thread=thread,
+        session=None,
+        message="",
+        attrs={},
+        raw="".join(lines),
+    )
+
+
+def _line_containing(block: str, needle: str) -> str:
+    for line in block.splitlines():
+        if needle in line:
+            return line
+    raise AssertionError(f"no line containing {needle!r} found in block")
+
+
+def _synthetic_bundle(
+    signatures: tuple[SignatureGroup, ...],
+    pools: tuple[PoolOccupancy, ...],
+) -> EustackBundle:
+    """A minimal, directly-constructed bundle for testing the renderer's own
+    contract in isolation from ``analyse_saturation``'s grading (e.g. forcing
+    ``flags=()`` regardless of what real grading would compute)."""
+    threads_by_role: dict[str, int] = dict.fromkeys(_ALL_ROLES, 0)
+    signatures_by_role: dict[str, int] = dict.fromkeys(_ALL_ROLES, 0)
+    for group in signatures:
+        threads_by_role[group.role] += group.thread_count
+        signatures_by_role[group.role] += 1
+    analysis = EustackAnalysis(
+        total_threads=sum(g.thread_count for g in signatures),
+        total_signatures=len(signatures),
+        threads_by_role=threads_by_role,  # pyright: ignore[reportArgumentType]
+        signatures_by_role=signatures_by_role,  # pyright: ignore[reportArgumentType]
+        signatures=signatures,
+        unclassified=tuple(g for g in signatures if g.role == "unclassified"),
+        rules_hash="0" * 16,
+        rules_version=1,
+        rules_validated_against="test",
+    )
+    saturation = SaturationAnalysis(
+        pools=pools, lock_sites=(), dependencies=(), flags=()
+    )
+    progression = ProgressionAnalysis(
+        dumps=(
+            DumpSlice(
+                source_file="dumpA.txt",
+                ts=None,
+                ts_confidence="missing",
+                thread_count=sum(g.thread_count for g in signatures),
+            ),
+        ),
+        order_basis="filename",
+        ordering_flags=(),
+        signatures=(),
+    )
+    return EustackBundle(
+        analysis=analysis, saturation=saturation, progression=progression
+    )
+
+
+# --- Task 1: four Phase-16 groupings, D-17 union-then-sample -----------------
+
+
+def test_exemplar_ids_exist_in_store(tmp_path: Path) -> None:
+    """For a bundle built from a real ingested store, every id the block
+    prints is a real ``event_id`` present in ``store.query_events()``."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        adapter = EustackAdapter()
+        adapter.input_root = _FIXTURES_DIR
+        events = list(
+            adapter.parse(
+                _FIXTURES_DIR / "reference_capture_derivative.txt", "case1"
+            )
+        )
+        with store.transaction():
+            store.insert_events(events)
+        stored_events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            stored_events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        _block, ids = render_eustack_facts(bundle, stored_events)
+        assert ids, "the block must print >=1 citable id (non-vacuity guard)"
+        by_id = {event.event_id for event in stored_events}
+        for eid in ids:
+            assert eid in by_id
+    finally:
+        store.close()
+
+
+def test_sampling_sentence_states_true_population() -> None:
+    """D-03: for a multi-signature pool, the parenthetical states an exemplar
+    count equal to the number of ``[evt:]`` tokens on that line, and a
+    population equal to the POOL's own ``total_threads`` — never a single
+    contributing signature's ``thread_count``."""
+    events, bundle = _derivative_bundle()
+    block, _ids = render_eustack_facts(bundle, events)
+
+    multi_sig_pool = next(p for p in bundle.saturation.pools if p.signature_count > 1)
+    label = (
+        multi_sig_pool.subsystem if multi_sig_pool.subsystem is not None
+        else "unclassified"
+    )
+    line = _line_containing(block, f"eu-stack {label} pool occupancy")
+
+    tokens = _EVT_TOKEN_RE.findall(line)
+    match = _SAMPLING_RE.search(line)
+    assert match is not None, "sampling sentence not found on the pool line"
+    exemplar_count, population = int(match.group(1)), int(match.group(2))
+
+    assert exemplar_count == len(tokens)
+    assert population == multi_sig_pool.total_threads
+
+    contributing_counts = {
+        g.thread_count
+        for g in bundle.analysis.signatures
+        if g.subsystem == multi_sig_pool.subsystem
+    }
+    assert population not in contributing_counts, (
+        "the sampling sentence's population must be the AGGREGATE's own "
+        "count, not a single contributing signature's thread_count"
+    )
+
+
+def test_multi_signature_aggregate_unions_before_sampling() -> None:
+    """D-17: a pool backed by two signatures with disjoint, interleaved id
+    ranges must union both event pools BEFORE sampling the lowest three —
+    never each signature's own lowest three, concatenated."""
+    sig_a_ids = [f"aaaaaaaaaaaaaaa{i}" for i in (1, 3, 5)]
+    sig_b_ids = [f"aaaaaaaaaaaaaaa{i}" for i in (2, 4, 6)]
+
+    frames_a = ("FrameA1", "FrameA2")
+    frames_b = ("FrameB1", "FrameB2")
+
+    events = [
+        _synthetic_thread_event("dumpA.txt", frames_a, eid, f"a{i}")
+        for i, eid in enumerate(sig_a_ids)
+    ] + [
+        _synthetic_thread_event("dumpA.txt", frames_b, eid, f"b{i}")
+        for i, eid in enumerate(sig_b_ids)
+    ]
+
+    signatures = (
+        SignatureGroup(
+            frames=frames_a,
+            thread_count=3,
+            role="idle-parked",
+            subsystem="poolX",
+            pattern="ruleA",
+            frame_index=0,
+            reason=None,
+        ),
+        SignatureGroup(
+            frames=frames_b,
+            thread_count=3,
+            role="idle-parked",
+            subsystem="poolX",
+            pattern="ruleA",
+            frame_index=0,
+            reason=None,
+        ),
+    )
+    pools = (
+        PoolOccupancy(
+            subsystem="poolX",
+            total_threads=6,
+            idle_threads=6,
+            busy_threads=0,
+            occupancy=0.0,
+            signature_count=2,
+        ),
+    )
+    bundle = _synthetic_bundle(signatures, pools)
+
+    block, _ids = render_eustack_facts(bundle, events)
+    line = _line_containing(block, "eu-stack poolX pool occupancy")
+    printed = _EVT_TOKEN_RE.findall(line)
+
+    union_lowest_three = sorted(sig_a_ids + sig_b_ids)[:3]
+    per_signature_concat = sorted(sig_a_ids)[:3]  # signature A alone, the
+    # failure mode of resolving only ONE contributing signature's pool
+    # instead of the true union.
+
+    assert len(printed) == 3
+    assert printed == union_lowest_three
+    assert printed != per_signature_concat, (
+        "result must differ from the rejected per-signature strategy, or "
+        "this test cannot distinguish union-then-sample from it"
+    )
+
+
+def test_zero_flag_capture_still_renders_block() -> None:
+    """A bundle with ``saturation.flags == ()`` but ``analysis.total_threads
+    > 0`` still renders a non-empty block containing >=1 pool line —
+    emptiness is gated on ``total_threads`` alone, never on ``flags``."""
+    frames = ("MSIQTask::GetNextPreferredJob",)
+    events = [_synthetic_thread_event("dumpA.txt", frames, "b" * 16, "t0")]
+    signatures = (
+        SignatureGroup(
+            frames=frames,
+            thread_count=1,
+            role="idle-parked",
+            subsystem="job-queue",
+            pattern="MSIQTask::GetNextPreferredJob",
+            frame_index=0,
+            reason=None,
+        ),
+    )
+    pools = (
+        PoolOccupancy(
+            subsystem="job-queue",
+            total_threads=1,
+            idle_threads=1,
+            busy_threads=0,
+            occupancy=0.0,
+            signature_count=1,
+        ),
+    )
+    bundle = _synthetic_bundle(signatures, pools)
+    assert bundle.saturation.flags == ()
+    assert bundle.analysis.total_threads > 0
+
+    block, ids = render_eustack_facts(bundle, events)
+    assert block
+    assert ids
+    assert "pool occupancy" in block
+
+
+def test_block_byte_identical_on_rerun() -> None:
+    """Rendering the same bundle twice returns identical text and an
+    identical sorted id list — no set-iteration nondeterminism anywhere."""
+    events, bundle = _derivative_bundle()
+    block_1, ids_1 = render_eustack_facts(bundle, events)
+    block_2, ids_2 = render_eustack_facts(bundle, events)
+    assert block_1 == block_2
+    assert sorted(ids_1) == sorted(ids_2)
+
+
+def test_lock_site_lines_carry_no_ownership_language() -> None:
+    """D-05: the lock-site convergence lines report only that threads were
+    observed converging at a site — never lock possession or a wait-for
+    graph. Mirrors ``test_eustack_report.py``'s ownership-blind vocabulary
+    gate, reading the forbidden term from REQUIREMENTS.md at runtime."""
+    requirements_text = _REQUIREMENTS_MD.read_text(encoding="utf-8")
+    match = re.search(r'the word "(\w+)"', requirements_text)
+    assert match is not None, "REQUIREMENTS.md must name the forbidden term"
+    forbidden_term = match.group(1)
+    prohibited_terms = (forbidden_term, "owner", "holder")
+
+    lock_frames = (
+        "__lll_lock_wait",
+        "pthread_mutex_lock",
+        "MSynch::CriticalSection::Enter",
+        "Alpha::Caller",
+    )
+    events = [
+        _synthetic_thread_event("dumpA.txt", lock_frames, f"{i:016x}", f"t{i}")
+        for i in range(5)
+    ]
+    rules, rules_hash = load_rules()
+    bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, EustackThresholdsConfig()
+    )
+    assert bundle.saturation.lock_sites, "synthetic scenario must produce a lock site"
+
+    block, _ids = render_eustack_facts(bundle, events)
+    assert "lock-site convergence" in block, "non-vacuity guard"
+    for term in prohibited_terms:
+        found = re.search(rf"\b{re.escape(term)}\b", block, re.IGNORECASE)
+        assert found is None, f"prohibited term {term!r} found in rendered block"
+
+
+# --- Task 2: capped, drop-disclosing per-signature listing (D-06/D-07/D-08) -
+
+
+def test_signature_cap_states_dropped_count() -> None:
+    """The 93-signature derivative fixture renders exactly eight
+    per-signature rows — the eight highest by thread count, per
+    ``analyse_eustack``'s own pre-sorted order — plus an explicit
+    dropped-count statement naming the remaining 85."""
+    events, bundle = _derivative_bundle()
+    block, _ids = render_eustack_facts(bundle, events)
+
+    assert block.count("eu-stack signature:") == 8
+    expected_counts = [g.thread_count for g in bundle.analysis.signatures[:8]]
+    rendered_counts = [
+        int(m.group(1).replace(",", ""))
+        for m in re.finditer(r"eu-stack signature: ([\d,]+) threads", block)
+    ]
+    assert rendered_counts == expected_counts, (
+        "rendered rows must be exactly the top-8 slice in the analyser's own "
+        "order — never re-sorted, never force-including a lower-ranked one"
+    )
+    assert "85 further signatures not shown" in block
+    assert "93" in _line_containing(block, "further signatures not shown")
+
+
+def test_signature_cap_no_dropped_sentence_when_at_or_under_cap() -> None:
+    """A case with <=8 signatures emits no dropped-count sentence at all — a
+    small case's block must never carry a misleading zero."""
+    adapter = EustackAdapter()
+    adapter.input_root = _FIXTURES_DIR
+    events = list(adapter.parse(_FIXTURES_DIR / "threaddump.txt", "case1"))
+    rules, rules_hash = load_rules()
+    bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, EustackThresholdsConfig()
+    )
+    assert bundle.analysis.total_signatures <= 8
+
+    block, _ids = render_eustack_facts(bundle, events)
+    assert "further signatures not shown" not in block
