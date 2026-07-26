@@ -51,3 +51,6 @@ Evidence:
 <!-- PERFMON_BLOCK_START (inserted only when the case has correlated perfmon groups; hypothesise._apply_perfmon_block substitutes <<PERFMON_FACTS>> with the deterministic render_perfmon_facts block and drops these two marker lines, or removes the whole block — start marker through end marker — when there is no perfmon data, so the no-perfmon prompt stays byte-identical) -->
 <<PERFMON_FACTS>>
 <!-- PERFMON_BLOCK_END -->
+<!-- EUSTACK_BLOCK_START (inserted only when the case has eu-stack thread-dump data; hypothesise._apply_eustack_block substitutes <<EUSTACK_FACTS>> with the deterministic render_eustack_facts block and drops these two marker lines, or removes the whole block — start marker through end marker — when there is no eu-stack data, so the no-eu-stack prompt stays byte-identical) -->
+<<EUSTACK_FACTS>>
+<!-- EUSTACK_BLOCK_END -->

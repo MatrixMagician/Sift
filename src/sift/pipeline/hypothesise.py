@@ -31,9 +31,12 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from sift.config import McmThresholdsConfig
+from sift.config import EustackThresholdsConfig, McmThresholdsConfig
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
+from sift.pipeline.eustack import load_rules
+from sift.pipeline.eustack_facts import render_eustack_facts
+from sift.pipeline.eustack_progression import analyse_eustack_bundle
 from sift.pipeline.mcm import analyse_mcm
 from sift.pipeline.mcm_facts import render_mcm_facts
 from sift.pipeline.perfmon import analyse_perfmon
@@ -140,6 +143,42 @@ def _apply_perfmon_block(template: str, fact_block: str | None) -> str:
     if not fact_block:
         return _PERFMON_BLOCK_RE.sub("", template)
     return _PERFMON_MARKER_RE.sub("", template).replace(_PERFMON_SLOT, fact_block)
+
+
+# The eu-stack fact block in triage.md is delimited by these HTML-comment
+# sentinels, mirroring the perfmon block's shape exactly (same DOTALL regexes,
+# same trailing-`\n` capture). ``_apply_eustack_block`` either fills the
+# ``<<EUSTACK_FACTS>>`` slot and drops the marker lines (eu-stack present) or
+# removes the whole block start-through-end (no eu-stack) so the no-eu-stack
+# prompt is byte-identical to its pre-phase form. Like MCM/perfmon (and unlike
+# KB), eu-stack facts ARE citable — that inversion lives in ``_assemble``'s
+# ``prompted_ids`` union.
+_EUSTACK_SLOT = "<<EUSTACK_FACTS>>"
+_EUSTACK_BLOCK_RE = re.compile(
+    r"<!-- EUSTACK_BLOCK_START.*?-->\n.*?<!-- EUSTACK_BLOCK_END.*?-->\n", re.DOTALL
+)
+_EUSTACK_MARKER_RE = re.compile(
+    r"<!-- EUSTACK_BLOCK_(?:START|END).*?-->\n", re.DOTALL
+)
+
+
+def _apply_eustack_block(template: str, fact_block: str | None) -> str:
+    """Resolve the triage template's eu-stack block against ``fact_block`` (EUS-10).
+
+    No eu-stack data → the entire sentinel block (start marker through end
+    marker, including the trailing newline) is removed, leaving the pre-phase
+    prompt bytes unchanged. Eu-stack present → the two marker lines are
+    dropped and the ``<<EUSTACK_FACTS>>`` slot is replaced with ``fact_block``
+    (already ``sanitise``d value-by-value by ``render_eustack_facts`` — this fn
+    only splices, it does NOT re-sanitise). Eu-stack facts become citable via
+    ``_assemble``'s ``prompted_ids`` union, the inverse of the KB path. The
+    block is stripped independently of the MCM and perfmon blocks so eu-stack
+    presence can never perturb the no-eu-stack, MCM-only or perfmon-only
+    prompt bytes.
+    """
+    if not fact_block:
+        return _EUSTACK_BLOCK_RE.sub("", template)
+    return _EUSTACK_MARKER_RE.sub("", template).replace(_EUSTACK_SLOT, fact_block)
 
 
 # Explicit severity rank, mirroring cluster._SEVERITY_RANK — never lexicographic
@@ -269,6 +308,7 @@ def _assemble(
     kb_context: list[str] | None = None,
     mcm_block: tuple[str, set[str]] | None = None,
     perfmon_block: tuple[str, set[str]] | None = None,
+    eustack_block: tuple[str, set[str]] | None = None,
 ) -> tuple[list[dict[str, str]], set[str], str]:
     """Assemble the triage prompt breadth-first over the ranked clusters.
 
@@ -297,6 +337,9 @@ def _assemble(
     template = _apply_perfmon_block(
         template, perfmon_block[0] if perfmon_block else None
     )
+    template = _apply_eustack_block(
+        template, eustack_block[0] if eustack_block else None
+    )
     event_ids: list[str] = []
     excerpts: list[str] = []
     for cluster, _score in ranked:
@@ -321,6 +364,7 @@ def _assemble(
         set(event_ids)
         | (mcm_block[1] if mcm_block else set[str]())
         | (perfmon_block[1] if perfmon_block else set[str]())
+        | (eustack_block[1] if eustack_block else set[str]())
     )
     return [{"role": "user", "content": prompt}], prompted_ids, prompt
 
@@ -387,6 +431,8 @@ def hypothesise(
     hint: str | None = None,
     kb_context: list[str] | None = None,
     mcm_thresholds: McmThresholdsConfig | None = None,
+    eustack_rules_path: str | None = None,
+    eustack_thresholds: EustackThresholdsConfig | None = None,
     ctx_fallback: int = 8192,
     reserve_out: int = 1024,
 ) -> Outcome:
@@ -414,18 +460,24 @@ def hypothesise(
     messages_map = _gather_exemplar_messages(store, groups)
     template = _load_triage_template()
 
-    # Deterministic MCM + perfmon facts, built BEFORE generation from the
-    # analysers' model trees — figures are a pure function of the store, never
-    # authored by the LLM (T-11-02, T-14-07). ``render_mcm_facts`` /
-    # ``render_perfmon_facts`` return ("", set()) for a case without their data,
-    # which ``_assemble`` strips residue-free. Built at this chokepoint so the
-    # eval harness (which calls hypothesise directly) exercises injection too
-    # (MCM-06, PERF-08). ``store.query_events()`` is decompressed ONCE here and
-    # ``mcm_analysis`` computed once, reused by both renderers (no third pass).
+    # Deterministic MCM + perfmon + eu-stack facts, built BEFORE generation
+    # from the analysers' model trees — figures are a pure function of the
+    # store, never authored by the LLM (T-11-02, T-14-07). ``render_mcm_facts``
+    # / ``render_perfmon_facts`` / ``render_eustack_facts`` return ("", set())
+    # for a case without their data, which ``_assemble`` strips residue-free.
+    # Built at this chokepoint so the eval harness (which calls hypothesise
+    # directly) exercises injection too (MCM-06, PERF-08, EUS-10).
+    # The store's events are decompressed ONCE here (single-decompression-pass
+    # discipline) and reused by all three renderers (no fourth pass).
     events = store.query_events()
     mcm_analysis = analyse_mcm(events, mcm_thresholds or McmThresholdsConfig())
     mcm_block = render_mcm_facts(mcm_analysis)
     perfmon_block = render_perfmon_facts(analyse_perfmon(mcm_analysis, events))
+    rules, rules_hash = load_rules(eustack_rules_path)
+    eustack_bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, eustack_thresholds or EustackThresholdsConfig()
+    )
+    eustack_block = render_eustack_facts(eustack_bundle, events)
 
     ctx = _ctx_tokens(client, ctx_fallback)
     # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
@@ -435,6 +487,7 @@ def hypothesise(
     chat_messages, prompted_ids, prompt_text = _assemble(
         ranked, group_index, messages_map, template, hint, budget,
         kb_context=kb_context, mcm_block=mcm_block, perfmon_block=perfmon_block,
+        eustack_block=eustack_block,
     )
     prompt_hash = _prompt_hash(prompt_text)
     rf = _schema_rf(HypothesisSet.model_json_schema())

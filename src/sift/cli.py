@@ -974,6 +974,8 @@ def analyze(
                 hint=hint,
                 kb_context=kb_context,
                 mcm_thresholds=config.mcm.thresholds,
+                eustack_rules_path=config.eustack.rules_path,
+                eustack_thresholds=config.eustack.thresholds,
                 ctx_fallback=config.generation.context or _TRIAGE_CTX_FALLBACK,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
