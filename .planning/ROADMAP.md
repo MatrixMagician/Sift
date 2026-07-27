@@ -181,7 +181,7 @@ Plans:
   3. Synthetic hang fixtures — labelled in the harness as authored, not observed — are detected, and stay detected under cosmetic mutation (renumbered TIDs, reordered threads, differing instruction addresses)
   4. `sift eval` exits non-zero on threshold regression across both the negative and the positive eu-stack cases, and a vacuous pass (empty positive set) is impossible
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -194,7 +194,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 19-03-PLAN.md — EUS-12 gate + negative case: the `eustack_detection_rate` floor, the zero-eu-stack-cases vacuity guard, and `eval/cases/eustack-healthy/` derived from the real capture
+- [x] 19-03-PLAN.md — EUS-12 gate + negative case: the `eustack_detection_rate` floor, the zero-eu-stack-cases vacuity guard, and `eval/cases/eustack-healthy/` derived from the real capture
 
 **Wave 4** *(blocked on Wave 3 completion)*
 

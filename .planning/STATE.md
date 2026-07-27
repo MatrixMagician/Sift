@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 19
 current_phase_name: Ranking Exclusion & Regression-Gated Golden Eval
 status: executing
-stopped_at: Completed 19-02-PLAN.md
-last_updated: "2026-07-27T17:34:28.649Z"
+stopped_at: Completed 19-03-PLAN.md
+last_updated: "2026-07-27T17:52:04.010Z"
 last_activity: 2026-07-27
 last_activity_desc: Phase 19 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 20
-  completed_plans: 18
+  completed_plans: 19
   percent: 67
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 ## Current Position
 
 Phase: 19 (Ranking Exclusion & Regression-Gated Golden Eval) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-07-27 — Phase 19 execution started
 
@@ -137,6 +137,7 @@ Last activity: 2026-07-27 — Phase 19 execution started
 | Phase 18 P03 | 70min | 3 tasks | 5 files |
 | Phase 19 P1 | ~35min | 3 tasks | 5 files |
 | Phase 19 P02 | ~30min | 3 tasks | 5 files |
+| Phase 19 P03 | ~45min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -277,6 +278,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 19]: 19-01: EXCLUDED_FROM_RANKING = {dssperfmon, eustack} (D-19-01); analyze's zero-groups guard now falls through to hypothesise() when events exist but all are ranking-excluded, distinguishing that from the genuinely-empty-case short-circuit (D-19-02)
 - [Phase ?]: 19-02: hang_detected in ExpectEustack is declarative-only, never mechanically compared — D-19-17 established no bundle figure exists to check it against without inventing a new rejected judgement (bool(flags) or a new threshold)
 - [Phase ?]: 19-02: ExpectEustack ships severity-bucketed flag fields (warn/critical counts + named info_dimensions) per D-19-18, plus total_threads/pools/dependencies for figure reproduction; CaseResult.is_eustack excluded from _positive()/_scored() symmetrically with expect_no_incident/run_failed; _run_eustack_case dispatches from run_case immediately after load_truth, before any client work
+- [Phase ?]: 19-03: eustack_detection_rate is the fifth gated floor (D-19-07); GateResult.no_eustack_cases mirrors no_positive_cases so zero scorable eu-stack cases forces a gate FAIL (D-19-13); eustack-healthy derived via --scale 26 from the real 160739 dump (144/3902 threads), both graded dimensions info, zero lock sites, provenance: observed (sole such case, D-19-10)
 
 ### Pending Todos
 
@@ -359,8 +361,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-27T17:34:28.635Z
-Stopped at: Completed 19-02-PLAN.md
+Last session: 2026-07-27T17:52:03.996Z
+Stopped at: Completed 19-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
