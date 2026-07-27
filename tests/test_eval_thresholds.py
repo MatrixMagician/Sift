@@ -12,20 +12,28 @@ active):
   gate failure (a crashed run is a regression, never silently excluded), a
   false-positive on a negative case fails the gate, and an EMPTY positive set
   (which aggregates to a vacuous 1.0) is NOT reported as a pass.
+- **eu-stack case scoring** (EUS-12) — ``run_case`` on a truth carrying
+  ``expect_eustack`` is scored entirely offline via ``analyse_eustack_bundle``,
+  proven by an OBSERVED empty request log rather than mere code inspection.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
+import httpx
 import pytest
 from _eval_fixtures import eval_handler, patch_http, single_case_suite
 from typer.testing import CliRunner
 
 from sift.cli import app
+from sift.config import load_config
 from sift.eval.metrics import CaseResult, SuiteResult
+from sift.eval.runner import run_case
 from sift.eval.thresholds import gate, load_thresholds
+from sift.llm.client import Endpoint, InferenceClient
 
 runner = CliRunner()
 
@@ -277,3 +285,154 @@ def test_mean_eustack_detection_rate_empty_suite_is_vacuous_one() -> None:
     # a suite that dropped its eu-stack cases entirely).
     suite = SuiteResult([_perfect_case("pos")])
     assert suite.mean_eustack_detection_rate() == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# eu-stack case scoring (EUS-12, D-19-06/D-19-16/D-19-17) — client-free path
+# --------------------------------------------------------------------------- #
+
+_EUSTACK_FIXTURE = _REPO_ROOT / "tests" / "fixtures" / "eustack" / "threaddump.txt"
+
+# Measured directly against the shipped analyser for this fixture (4 threads,
+# all unclassified by the day-one taxonomy — none of its symbols match a
+# rule): total_threads=4, the sole (unclassified) pool has busy_threads=4,
+# zero dependencies, and exactly two flags — unclassified_thread_pct grades
+# CRITICAL at 100.0% (default thresholds warn=5.0/critical=15.0), and
+# no_resolvable_frame_pct grades info at 0.0%.
+_EUSTACK_MATCHING_TRUTH = (
+    "root_cause: near-idle capture, all threads unclassified by design\n"
+    "expect_eustack:\n"
+    "  provenance: authored\n"
+    "  hang_detected: false\n"
+    "  total_threads: 4\n"
+    "  warn: 0\n"
+    "  critical: 1\n"
+    "  info_dimensions:\n"
+    "    - no_resolvable_frame_pct\n"
+)
+
+_EUSTACK_MISMATCHED_TRUTH = (
+    "root_cause: near-idle capture, all threads unclassified by design\n"
+    "expect_eustack:\n"
+    "  provenance: authored\n"
+    "  hang_detected: false\n"
+    "  total_threads: 999\n"  # wrong on purpose — planted mismatch
+    "  warn: 0\n"
+    "  critical: 1\n"
+    "  info_dimensions:\n"
+    "    - no_resolvable_frame_pct\n"
+)
+
+
+def _eustack_case_dir(tmp_path: Path, *, truth_yaml: str) -> Path:
+    case_dir = tmp_path / "eustack-case"
+    (case_dir / "input").mkdir(parents=True)
+    shutil.copy(_EUSTACK_FIXTURE, case_dir / "input" / "threaddump.txt")
+    (case_dir / "truth.yaml").write_text(truth_yaml, encoding="utf-8")
+    return case_dir
+
+
+def _recording_client() -> tuple[InferenceClient, httpx.Client, list[str]]:
+    """An InferenceClient whose transport RECORDS every request path — the
+    zero-endpoint claim must be proven by observation, not code inspection."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"data": []})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    config = load_config({})
+    client = InferenceClient(
+        generation=Endpoint(
+            base_url=config.generation.base_url, model=config.generation.model
+        ),
+        embeddings=Endpoint(
+            base_url=config.embeddings.base_url, model=config.embeddings.model
+        ),
+        http=http,
+        allow_public=False,
+    )
+    return client, http, calls
+
+
+def test_eustack_case_scored_with_zero_client_contact(tmp_path: Path) -> None:
+    case_dir = _eustack_case_dir(tmp_path, truth_yaml=_EUSTACK_MATCHING_TRUTH)
+    config = load_config({})
+    client, http, calls = _recording_client()
+    try:
+        result = run_case(case_dir, client, config)
+    finally:
+        http.close()
+
+    assert result.is_eustack is True
+    assert result.run_failed is False, result.error
+    assert result.eustack_case_pass is True
+    assert calls == []  # the zero-endpoint claim, proven by observation
+    assert result.retrieval_hit_rate == 0.0
+    assert result.hypothesis_hit_at_k == 0.0
+    assert result.citation_validity_rate == 0.0
+    assert result.determinism_stability == 0.0
+
+
+def test_eustack_case_mismatched_figure_fails_without_run_failed(
+    tmp_path: Path,
+) -> None:
+    case_dir = _eustack_case_dir(tmp_path, truth_yaml=_EUSTACK_MISMATCHED_TRUTH)
+    config = load_config({})
+    client, http, calls = _recording_client()
+    try:
+        result = run_case(case_dir, client, config)
+    finally:
+        http.close()
+
+    assert result.is_eustack is True
+    assert result.eustack_case_pass is False  # a wrong figure IS a regression
+    assert result.run_failed is False  # but NOT a crash
+    assert calls == []
+
+
+def test_eustack_case_ingest_failure_surfaces_as_run_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A genuine ingest error degrades to run_failed=True with a sanitised
+    error — the same degradation the client-driven path uses — proven by
+    forcing the exact failure mode rather than depending on an adapter's
+    error-tolerant parsing (adapters never raise on bad content by design)."""
+    case_dir = _eustack_case_dir(tmp_path, truth_yaml=_EUSTACK_MATCHING_TRUTH)
+    config = load_config({})
+    client, http, calls = _recording_client()
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("simulated ingest failure")
+
+    monkeypatch.setattr("sift.cli._ingest", _boom)
+    try:
+        result = run_case(case_dir, client, config)
+    finally:
+        http.close()
+
+    assert result.is_eustack is True
+    assert result.run_failed is True
+    assert result.error
+    assert calls == []
+
+
+def test_run_eustack_case_never_reaches_cluster_or_hypothesise() -> None:
+    """Static proof, per the plan's own acceptance criterion: the function
+    body never mentions cluster_and_label, hypothesise, _run_pipeline or the
+    client parameter."""
+    import inspect
+
+    from sift.eval import runner as runner_module
+
+    src = inspect.getsource(
+        runner_module._run_eustack_case  # pyright: ignore[reportPrivateUsage]
+    )
+    body = "\n".join(
+        line for line in src.splitlines() if not line.strip().startswith("#")
+    )
+    assert "cluster_and_label" not in body
+    assert "hypothesise" not in body
+    assert "_run_pipeline" not in body
+    assert "client" not in body
