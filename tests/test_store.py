@@ -567,8 +567,9 @@ def test_query_hypotheses_non_list_json_coerced(tmp_path: Path) -> None:
 # half is what must never be.
 
 
-def _seed_mixed_sources(store: CaseStore) -> tuple[str, str]:
-    """Insert one dsserrors and one dssperfmon event; return their ids."""
+def _seed_mixed_sources(store: CaseStore) -> tuple[str, str, str]:
+    """Insert one dsserrors, one dssperfmon and one eustack event; return
+    their ids (PERF-03 + EUS-11 share this seeding helper, D-19-01/D-19-04)."""
     diag = _ev(
         source_file="DSSErrors.log",
         offset=0,
@@ -582,16 +583,23 @@ def _seed_mixed_sources(store: CaseStore) -> tuple[str, str]:
         message="Total MCM Denial = 3",
         source="dssperfmon",
     )
+    thread = _ev(
+        source_file="threaddump.txt",
+        offset=200,
+        line_start=3,
+        message="TID 1: #0 0x1 clock_nanosleep",
+        source="eustack",
+    )
     with store.transaction():
-        store.insert_events([diag, sample])
-    return diag.event_id, sample.event_id
+        store.insert_events([diag, sample, thread])
+    return diag.event_id, sample.event_id, thread.event_id
 
 
 def test_iter_event_summaries_excludes_perfmon(tmp_path: Path) -> None:
     """The one ranking seam: perfmon samples never reach dedup (PERF-03)."""
     store = CaseStore(tmp_path / "case.db")
     try:
-        diag_id, sample_id = _seed_mixed_sources(store)
+        diag_id, sample_id, _ = _seed_mixed_sources(store)
         ids = [row[0] for row in store.iter_event_summaries()]
         assert diag_id in ids
         assert sample_id not in ids
@@ -603,7 +611,7 @@ def test_iter_event_rows_unfiltered(tmp_path: Path) -> None:
     """`show events` must keep rendering perfmon rows (criterion 5)."""
     store = CaseStore(tmp_path / "case.db")
     try:
-        diag_id, sample_id = _seed_mixed_sources(store)
+        diag_id, sample_id, _ = _seed_mixed_sources(store)
         ids = [row[0] for row in store.iter_event_rows()]
         assert diag_id in ids
         assert sample_id in ids
@@ -615,7 +623,7 @@ def test_get_events_returns_perfmon(tmp_path: Path) -> None:
     """Citation by identifier must resolve perfmon events (criterion 5)."""
     store = CaseStore(tmp_path / "case.db")
     try:
-        _, sample_id = _seed_mixed_sources(store)
+        _, sample_id, _ = _seed_mixed_sources(store)
         got = store.get_events_by_ids([sample_id])
         assert sample_id in got
         assert got[sample_id].source == "dssperfmon"
@@ -645,12 +653,73 @@ def test_template_groups_exclude_perfmon(tmp_path: Path) -> None:
         assert with_perf.query_template_groups() == (
             without_perf.query_template_groups()
         )
-        # Non-vacuity: the perfmon event really is stored, just not ranked.
-        assert len(with_perf.query_events()) == 2
+        # Non-vacuity: the perfmon+eustack events really are stored, just not
+        # ranked.
+        assert len(with_perf.query_events()) == 3
         assert len(without_perf.query_events()) == 1
     finally:
         with_perf.close()
         without_perf.close()
+
+
+# --- EUS-11: eu-stack held out of ranking, never out of citation ---------
+#
+# Mirrors the PERF-03 pair-of-pairs above, sharing the same _seed_mixed_sources
+# helper: two tests pin the exclusion seam, two pin the citation paths that
+# must NOT inherit it.
+
+
+def test_iter_event_summaries_excludes_eustack(tmp_path: Path) -> None:
+    """D-19-01: the eu-stack id appears in no row from the ranking seam,
+    while the dsserrors id does (non-vacuity: the seam still yields rows)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        diag_id, _, thread_id = _seed_mixed_sources(store)
+        ids = [row[0] for row in store.iter_event_summaries()]
+        assert diag_id in ids
+        assert thread_id not in ids
+    finally:
+        store.close()
+
+
+def test_get_events_returns_eustack(tmp_path: Path) -> None:
+    """D-19-04: citation by identifier must resolve eu-stack events."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _, _, thread_id = _seed_mixed_sources(store)
+        got = store.get_events_by_ids([thread_id])
+        assert thread_id in got
+        assert got[thread_id].source == "eustack"
+    finally:
+        store.close()
+
+
+def test_iter_event_rows_includes_eustack(tmp_path: Path) -> None:
+    """D-19-04: the unfiltered twin still yields the eu-stack row, pinning
+    the asymmetry with iter_event_summaries at the method level directly."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        diag_id, _, thread_id = _seed_mixed_sources(store)
+        ids = [row[0] for row in store.iter_event_rows()]
+        assert diag_id in ids
+        assert thread_id in ids
+    finally:
+        store.close()
+
+
+def test_template_groups_exclude_eustack(tmp_path: Path) -> None:
+    """D-19-01: after rebuilding template groups, no group's exemplar set
+    contains the eu-stack id, and at least one group exists (non-vacuity)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _, _, thread_id = _seed_mixed_sources(store)
+        dedup.rebuild_template_groups(store)
+        groups = store.query_template_groups()
+        assert groups, "non-vacuity: rebuild must produce at least one group"
+        for group in groups:
+            assert thread_id not in group.exemplar_event_ids
+    finally:
+        store.close()
 
 
 def test_triage_run_meta_roundtrip(tmp_path: Path) -> None:
