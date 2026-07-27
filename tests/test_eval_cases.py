@@ -469,6 +469,79 @@ def test_eustack_healthy_raises_no_graded_flag() -> None:
     assert bundle.saturation.flags
 
 
+def test_eustack_hang_twin_reproduces_identical_figures() -> None:
+    """D-19-11/D-19-17: the shipped cosmetic-mutation twin reproduces the
+    original's MEASURED figures exactly — proven against files that are
+    demonstrably not copies (no shared TIDs, no shared addresses, differing
+    bytes) BEFORE the figure-equality assertion, so the equality is not
+    vacuously true of a copy-paste twin."""
+    import re
+
+    from sift.adapters.eustack import EustackAdapter
+    from sift.pipeline.eustack import load_rules
+    from sift.pipeline.eustack_progression import EustackBundle, analyse_eustack_bundle
+
+    original_dir = _SUITE / "eustack-hang-pool-warehouse"
+    twin_dir = _SUITE / "eustack-hang-pool-warehouse-mutated"
+
+    original_text = (original_dir / "input" / "threaddump.txt").read_text(
+        encoding="utf-8"
+    )
+    twin_text = (twin_dir / "input" / "threaddump.txt").read_text(encoding="utf-8")
+
+    # Non-vacuity FIRST: the twin is demonstrably not a copy.
+    assert original_text != twin_text
+    original_addrs = set(re.findall(r"0x[0-9A-Fa-f]+", original_text))
+    twin_addrs = set(re.findall(r"0x[0-9A-Fa-f]+", twin_text))
+    assert original_addrs and twin_addrs and not (original_addrs & twin_addrs), (
+        sorted(original_addrs & twin_addrs)[:5]
+    )
+    original_tids = set(re.findall(r"^TID (\d+):", original_text, re.M))
+    twin_tids = set(re.findall(r"^TID (\d+):", twin_text, re.M))
+    assert original_tids and not (original_tids & twin_tids), (
+        sorted(original_tids & twin_tids)[:5]
+    )
+
+    config = load_config({})
+    rules, rules_hash = load_rules(config.eustack.rules_path)
+
+    def _bundle(case_dir: Path) -> EustackBundle:
+        input_dir = case_dir / "input"
+        adapter = EustackAdapter()
+        adapter.input_root = input_dir
+        events = list(
+            adapter.parse(input_dir / "threaddump.txt", case_dir.name)
+        )
+        return analyse_eustack_bundle(
+            events, rules, rules_hash, config.eustack.thresholds
+        )
+
+    original_bundle = _bundle(original_dir)
+    twin_bundle = _bundle(twin_dir)
+
+    assert (
+        original_bundle.analysis.total_threads
+        == twin_bundle.analysis.total_threads
+    )
+
+    def _pool_tuples(
+        bundle: EustackBundle,
+    ) -> set[tuple[str | None, int, int, int, float]]:
+        return {
+            (p.subsystem, p.total_threads, p.idle_threads, p.busy_threads, p.occupancy)
+            for p in bundle.saturation.pools
+        }
+
+    def _dep_tuples(bundle: EustackBundle) -> set[tuple[str, int, int]]:
+        return {
+            (d.subsystem, d.thread_count, d.signature_count)
+            for d in bundle.saturation.dependencies
+        }
+
+    assert _pool_tuples(original_bundle) == _pool_tuples(twin_bundle)
+    assert _dep_tuples(original_bundle) == _dep_tuples(twin_bundle)
+
+
 def test_only_the_healthy_case_is_marked_observed() -> None:
     """D-19-10: eustack-healthy is the sole case marked provenance: observed,
     so the synthetic-versus-observed evidence gap stays visible inside the
