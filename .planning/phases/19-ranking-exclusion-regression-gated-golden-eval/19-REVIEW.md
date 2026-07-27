@@ -31,7 +31,11 @@ findings:
   warning: 1
   info: 1
   total: 2
-status: findings
+status: fixed
+fixed_at: 2026-07-27T00:00:00Z
+fix_commits:
+  - 6a62971  # IN-01
+  - d464a2c  # WR-01
 ---
 
 # Phase 19: Code Review Report
@@ -172,6 +176,22 @@ the alternative is to drop `hang_detected` from `ExpectEustack` entirely and mov
 into `root_cause`/`README.md` prose only — but as shipped, a schema field that nothing checks is
 worse than no field, because its presence implies it is verified.
 
+**Resolution (fixed, commit `d464a2c`):** Added
+`test_hang_detected_is_consistent_with_declared_saturation` to `tests/test_eval_cases.py`, adjacent
+to `test_only_the_healthy_case_is_marked_observed`. The illustrative fix above (`any(pools.values())
+or any(dependencies.values())`) was adapted rather than applied verbatim: run against the real
+fixtures it is false-positive on `eustack-healthy` itself — that case legitimately declares
+non-zero waits (`http: 3`, `warehouse: 3` out of `total_threads: 144`, ordinary load, not
+exhaustion) — so a bare non-zero check would immediately fail the healthy case it is meant to
+protect. The committed guard instead compares `hang_detected` against a "majority-busy" figure —
+any declared pool/dependency whose busy count exceeds half the case's declared `total_threads`
+(25/35 for both warehouse-exhaustion fixtures vs. 3/144 for the healthy capture) — still pure
+declaration-vs-declaration comparison inside `truth.yaml`, no call to `analyse_eustack_bundle`, no
+`PoolOccupancy`/`DependencyWait` read, so D-19-17/D-19-18 and Phase 16's frozen analyser surface
+stay untouched (`git diff --stat src/sift/pipeline/` empty). Verified the guard bites: flipped
+`eustack-hang-pool-warehouse/truth.yaml`'s `hang_detected` to `false`, confirmed the new test
+failed, then restored the file (`git diff` clean) and confirmed it passes again.
+
 ## Info
 
 ### IN-01: Bare `assert` guards a documented invariant in production code (`-O` strips it)
@@ -205,6 +225,11 @@ if truth.expect_eustack is None:
     )
 expect = truth.expect_eustack
 ```
+
+**Resolution (fixed, commit `6a62971`):** Applied exactly the suggested fix in
+`src/sift/eval/runner.py`'s `_run_eustack_case` — the bare `assert` guard replaced with an explicit
+`if ... is None: raise AssertionError(...)`, preserving the same message and pyright narrowing.
+`ruff check` and `pyright` (scoped and full-repo) clean; `pytest` green.
 
 ---
 
