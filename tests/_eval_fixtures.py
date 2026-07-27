@@ -26,20 +26,52 @@ Handler = Callable[[httpx.Request], httpx.Response]
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+_EUSTACK_FIXTURE = _REPO_ROOT / "tests" / "fixtures" / "eustack" / "threaddump.txt"
+
+# The measured truth for _EUSTACK_FIXTURE (verified in test_eval_thresholds.py's
+# test_eustack_case_scored_with_zero_client_contact): 4 threads, all unclassified
+# by the day-one taxonomy, critical unclassified_thread_pct + info
+# no_resolvable_frame_pct. Reused verbatim rather than re-measured, per D-08.
+_EUSTACK_SMOKE_TRUTH = (
+    "root_cause: near-idle capture, all threads unclassified by design\n"
+    "expect_eustack:\n"
+    "  provenance: authored\n"
+    "  hang_detected: false\n"
+    "  total_threads: 4\n"
+    "  warn: 0\n"
+    "  critical: 1\n"
+    "  info_dimensions:\n"
+    "    - no_resolvable_frame_pct\n"
+)
+
+
 def single_case_suite(
     tmp_path: Path, case: str = "memory-watermark-cascade"
 ) -> Path:
-    """Copy one committed golden case into an isolated temp suite directory.
+    """Copy one committed golden case into an isolated temp suite directory,
+    plus a self-contained, zero-network eu-stack case.
 
     The offline machinery/gate tests assert exit-code behaviour with the good
     handler, which only hits the memory-watermark-cascade keywords. They must
     stay decoupled from the real suite's breadth (Plan 04 grows it to six cases
     the single handler cannot hit), so they run against a one-case copy rather
     than ``eval/cases`` itself.
+
+    The eu-stack case is built from the shipped
+    ``tests/fixtures/eustack/threaddump.txt`` fixture (never from the committed
+    ``eval/cases/eustack-healthy`` golden case, which these tests must stay
+    decoupled from too) so every offline-suite test satisfies the D-19-13
+    zero-eu-stack-cases vacuity guard (Plan 19-03) without depending on the real
+    suite's breadth. It reaches no inference endpoint (D-19-06), so it cannot
+    interfere with the keyword-metric handler under test.
     """
     src = _REPO_ROOT / "eval" / "cases" / case
     suite = tmp_path / "suite"
     shutil.copytree(src, suite / case)
+    eustack_dir = suite / "eustack-smoke"
+    (eustack_dir / "input").mkdir(parents=True)
+    shutil.copy(_EUSTACK_FIXTURE, eustack_dir / "input" / "threaddump.txt")
+    (eustack_dir / "truth.yaml").write_text(_EUSTACK_SMOKE_TRUTH, encoding="utf-8")
     return suite
 
 # A HypothesisSet that hits the memory-watermark-cascade acceptable_keywords

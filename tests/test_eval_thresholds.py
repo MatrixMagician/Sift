@@ -47,6 +47,7 @@ _METRIC_KEYS = (
     "hypothesis_hit_at_k",
     "citation_validity_rate",
     "determinism_stability",
+    "eustack_detection_rate",
 )
 
 # A HypothesisSet whose title/narrative MISS every acceptable keyword
@@ -168,6 +169,7 @@ def test_all_pass_gate_passes() -> None:
         [
             _perfect_case("pos"),
             _perfect_case("neg", expect_no_incident=True, negative_case_pass=True),
+            _eustack_case("eustack-healthy"),
         ]
     )
     assert gate(suite, _floors()).passed is True
@@ -236,6 +238,121 @@ def test_negative_false_positive_forces_gate_fail() -> None:
     result = gate(suite, _floors())
     assert result.passed is False
     assert "neg" in result.false_positive_cases
+
+
+# --------------------------------------------------------------------------- #
+# The fifth gated floor + the zero-eu-stack-cases vacuity guard (EUS-12,
+# D-19-07/D-19-13, Plan 19-03)
+#
+# Uses the `_eustack_case` helper defined below (aggregate-exclusion section) —
+# Python resolves names at call time, so the forward reference is safe.
+# --------------------------------------------------------------------------- #
+
+
+def test_one_passing_eustack_case_plus_ordinary_cases_gates_pass() -> None:
+    suite = SuiteResult(
+        [
+            _perfect_case("pos"),
+            _perfect_case("neg", expect_no_incident=True, negative_case_pass=True),
+            _eustack_case("eustack-healthy"),
+        ]
+    )
+    result = gate(suite, _floors())
+    assert result.passed is True
+    assert result.no_eustack_cases is False
+
+
+def test_one_failing_eustack_case_gates_fail_and_names_the_metric() -> None:
+    suite = SuiteResult(
+        [_perfect_case("pos"), _eustack_case("eustack-hang", pass_=False)]
+    )
+    result = gate(suite, _floors())
+    assert result.passed is False
+    eustack_metric = next(
+        m for m in result.metrics if m.name == "eustack_detection_rate"
+    )
+    assert eustack_metric.passed is False
+
+
+def test_zero_eustack_cases_forces_gate_fail_with_all_metrics_passing() -> None:
+    """The vacuity guard (D-19-13): every metric aggregate reads a vacuous 1.00
+    (proven by asserting all five MetricVerdicts passed) yet the gate must
+    still fail, isolating the FAIL to the new vacuity term."""
+    suite = SuiteResult(
+        [
+            _perfect_case("pos"),
+            _perfect_case("neg", expect_no_incident=True, negative_case_pass=True),
+        ]
+    )
+    result = gate(suite, _floors())
+    assert all(m.passed for m in result.metrics)
+    assert result.no_eustack_cases is True
+    assert result.passed is False
+
+
+def test_run_failed_only_eustack_case_also_gates_fail() -> None:
+    """A run_failed eu-stack case is not a SCORABLE eu-stack case — the guard
+    counts scorable cases, not directory entries."""
+    suite = SuiteResult(
+        [
+            _perfect_case("pos"),
+            CaseResult(
+                name="eustack-broken",
+                retrieval_hit_rate=0.0,
+                hypothesis_hit_at_k=0.0,
+                citation_validity_rate=0.0,
+                determinism_stability=0.0,
+                is_eustack=True,
+                run_failed=True,
+                error="ingest blew up",
+            ),
+        ]
+    )
+    result = gate(suite, _floors())
+    assert result.no_eustack_cases is True
+    assert result.passed is False
+
+
+def test_load_thresholds_missing_eustack_key_raises(tmp_path: Path) -> None:
+    stripped = tmp_path / "thresholds.toml"
+    stripped.write_text(
+        "retrieval_hit_rate = 0.80\n"
+        "hypothesis_hit_at_k = 1.00\n"
+        "citation_validity_rate = 1.00\n"
+        "determinism_stability = 1.00\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="eustack_detection_rate"):
+        load_thresholds(stripped)
+
+
+def test_render_text_table_prints_eustack_floor_and_no_case_line() -> None:
+    from sift.eval.report import render_text_table
+
+    suite = SuiteResult(
+        [
+            _perfect_case("pos"),
+            _perfect_case("neg", expect_no_incident=True, negative_case_pass=True),
+        ]
+    )
+    result = gate(suite, _floors())
+    output = render_text_table(suite, result)
+    assert "eustack_detection_rate" in output
+    assert "no scorable eu-stack case — gate cannot pass" in output
+    assert "GATE: FAIL" in output
+
+
+def test_render_json_table_carries_eustack_fields() -> None:
+    from sift.eval.report import render_json_table
+
+    suite = SuiteResult([_perfect_case("pos"), _eustack_case("eustack-healthy")])
+    result = gate(suite, _floors())
+    doc = json.loads(render_json_table(suite, result))
+    eustack_row = next(c for c in doc["cases"] if c["name"] == "eustack-healthy")
+    assert eustack_row["is_eustack"] is True
+    assert eustack_row["eustack_case_pass"] is True
+    assert doc["gate"]["no_eustack_cases"] is False
+    assert "eustack_detection_rate" in doc["gate"]["metrics"]
 
 
 # --------------------------------------------------------------------------- #

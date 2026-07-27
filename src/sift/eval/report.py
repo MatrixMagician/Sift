@@ -36,6 +36,15 @@ def _judge_cell(case: CaseResult) -> str:
     return f"{case.judge_score:>6.2f}"
 
 
+def _eustack_cell(case: CaseResult) -> str:
+    """The eu-stack column value (EUS-12): the pass/fail verdict for an
+    eu-stack case, ``n/a`` for every other case — mirroring ``_judge_cell``'s
+    ``n/a`` idiom for a metric that does not apply to every case."""
+    if not case.is_eustack:
+        return f"{'n/a':>7}"
+    return f"{'PASS' if case.eustack_case_pass else 'FAIL':>7}"
+
+
 def render_text_table(
     suite: SuiteResult,
     gate: GateResult | None = None,
@@ -44,18 +53,20 @@ def render_text_table(
 ) -> str:
     """A British-English plain-text metric table: one row per case plus a
     suite-aggregate row. Columns: retrieval hit rate, hypothesis hit@k, citation
-    validity, determinism drift (= 1 − stability), and a status flag.
+    validity, determinism drift (= 1 − stability), the eu-stack verdict
+    (EUS-12, ``n/a`` for non-eu-stack cases), and a status flag.
 
     When ``gate`` is supplied, a per-metric floor verdict and the overall
     pass/fail line are appended (the CI gate, Plan 03).
 
     When ``show_judge`` is set (``sift eval --judge``) an advisory ``judge``
     column is inserted; it is reported ALONGSIDE the keyword metrics and NEVER
-    enters the gate (D-08). Off, the output is byte-identical to Plan 03."""
+    enters the gate (D-08). Off, the output is byte-identical to Plan 03,
+    plus the eu-stack column added in Plan 19-03."""
     judge_head = f"  {'judge':>6}" if show_judge else ""
     header = (
         f"{'case':<32}  {'retrieval':>9}  {'hit@k':>6}  "
-        f"{'citation':>8}  {'drift':>6}{judge_head}  status"
+        f"{'citation':>8}  {'drift':>6}{judge_head}  {'eustack':>7}  status"
     )
     lines = [header, "-" * len(header)]
     for case in suite.cases:
@@ -64,7 +75,7 @@ def render_text_table(
         lines.append(
             f"{sanitise(case.name):<32}  {case.retrieval_hit_rate:>9.2f}  "
             f"{case.hypothesis_hit_at_k:>6.2f}  {case.citation_validity_rate:>8.2f}  "
-            f"{drift:>6.2f}{judge_cell}  {_status(case)}"
+            f"{drift:>6.2f}{judge_cell}  {_eustack_cell(case)}  {_status(case)}"
         )
     agg_drift = 1.0 - suite.mean_determinism_stability()
     lines.append("-" * len(header))
@@ -92,6 +103,8 @@ def render_text_table(
             )
         if gate.no_positive_cases:
             lines.append("  no scorable positive case — gate cannot pass")
+        if gate.no_eustack_cases:
+            lines.append("  no scorable eu-stack case — gate cannot pass")
         lines.append(f"GATE: {'PASS' if gate.passed else 'FAIL'}")
     return "\n".join(lines) + "\n"
 
@@ -109,6 +122,8 @@ def _case_dict(case: CaseResult) -> dict[str, object]:
         "run_failed": case.run_failed,
         "error": case.error,
         "judge_score": case.judge_score,
+        "is_eustack": case.is_eustack,
+        "eustack_case_pass": case.eustack_case_pass,
     }
 
 
