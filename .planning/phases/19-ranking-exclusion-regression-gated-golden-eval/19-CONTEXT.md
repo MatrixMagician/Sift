@@ -173,6 +173,103 @@ the golden fixtures reflect final ranking behaviour rather than a moving target.
   - The cosmetic-mutation twins (D-19-11) must reproduce the **same figures**, which is a stronger
     and more meaningful invariance check than "still raises a flag".
 
+- **D-19-18 — SUPERSEDES D-19-15's `flags == 0` clause. The negative case declares its expected
+  flag set; it does not assert an empty one.** (Added post-planning, 2026-07-27, after the planner
+  raised it as blocking and the finding was confirmed against source.)
+
+  D-19-15 was written on a false premise. `analyse_saturation`
+  (`src/sift/pipeline/eustack.py:733-840`) builds its flag list as:
+
+  ```
+  flags: list[SaturationFlag] = []
+  if analysis.total_threads:
+      flags.append(...)   # unclassified_thread_pct  — unconditional inside the guard
+      flags.append(...)   # no_resolvable_frame_pct  — unconditional inside the guard
+  for site in lock_sites: # lock_convergence_count   — conditional, zero sites = zero flags
+  ```
+
+  **Any non-empty dump raises at least two flags.** Measured on the real healthy reference capture
+  (3,902 threads): 2 flags, both `info` — `unclassified_thread_pct 1.3`, `no_resolvable_frame_pct
+  0.0`, `lock_sites: []`. Phase 18's UAT recorded the same `unclassified_thread_pct 1.3 info`.
+  `flags == 0` is therefore unsatisfiable for any real input, and D-19-15's option list was wrong to
+  record "allow info-level flags" as rejected.
+
+  Phase 16 read ROADMAP criterion 2's "raises zero flags" as being about **lock** flags — its own
+  comment at the lock loop says so verbatim: *"Zero lock sites therefore emits zero lock flags —
+  exactly why the healthy reference capture raises none (D-09)."*
+
+  **Decision:** the negative case declares its expected flag set in `truth.yaml` **by severity
+  bucket** — zero `warn`, zero `critical`, and the named `info` dimensions it does expect — mirroring
+  exactly how D-19-17 has the positive case declare its expected figures. One discipline for both
+  cases.
+
+  Consequences that must survive into the plans:
+  - A declared-count gate catches **severity escalation** (an `info` dimension becoming `warn`) as a
+    regression. A gate that merely ignored `info` rows would let that through silently.
+  - No change to `analyse_saturation`, `sift eustack` output, or the Phase-18 fact block. Phase 16's
+    surface stays frozen, as `<domain>` requires.
+  - **Rejected:** gating only on graded severity ("no warn or critical") — looser, and it does not
+    pin which dimensions fired.
+  - **Rejected:** suppressing `info` flags in `analyse_saturation` so `flags == 0` holds literally —
+    edits the frozen Phase-16 analyser and changes output Phases 17 and 18 already pinned.
+  - ROADMAP success criterion 2's "raises zero flags" is read as **zero warn-or-critical flags**,
+    with the expected `info` set declared explicitly. Record this reading in the plan; do not silently
+    reinterpret the roadmap text.
+  - Plan 19-02's Task 1 `checkpoint:decision` is **resolved by this decision** — the executor must
+    not stop for it.
+
+### D-19-15 amendment (measured 2026-07-27)
+
+**Chosen option: `declared-count`.**
+
+Measured independently by the orchestrator on 2026-07-27 (not copied from the planner's report —
+re-run via `analyse_eustack_bundle` against both fixtures):
+
+```
+--- committed CI derivative: 105 threads, 93 signatures
+    FLAGS: 2
+      unclassified_thread_pct    critical  38.1 percent
+      no_resolvable_frame_pct    info      0.0 percent
+    lock_sites: 0
+--- REAL healthy reference capture: 3903 threads, 84 signatures
+    FLAGS: 2
+      unclassified_thread_pct    info      1.3 percent
+      no_resolvable_frame_pct    info      0.0 percent
+    lock_sites: 0
+```
+
+**Reason:** `flags == 0` is unreachable — both percentage flags append unconditionally for any
+non-empty dump, so the minimum is 2. `declared-count` extends D-19-17's figure-reproduction
+discipline to the flag list instead of inventing a second, looser rule for it.
+
+**Field shape for downstream tasks (this is the contract 19-02 T2, 19-03 and 19-04 build on):**
+the eu-stack truth block declares expected flags **by severity bucket**, not as a bare integer —
+
+- `warn: 0` and `critical: 0` on the healthy negative case (this carries D-19-15's real intent,
+  "a warn-level flag on the healthy capture is a failure");
+- the expected `info` dimensions named explicitly (`unclassified_thread_pct`,
+  `no_resolvable_frame_pct`), so an `info` dimension escalating to `warn` fails the case rather
+  than passing unnoticed.
+
+Naming dimensions rather than pinning a raw count also answers the `declared-count` option's own
+recorded objection ("any future third graded dimension edits every frozen truth file"): a new
+dimension appearing is a genuine, intended failure of a frozen golden, and it surfaces as a named
+dimension rather than as an opaque `2 != 3`.
+
+**Rejected here (restating D-19-18 so the amendment stands alone):** `graded-flags` (ignores `info`
+rows entirely — does not pin which dimensions fired); `literal-zero` (requires editing the frozen
+Phase-16 analyser, out of scope per `<domain>`, and would turn "0.0% have no resolvable frame" from
+a reported figure into an absence that reads as "not measured").
+
+**ROADMAP reading:** success criterion 2's "raises zero flags" is read as **zero warn-or-critical
+flags, with the expected info set declared**. Record this reading in the plan; do not silently
+reinterpret the roadmap text.
+
+**Consequence for the committed CI derivative:** at 105 threads standing in for 3,903 it measures
+38.1% unclassified → `critical`, so it cannot serve as the negative case input unchanged. That is
+plan 19-03 Task 2's job (thread-proportion-faithful derivation via a `--scale` argument, with the
+tool's default output still reproducing today's committed fixture byte-for-byte).
+
 ### Claude's Discretion
 
 - Exact field names and nesting of the `expect_eustack` truth block (subject to `extra="forbid"`).
