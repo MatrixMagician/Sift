@@ -181,7 +181,7 @@ Plans:
   3. Synthetic hang fixtures — labelled in the harness as authored, not observed — are detected, and stay detected under cosmetic mutation (renumbered TIDs, reordered threads, differing instruction addresses)
   4. `sift eval` exits non-zero on threshold regression across both the negative and the positive eu-stack cases, and a vacuous pass (empty positive set) is impossible
 
-**Plans**: 1/4 plans executed
+**Plans**: 2/4 plans executed
 
 Plans:
 **Wave 1**
@@ -190,7 +190,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 19-02-PLAN.md — EUS-12 contracts: the `expect_eustack` truth block, its exclusion from the four keyword aggregates, and the LLM-free `_run_eustack_case` dispatch (opens with a blocking decision on flag semantics)
+- [x] 19-02-PLAN.md — EUS-12 contracts: the `expect_eustack` truth block, its exclusion from the four keyword aggregates, and the LLM-free `_run_eustack_case` dispatch (opens with a blocking decision on flag semantics)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
