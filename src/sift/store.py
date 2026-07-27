@@ -324,15 +324,19 @@ _HYP_COLUMNS = (
     "citations_valid"
 )
 
-# Sources held out of every ranking stage (PERF-03). Perfmon samples are
-# periodic observations, not diagnostics: they carry no incident signal to
-# dedup, cluster, salience or hypothesis excerpts, and thousands of near-
-# identical rows would dominate template counts. They stay FULLY retrievable
-# by identifier, so citation and `show events` are unaffected — see the
-# paired comments on iter_event_summaries / iter_event_rows below.
+# Sources held out of every ranking stage (PERF-03, EUS-11). Perfmon samples
+# are periodic observations, not diagnostics: they carry no incident signal
+# to dedup, cluster, salience or hypothesis excerpts, and thousands of near-
+# identical rows would dominate template counts. Eu-stack thread records are
+# a population census, not diagnostics either: they are replaced for ranking
+# purposes by the deterministic `sift eustack` analyser and the Phase-18 fact
+# block, and thousands of near-identical thread bodies would likewise
+# dominate template counts. Both stay FULLY retrievable by identifier, so
+# citation and `show events` are unaffected — see the paired comments on
+# iter_event_summaries / iter_event_rows below.
 # Owned here, never caller-supplied: exclusion is a property of the source
 # kind, not of the caller (D-07).
-EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon"})
+EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon", "eustack"})
 
 # Allowlisted filter key -> fixed WHERE snippet (T-02-08). Filter VALUES are
 # only ever bound via ?; keys never reach SQL text — an unknown key raises

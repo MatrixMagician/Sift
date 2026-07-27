@@ -873,11 +873,21 @@ def analyze(
     config = load_config(overrides)
     store = _case_store(case, config)
     try:
-        # CLUS-01: zero template groups means ingest has not run (or produced
-        # nothing) — there is nothing to embed, so skip the client entirely and
-        # exit cleanly. groups > 0 always yields >= 1 cluster (auto-singleton).
+        # CLUS-01: zero template groups has two distinct causes, which must not
+        # be conflated (D-19-02, EUS-11). Zero events at all means ingest has
+        # not run (or produced nothing) — there is nothing to embed OR
+        # narrate, so skip the client entirely and exit cleanly. Zero groups
+        # WITH events present means every ingested source is held out of
+        # ranking (EXCLUDED_FROM_RANKING, e.g. an eu-stack-only case) — there
+        # is still nothing to embed, but the deterministic fact blocks
+        # (MCM/perfmon/eu-stack) must still reach hypothesise() so they
+        # narrate; falling through here is what makes exclusion a
+        # replacement, not a dead end. groups > 0 always yields >= 1 cluster
+        # (auto-singleton). The probe reads at most one row from the cheap
+        # unfiltered streaming generator — never store.query_events(), which
+        # decompresses every raw zstd blob.
         groups = store.query_template_groups()
-        if not groups:
+        if not groups and next(iter(store.iter_event_rows()), None) is None:
             print("Nothing to cluster; run 'sift ingest' first")
             return
 
