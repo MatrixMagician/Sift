@@ -139,6 +139,40 @@ the golden fixtures reflect final ranking behaviour rather than a moving target.
   inference endpoint; the suite as a whole still requires one for the other cases. Document this
   split where the harness is described rather than silently relying on it.
 
+### `hang_detected` semantics (added post-research, 2026-07-27)
+
+- **D-19-17 — "Detected" means the measured figures match the truth file, NOT "a flag was raised."**
+
+  Verified during research and confirmed independently against source: `analyse_saturation`
+  (`src/sift/pipeline/eustack.py`) appends exactly three `SaturationFlag`s — at lines 750, 791 and
+  822 — for `unclassified_thread_pct`, `no_resolvable_frame_pct` and `lock_convergence_count`.
+  `PoolOccupancy` and `DependencyWait` rows carry **no threshold and no severity at all**. A fixture
+  built as D-19-09 specifies (pool saturation + external-wait concentration) therefore raises
+  **zero** flags, and success criterion 3 would fail under a naive `hang_detected = bool(flags)`.
+
+  This is Phase 16 design, not an oversight: all three graded dimensions are *meta-quality* signals
+  (how much of the dump could not be classified) plus lock convergence. The primary composition
+  figures are deliberately reported **without a verdict** — the "figures COMPUTED, model narrates"
+  boundary this milestone is built on. Sift does not deterministically declare hangs.
+
+  **Decision:** the positive golden case declares its expected deterministic figures in the truth
+  block (e.g. a named pool's occupancy, a named dependency's wait thread count) and passes when
+  `analyse_eustack_bundle` reproduces them. No new grading, no new analyser code, no change to
+  Phase 16's frozen surface.
+
+  Consequences that must survive into the plans:
+  - `hang_detected` is genuinely independent of `flags`, so D-19-15's negative gate
+    (`flags == 0` **and** `hang_detected == false`) asserts two different things rather than
+    restating one.
+  - **Rejected:** engineering the fixture to also trip `lock_convergence_count` (≥20 threads on
+    `__lll_lock_wait`) so `bool(flags)` works — detection would then really key on lock convergence,
+    the scenario D-19-09 declined as primary, and the eval would prove less than it appears to.
+  - **Rejected:** adding warn/critical thresholds for pool occupancy and dependency waits — new
+    analyser capability in a phase scoped to exclusion + eval, expanding Phase 16's frozen surface
+    and moving Sift toward deterministically declaring hangs.
+  - The cosmetic-mutation twins (D-19-11) must reproduce the **same figures**, which is a stronger
+    and more meaningful invariance check than "still raises a flag".
+
 ### Claude's Discretion
 
 - Exact field names and nesting of the `expect_eustack` truth block (subject to `extra="forbid"`).
