@@ -1,7 +1,7 @@
 """Suite-level validation for the committed golden cases (EVAL-01).
 
 Proves the frozen suite as a whole: every case's ``truth.yaml`` loads through the
-schema-forbidding loader, the suite is exactly the six required cases, the three
+schema-forbidding loader, the suite is exactly the nine required cases, the three
 special shapes (quiet-cause, mixed-timezone, negative) are present, and the
 negative case scores a pass by the no-confident-hypothesis predicate when run
 offline. Zero sockets — the negative run is served by an ``httpx.MockTransport``
@@ -28,8 +28,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SUITE = _REPO_ROOT / "eval" / "cases"
 
 # The complete suite: five SPEC §6 exemplars, the negative case, the MCM denial
-# golden case (MCM-07, Plan 11-03), plus the perfmon-denial golden case
-# (PERF-08, Plan 14-05).
+# golden case (MCM-07, Plan 11-03), the perfmon-denial golden case (PERF-08,
+# Plan 14-05), plus the eustack-healthy golden case — the real, observed
+# reference capture, LLM-free (EUS-12, Plan 19-03).
 _EXPECTED_CASES = {
     "memory-watermark-cascade",
     "smtp-rejection-storm",
@@ -39,6 +40,7 @@ _EXPECTED_CASES = {
     "negative-no-incident",
     "mcm-denial",
     "perfmon-denial",
+    "eustack-healthy",
 }
 
 # The offline reply for the negative case: a HypothesisSet with no hypotheses, so
@@ -83,11 +85,12 @@ def _offline_client(
     return client, http
 
 
-def test_suite_is_exactly_the_eight_cases() -> None:
+def test_suite_is_exactly_the_nine_cases() -> None:
     dirs = {d.name for d in _case_dirs()}
     assert dirs == _EXPECTED_CASES
-    assert len(dirs) == 8
+    assert len(dirs) == 9
     assert "perfmon-denial" in dirs
+    assert "eustack-healthy" in dirs
 
 
 def test_every_truth_yaml_loads() -> None:
@@ -387,3 +390,99 @@ def test_perfmon_denial_citation_validity_is_perfmon_sensitive(
         http2.close()
     assert off.run_failed is False, off.error
     assert off.citation_validity_rate < 1.0
+
+
+# --- Eu-stack healthy golden case (EUS-12, Plan 19-03) -----------------------
+
+_EUSTACK_HEALTHY_CASE = _SUITE / "eustack-healthy"
+
+
+def _recording_client() -> tuple[InferenceClient, httpx.Client, list[str]]:
+    """An InferenceClient whose transport RECORDS every request path — the
+    D-19-16 no-endpoint claim proven by observation, not code inspection
+    (mirrors ``tests/test_eval_thresholds.py``'s own helper)."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"data": []})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    config = load_config({})
+    client = InferenceClient(
+        generation=Endpoint(
+            base_url=config.generation.base_url, model=config.generation.model
+        ),
+        embeddings=Endpoint(
+            base_url=config.embeddings.base_url, model=config.embeddings.model
+        ),
+        http=http,
+        allow_public=False,
+    )
+    return client, http, calls
+
+
+def test_eustack_healthy_case_scores_pass_offline() -> None:
+    """`sift eval` discovers eustack-healthy, scores it via the LLM-free path,
+    and proves — by an OBSERVED empty request log — that it reached no
+    inference endpoint at all (D-19-16)."""
+    config = load_config({})
+    client, http, calls = _recording_client()
+    try:
+        result = run_case(_EUSTACK_HEALTHY_CASE, client, config)
+    finally:
+        http.close()
+    assert result.run_failed is False, result.error
+    assert result.is_eustack is True
+    assert result.eustack_case_pass is True
+    assert calls == []
+
+
+def test_eustack_healthy_raises_no_graded_flag() -> None:
+    """D-19-15: hang_detected reads false AND no flag reaches warn/critical —
+    two genuinely independent claims under D-19-17 (a fixture can reproduce
+    hang-shaped figures without tripping a graded dimension, and vice versa),
+    so a single assertion would leave half of D-19-15 unproven. The
+    non-vacuity guard confirms the analyser actually graded something."""
+    from sift.adapters.eustack import EustackAdapter
+    from sift.pipeline.eustack import load_rules
+    from sift.pipeline.eustack_progression import analyse_eustack_bundle
+
+    config = load_config({})
+    input_dir = _EUSTACK_HEALTHY_CASE / "input"
+    adapter = EustackAdapter()
+    adapter.input_root = input_dir
+    events = list(adapter.parse(input_dir / "threaddump.txt", "eustack-healthy"))
+    rules, rules_hash = load_rules(config.eustack.rules_path)
+    bundle = analyse_eustack_bundle(
+        events, rules, rules_hash, config.eustack.thresholds
+    )
+    truth = load_truth(_EUSTACK_HEALTHY_CASE / "truth.yaml")
+    assert truth.expect_eustack is not None
+
+    assert truth.expect_eustack.hang_detected is False
+    assert not any(
+        f.severity in ("warn", "critical") for f in bundle.saturation.flags
+    )
+    # Non-vacuity: the analyser really did grade the two percentage
+    # dimensions and reported them info, not simply emit nothing.
+    assert bundle.saturation.flags
+
+
+def test_only_the_healthy_case_is_marked_observed() -> None:
+    """D-19-10: eustack-healthy is the sole case marked provenance: observed,
+    so the synthetic-versus-observed evidence gap stays visible inside the
+    harness rather than only in planning documents. At least one eu-stack
+    case must be examined, so this guard cannot pass vacuously on a suite
+    with zero eu-stack cases."""
+    examined = 0
+    observed: list[str] = []
+    for case_dir in _case_dirs():
+        truth = load_truth(case_dir / "truth.yaml")
+        if truth.expect_eustack is None:
+            continue
+        examined += 1
+        if truth.expect_eustack.provenance == "observed":
+            observed.append(case_dir.name)
+    assert examined >= 1
+    assert observed == ["eustack-healthy"]
