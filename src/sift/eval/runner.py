@@ -168,9 +168,10 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
 
     name = case_dir.name
     truth = load_truth(case_dir / "truth.yaml")
-    assert truth.expect_eustack is not None, (
-        "_run_eustack_case is only ever dispatched when expect_eustack is set"
-    )
+    if truth.expect_eustack is None:
+        raise AssertionError(
+            "_run_eustack_case is only ever dispatched when expect_eustack is set"
+        )
     expect = truth.expect_eustack
 
     noise = io.StringIO()
