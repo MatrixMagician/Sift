@@ -580,6 +580,44 @@ def test_only_the_healthy_case_is_marked_observed() -> None:
     assert observed == ["eustack-healthy"]
 
 
+def test_hang_detected_is_consistent_with_declared_saturation() -> None:
+    """WR-01 (19-REVIEW.md): ``hang_detected`` is read on exactly one case
+    (the healthy negative, via ``test_eustack_healthy_raises_no_graded_flag``)
+    and never compared against anything on either positive fixture — nothing
+    stops ``eustack-hang-pool-warehouse/truth.yaml``'s ``hang_detected: true``
+    drifting to ``false`` unnoticed.
+
+    This is a declaration-vs-declaration self-consistency guard, per
+    D-19-17/D-19-18: it compares the truth file's OWN ``hang_detected``
+    against its OWN declared ``pools``/``dependencies`` figures. It never
+    calls ``analyse_eustack_bundle`` and never reads a ``PoolOccupancy``/
+    ``DependencyWait`` row, so it adds no threshold or grading to either --
+    Phase 16's analyser surface stays untouched and uninvolved.
+
+    A pool/dependency is "majority-busy" when its declared busy count is
+    more than half the case's declared ``total_threads`` -- 25/35 for the
+    warehouse-exhaustion fixtures versus 3/144 for the healthy capture's
+    ordinary, non-exhausted waits. A bare `any(...) > 0` check (the review's
+    illustrative fix) is too weak here: the healthy fixture legitimately
+    declares a few non-zero waits (real threads really do wait on the
+    warehouse and HTTP dependencies under normal load) without that being a
+    hang, so it would misfire on the very fixture it's meant to protect.
+    """
+    for case_dir in _case_dirs():
+        truth = load_truth(case_dir / "truth.yaml")
+        expect = truth.expect_eustack
+        if expect is None:
+            continue
+        total = expect.total_threads
+        majority_busy = any(busy * 2 > total for busy in expect.pools.values()) or any(
+            busy * 2 > total for busy in expect.dependencies.values()
+        )
+        assert expect.hang_detected == majority_busy, (
+            f"{case_dir.name}: hang_detected={expect.hang_detected} but "
+            f"declared majority-busy={majority_busy} (total_threads={total})"
+        )
+
+
 def test_eustack_gate_is_analyser_sensitive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
