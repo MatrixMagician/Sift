@@ -181,7 +181,14 @@ Plans:
   3. Synthetic hang fixtures — labelled in the harness as authored, not observed — are detected, and stay detected under cosmetic mutation (renumbered TIDs, reordered threads, differing instruction addresses)
   4. `sift eval` exits non-zero on threshold regression across both the negative and the positive eu-stack cases, and a vacuous pass (empty positive set) is impossible
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 19-01-PLAN.md — EUS-11: `EXCLUDED_FROM_RANKING` gains `"eustack"`, `analyze` stops dead-ending an eu-stack-only case, byte-identity and citability proofs
+- [ ] 19-02-PLAN.md — EUS-12 contracts: the `expect_eustack` truth block, its exclusion from the four keyword aggregates, and the LLM-free `_run_eustack_case` dispatch (opens with a blocking decision on flag semantics)
+- [ ] 19-03-PLAN.md — EUS-12 gate + negative case: the `eustack_detection_rate` floor, the zero-eu-stack-cases vacuity guard, and `eval/cases/eustack-healthy/` derived from the real capture
+- [ ] 19-04-PLAN.md — EUS-12 positives: the synthetic warehouse-pool-exhaustion case, its cosmetic-mutation twin, and the gate-bites sensitivity test
+
 **Sequencing note (within phase)**: EUS-11 lands **first**, before EUS-12's fixtures are authored, so the golden fixtures reflect final ranking behaviour rather than a moving target. Exclusion stays a property of source kind through the single `EXCLUDED_FROM_RANKING` seam (`store.py`) with no opt-out flag and no composition-dependent middle option — the D-07 principle. Fixtures must derive from the documented hang scenario, never from the rules-file strings, or the eval proves only that the code runs.
 
 ### Phase 20: SEED-002 Embedding Vector Reuse (DET-01)

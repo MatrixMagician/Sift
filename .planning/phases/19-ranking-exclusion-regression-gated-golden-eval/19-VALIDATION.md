@@ -48,7 +48,21 @@ the zero-network-in-tests invariant is not relaxed anywhere in this phase.*
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| *(planner fills)* | | | EUS-11 / EUS-12 | | | | | | ⬜ pending |
+| T1 (tracer) | 19-01 | 1 | EUS-11 | T-19-01, T-19-02, T-19-04 | Exclusion literal is module-owned, never caller-supplied; the `?`-bound SQL construction is untouched | integration (CLI) | `uv run pytest tests/test_analyze.py -q` | ✅ extends `tests/test_analyze.py` | ⬜ pending |
+| T2 | 19-01 | 1 | EUS-11 | T-19-01 | Ranking seam filters eu-stack; citation seam provably does not | unit | `uv run pytest tests/test_store.py -q` | ✅ extends `tests/test_store.py` | ⬜ pending |
+| T3 | 19-01 | 1 | EUS-11 | T-19-03 | Rendered event text still routes through the shipped `sanitise` path | integration (CLI) | `uv run pytest tests/test_cli.py -q` | ✅ extends `tests/test_cli.py` | ⬜ pending |
+| T1 (checkpoint) | 19-02 | 2 | EUS-12 | — | Frozen Phase-16 analyser stays unmodified whichever option is chosen | checkpoint:decision | `git diff --stat src/sift/pipeline/ \| wc -l` returns 0 | n/a — decision + CONTEXT amendment | ⬜ pending |
+| T2 | 19-02 | 2 | EUS-12 | T-19-05, T-19-06 | `yaml.safe_load` path unchanged; nested `extra="forbid"`; `provenance` a mandatory Literal | unit | `uv run pytest tests/test_eval_truth.py tests/test_eval_thresholds.py tests/test_eval_cases.py -q` | ✅ extends `tests/test_eval_truth.py`, `tests/test_eval_thresholds.py` | ⬜ pending |
+| T3 | 19-02 | 2 | EUS-12 | T-19-08 | Zero endpoint contact proven by an empty recorded request log; failure text `sanitise`d | unit + integration | `uv run pytest tests/test_eval_thresholds.py tests/test_eval_cases.py -q` | ✅ extends `tests/test_eval_thresholds.py` | ⬜ pending |
+| T1 | 19-03 | 3 | EUS-12 | T-19-10 | Missing floor raises rather than silently gating on four metrics; vacuity guard cannot be starved green | unit | `uv run pytest tests/test_eval_thresholds.py tests/test_eval_cases.py -q` | ✅ extends `tests/test_eval_thresholds.py` | ⬜ pending |
+| T2 | 19-03 | 3 | EUS-12 | T-19-09, T-19-11, T-19-12 | Redaction path regression-tested via byte-identical reproduction of the existing fixture; 250 KB cap | fixture + measured assertion | `uv run pytest tests/test_eval_truth.py -q` | ❌ new — `eval/cases/eustack-healthy/` | ⬜ pending |
+| T3 | 19-03 | 3 | EUS-12 | T-19-11 | Declared figures proven to match measurement; single-`observed` invariant pinned | integration (offline) | `uv run pytest tests/test_eval_cases.py -q` | ✅ extends `tests/test_eval_cases.py` | ⬜ pending |
+| T1 | 19-04 | 4 | EUS-12 | T-19-13, T-19-14, T-19-15, T-19-17 | Identifiers redacted; every fixture symbol traced to the source capture; 64 KB cap | fixture + measured assertion | `uv run pytest tests/test_eval_truth.py -q` | ❌ new — `eval/cases/eustack-hang-pool-warehouse/` | ⬜ pending |
+| T2 | 19-04 | 4 | EUS-12 | T-19-15, T-19-17 | Twin proven not a copy (no shared TIDs, no shared addresses) before figure equality is asserted | fixture + unit | `uv run pytest tests/test_eval_cases.py -q` | ❌ new — `eval/cases/eustack-hang-pool-warehouse-mutated/` | ⬜ pending |
+| T3 | 19-04 | 4 | EUS-12 | T-19-14, T-19-16 | Neuter applied at the `load_rules` seam only; shipped rules file proven untouched | integration (CLI, offline) | `uv run pytest tests/test_eval_cases.py -q` | ✅ extends `tests/test_eval_cases.py` | ⬜ pending |
+
+Sampling continuity: every task above carries an `<automated>` verify; no run of three consecutive tasks
+lacks one. The 19-02 checkpoint is the only non-test row and it carries a runnable `git diff` assertion.
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
