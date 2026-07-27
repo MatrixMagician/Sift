@@ -5,15 +5,15 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 19
 current_phase_name: Ranking Exclusion & Regression-Gated Golden Eval
 status: executing
-stopped_at: Completed 18-03-PLAN.md (phase 18 complete, 3/3 plans)
-last_updated: "2026-07-27T17:07:44.586Z"
+stopped_at: Completed 19-01-PLAN.md
+last_updated: "2026-07-27T17:18:21.526Z"
 last_activity: 2026-07-27
-last_activity_desc: Phase 18 complete, transitioned to Phase 19
+last_activity_desc: Phase 19 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 20
-  completed_plans: 16
+  completed_plans: 17
   percent: 67
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 18 — eu-stack-facts-into-sift-analyze
+**Current focus:** Phase 19 — Ranking Exclusion & Regression-Gated Golden Eval
 
 ## Current Position
 
-Phase: 19 — Ranking Exclusion & Regression-Gated Golden Eval
-Plan: Not started
+Phase: 19 (Ranking Exclusion & Regression-Gated Golden Eval) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-07-27 — Phase 18 complete, transitioned to Phase 19
+Last activity: 2026-07-27 — Phase 19 execution started
 
 ## Performance Metrics
 
@@ -135,6 +135,7 @@ Last activity: 2026-07-27 — Phase 18 complete, transitioned to Phase 19
 | Phase 18 P01 | 45min | 3 tasks | 7 files |
 | Phase 18 P02 | 55min | 2 tasks | 3 files |
 | Phase 18 P03 | 70min | 3 tasks | 5 files |
+| Phase 19 P1 | ~35min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -272,6 +273,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Tasks 1 and 2 of plan 18-02 landed in a single commit — both extend the same render_eustack_facts body in one contiguous 208-line insertion with no git-hunk boundary between them.
 - [Phase ?]: D-14 measured combined MCM+perfmon+eu-stack fact-block size: ~4,528 estimated tokens (18,115 chars) against the 7,168-token excerpt budget — comfortably under, ~2,640 tokens headroom remains
 - [Phase ?]: D-10/D-11 suppression: multi-dump progression deltas suppressed entirely (last-dump state only) when the dump order is unverified (filename fallback) or fewer than two dumps are present — proven as the PRIMARY path against the real-shaped, header-timestamp-less reference capture derivative
+- [Phase ?]: [Phase 19]: 19-01: EXCLUDED_FROM_RANKING = {dssperfmon, eustack} (D-19-01); analyze's zero-groups guard now falls through to hypothesise() when events exist but all are ranking-excluded, distinguishing that from the genuinely-empty-case short-circuit (D-19-02)
 
 ### Pending Todos
 
@@ -354,8 +356,8 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-26T15:44:52.071Z
-Stopped at: Completed 18-03-PLAN.md (phase 18 complete, 3/3 plans)
+Last session: 2026-07-27T17:18:21.514Z
+Stopped at: Completed 19-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

@@ -181,12 +181,12 @@ Plans:
   3. Synthetic hang fixtures — labelled in the harness as authored, not observed — are detected, and stay detected under cosmetic mutation (renumbered TIDs, reordered threads, differing instruction addresses)
   4. `sift eval` exits non-zero on threshold regression across both the negative and the positive eu-stack cases, and a vacuous pass (empty positive set) is impossible
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 19-01-PLAN.md — EUS-11: `EXCLUDED_FROM_RANKING` gains `"eustack"`, `analyze` stops dead-ending an eu-stack-only case, byte-identity and citability proofs
+- [x] 19-01-PLAN.md — EUS-11: `EXCLUDED_FROM_RANKING` gains `"eustack"`, `analyze` stops dead-ending an eu-stack-only case, byte-identity and citability proofs
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -233,7 +233,7 @@ Plans:
 | 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Complete    | 2026-07-25 |
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/3 | Complete    | 2026-07-26 |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Complete    | 2026-07-27 |
-| 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Not started | - |
+| 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | In Progress|  |
 | 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/? | Not started | - |
 
 ## Backlog

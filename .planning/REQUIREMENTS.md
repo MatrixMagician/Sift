@@ -54,7 +54,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 - [x] **EUS-10**: User sees eu-stack figures inside `sift analyze` as cited evidence, with the
   prompt byte-identical to today when a case contains no eu-stack data
 
-- [ ] **EUS-11**: Eu-stack thread events stop competing in dedup/embed/cluster/salience while
+- [x] **EUS-11**: Eu-stack thread events stop competing in dedup/embed/cluster/salience while
   remaining individually citable
 
 - [ ] **EUS-12**: A regression-gated golden eval covers both the real healthy capture (must not
@@ -139,7 +139,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EUS-08 | Phase 17 | Complete |
 | EUS-09 | Phase 17 | Complete |
 | EUS-10 | Phase 18 | Complete |
-| EUS-11 | Phase 19 | Pending |
+| EUS-11 | Phase 19 | Complete |
 | EUS-12 | Phase 19 | Pending |
 | DET-01 | Phase 20 | Pending |
 
