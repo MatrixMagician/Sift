@@ -89,7 +89,14 @@ class CaseResult:
     excluded from the suite's positive aggregates (RESEARCH Pitfall 5); the pass
     verdict is ``negative_case_pass`` instead. ``run_failed`` marks a case whose
     pipeline could not complete (transport/parse error); its metrics default to
-    0.0 and it is excluded from the aggregates."""
+    0.0 and it is excluded from the aggregates. ``is_eustack`` marks an LLM-free
+    eu-stack case (EUS-12/D-19-06): its four keyword-metric fields are always
+    0.0 (never a fabricated vacuous 1.0) and it is excluded from all four
+    keyword aggregates below, exactly like ``expect_no_incident``/``run_failed``
+    — an empty ``acceptable_keywords`` scores a literal 0.0, not a vacuous 1.0
+    (RESEARCH Pitfall 1), so scoring an eu-stack case unexcluded would silently
+    drag every keyword mean down. ``eustack_case_pass`` is its own pass verdict,
+    read only by ``mean_eustack_detection_rate``."""
 
     name: str
     retrieval_hit_rate: float
@@ -100,6 +107,8 @@ class CaseResult:
     negative_case_pass: bool | None = None
     run_failed: bool = False
     error: str | None = None
+    is_eustack: bool = False
+    eustack_case_pass: bool | None = None
     # Reserved for the advisory LLM-as-judge (Plan 05); never gates.
     judge_score: float | None = None
 
@@ -111,15 +120,25 @@ class SuiteResult:
     Aggregates exclude ``expect_no_incident`` and ``run_failed`` cases from the
     retrieval / hit@k means (a keyword "hit" on a negative case is a false
     positive); citation validity and determinism are averaged over every
-    non-failed case. An empty positive set aggregates to a vacuous 1.0."""
+    non-failed case. An empty positive set aggregates to a vacuous 1.0.
+    ``is_eustack`` cases (EUS-12) are excluded from ALL FOUR keyword aggregates
+    — they declare empty ``required_evidence``/``acceptable_keywords`` and run
+    no LLM leg (D-19-06), and ``hypothesis_hit_at_k`` scores an empty keyword
+    list a literal 0.0, not a vacuous 1.0 (RESEARCH Pitfall 1), so an unexcluded
+    eu-stack case would silently drag every keyword mean down. They are scored
+    only by ``mean_eustack_detection_rate``, which reads the inverse selection."""
 
     cases: list[CaseResult] = field(default_factory=list["CaseResult"])
 
     def _positive(self) -> list[CaseResult]:
-        return [c for c in self.cases if not c.expect_no_incident and not c.run_failed]
+        return [
+            c
+            for c in self.cases
+            if not c.expect_no_incident and not c.run_failed and not c.is_eustack
+        ]
 
     def _scored(self) -> list[CaseResult]:
-        return [c for c in self.cases if not c.run_failed]
+        return [c for c in self.cases if not c.run_failed and not c.is_eustack]
 
     @staticmethod
     def _mean(values: list[float]) -> float:
@@ -136,3 +155,12 @@ class SuiteResult:
 
     def mean_determinism_stability(self) -> float:
         return self._mean([c.determinism_stability for c in self._scored()])
+
+    def mean_eustack_detection_rate(self) -> float:
+        return self._mean(
+            [
+                1.0 if c.eustack_case_pass else 0.0
+                for c in self.cases
+                if c.is_eustack and not c.run_failed
+            ]
+        )

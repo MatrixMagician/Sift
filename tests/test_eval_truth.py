@@ -20,7 +20,7 @@ from sift.eval.metrics import (
     negative_case_pass,
     retrieval_hit_rate,
 )
-from sift.eval.truth import Truth, load_truth
+from sift.eval.truth import ExpectEustack, Truth, load_truth
 from sift.store import StoredHypothesis
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -92,6 +92,88 @@ def test_load_truth_rejects_python_tag(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     with pytest.raises(Exception):  # noqa: B017,PT011 — YAMLError; the point is: no code ran
+        load_truth(path)
+
+
+# --- expect_eustack block (EUS-12, D-19-05/D-19-17/D-19-18) -----------------
+
+
+def test_load_truth_no_eustack_block_is_none(tmp_path: Path) -> None:
+    # The eight shipped non-eustack cases never set this key.
+    path = tmp_path / "truth.yaml"
+    path.write_text("root_cause: x\n", encoding="utf-8")
+    truth = load_truth(path)
+    assert truth.expect_eustack is None
+
+
+def test_load_truth_eustack_block_populates(tmp_path: Path) -> None:
+    path = tmp_path / "truth.yaml"
+    path.write_text(
+        "root_cause: healthy capture\n"
+        "expect_eustack:\n"
+        "  provenance: observed\n"
+        "  hang_detected: false\n"
+        "  total_threads: 3903\n"
+        "  warn: 0\n"
+        "  critical: 0\n"
+        "  info_dimensions:\n"
+        "    - unclassified_thread_pct\n"
+        "    - no_resolvable_frame_pct\n",
+        encoding="utf-8",
+    )
+    truth = load_truth(path)
+    assert isinstance(truth.expect_eustack, ExpectEustack)
+    assert truth.expect_eustack.provenance == "observed"
+    assert truth.expect_eustack.hang_detected is False
+    assert truth.expect_eustack.total_threads == 3903
+    assert truth.expect_eustack.warn == 0
+    assert truth.expect_eustack.critical == 0
+    assert truth.expect_eustack.info_dimensions == [
+        "unclassified_thread_pct",
+        "no_resolvable_frame_pct",
+    ]
+
+
+def test_load_truth_eustack_unknown_key_raises(tmp_path: Path) -> None:
+    # The nested model's own extra="forbid" fires independently of Truth's.
+    path = tmp_path / "truth.yaml"
+    path.write_text(
+        "root_cause: x\n"
+        "expect_eustack:\n"
+        "  provenance: observed\n"
+        "  hang_detected: false\n"
+        "  total_threads: 1\n"
+        "  bogus_key: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError):
+        load_truth(path)
+
+
+def test_load_truth_eustack_missing_provenance_raises(tmp_path: Path) -> None:
+    path = tmp_path / "truth.yaml"
+    path.write_text(
+        "root_cause: x\n"
+        "expect_eustack:\n"
+        "  hang_detected: false\n"
+        "  total_threads: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError):
+        load_truth(path)
+
+
+def test_load_truth_eustack_invalid_provenance_raises(tmp_path: Path) -> None:
+    path = tmp_path / "truth.yaml"
+    path.write_text(
+        "root_cause: x\n"
+        "expect_eustack:\n"
+        "  provenance: fabricated\n"
+        "  hang_detected: false\n"
+        "  total_threads: 1\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError):
         load_truth(path)
 
 

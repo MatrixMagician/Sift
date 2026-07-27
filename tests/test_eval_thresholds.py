@@ -228,3 +228,52 @@ def test_negative_false_positive_forces_gate_fail() -> None:
     result = gate(suite, _floors())
     assert result.passed is False
     assert "neg" in result.false_positive_cases
+
+
+# --------------------------------------------------------------------------- #
+# eu-stack aggregate exclusion (EUS-12, D-19-06 / RESEARCH Pitfall 1)
+# --------------------------------------------------------------------------- #
+
+
+def _eustack_case(name: str, *, pass_: bool = True) -> CaseResult:
+    """An eu-stack CaseResult with all four keyword metrics at 0.0 — the
+    honest default, never a fabricated 1.0 (they are inert once excluded)."""
+    return CaseResult(
+        name=name,
+        retrieval_hit_rate=0.0,
+        hypothesis_hit_at_k=0.0,
+        citation_validity_rate=0.0,
+        determinism_stability=0.0,
+        is_eustack=True,
+        eustack_case_pass=pass_,
+    )
+
+
+def test_eustack_case_excluded_from_all_four_keyword_aggregates() -> None:
+    # One eu-stack case with all-zero keyword metrics plus one ordinary
+    # perfect positive case: every one of the four aggregates must read the
+    # positive case's 1.0 only — the eu-stack case moved none of them.
+    suite = SuiteResult([_perfect_case("pos"), _eustack_case("eustack-healthy")])
+    assert suite.mean_retrieval_hit_rate() == 1.0
+    assert suite.mean_hypothesis_hit_at_k() == 1.0
+    assert suite.mean_citation_validity_rate() == 1.0
+    assert suite.mean_determinism_stability() == 1.0
+
+
+def test_mean_eustack_detection_rate_reads_only_eustack_cases() -> None:
+    suite = SuiteResult(
+        [
+            _perfect_case("pos"),
+            _eustack_case("eustack-healthy", pass_=True),
+            _eustack_case("eustack-hang", pass_=False),
+        ]
+    )
+    assert suite.mean_eustack_detection_rate() == 0.5
+
+
+def test_mean_eustack_detection_rate_empty_suite_is_vacuous_one() -> None:
+    # No eu-stack cases scored at all -> _mean([])'s vacuous 1.0 (EUS-12's own
+    # gate.py vacuity flag, plan 19-03, is what makes THIS never silently pass
+    # a suite that dropped its eu-stack cases entirely).
+    suite = SuiteResult([_perfect_case("pos")])
+    assert suite.mean_eustack_detection_rate() == 1.0
