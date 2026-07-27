@@ -1,16 +1,26 @@
 """Suite-level validation for the committed golden cases (EVAL-01).
 
 Proves the frozen suite as a whole: every case's ``truth.yaml`` loads through the
-schema-forbidding loader, the suite is exactly the nine required cases, the three
-special shapes (quiet-cause, mixed-timezone, negative) are present, and the
-negative case scores a pass by the no-confident-hypothesis predicate when run
-offline. Zero sockets — the negative run is served by an ``httpx.MockTransport``
-so the autouse ``_no_network`` guard stays active.
+schema-forbidding loader, the suite is exactly the eleven required cases, the
+three special shapes (quiet-cause, mixed-timezone, negative) are present, and
+the negative case scores a pass by the no-confident-hypothesis predicate when
+run offline. Zero sockets — the negative run is served by an
+``httpx.MockTransport`` so the autouse ``_no_network`` guard stays active.
+
+Three of the eleven cases are eu-stack golden cases (EUS-12), scored entirely
+offline against ``analyse_eustack_bundle`` with no inference endpoint at all
+(D-19-06/D-19-16): ``eustack-healthy`` (the real, observed reference capture —
+proves the analyser does not cry wolf), ``eustack-hang-pool-warehouse`` (a
+synthetic, authored warehouse connection-pool exhaustion — proves the analyser
+reproduces a documented hang shape's figures) and
+``eustack-hang-pool-warehouse-mutated`` (that positive's cosmetic-mutation
+twin — proves detection is not overfit to string equality, D-19-11).
 """
 
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -29,8 +39,13 @@ _SUITE = _REPO_ROOT / "eval" / "cases"
 
 # The complete suite: five SPEC §6 exemplars, the negative case, the MCM denial
 # golden case (MCM-07, Plan 11-03), the perfmon-denial golden case (PERF-08,
-# Plan 14-05), plus the eustack-healthy golden case — the real, observed
-# reference capture, LLM-free (EUS-12, Plan 19-03).
+# Plan 14-05), plus the three eu-stack golden cases (EUS-12): eustack-healthy
+# (Plan 19-03, the real observed reference capture — proves no false alarm),
+# eustack-hang-pool-warehouse (Plan 19-04, synthetic authored pool exhaustion
+# — proves a documented hang shape is detected) and its cosmetic-mutation
+# twin eustack-hang-pool-warehouse-mutated (Plan 19-04, D-19-11 — proves
+# detection is not overfit to string equality). All three eu-stack cases are
+# LLM-free (D-19-06/D-19-16).
 _EXPECTED_CASES = {
     "memory-watermark-cascade",
     "smtp-rejection-storm",
@@ -41,6 +56,8 @@ _EXPECTED_CASES = {
     "mcm-denial",
     "perfmon-denial",
     "eustack-healthy",
+    "eustack-hang-pool-warehouse",
+    "eustack-hang-pool-warehouse-mutated",
 }
 
 # The offline reply for the negative case: a HypothesisSet with no hypotheses, so
@@ -85,12 +102,14 @@ def _offline_client(
     return client, http
 
 
-def test_suite_is_exactly_the_nine_cases() -> None:
+def test_suite_is_exactly_the_eleven_cases() -> None:
     dirs = {d.name for d in _case_dirs()}
     assert dirs == _EXPECTED_CASES
-    assert len(dirs) == 9
+    assert len(dirs) == 11
     assert "perfmon-denial" in dirs
     assert "eustack-healthy" in dirs
+    assert "eustack-hang-pool-warehouse" in dirs
+    assert "eustack-hang-pool-warehouse-mutated" in dirs
 
 
 def test_every_truth_yaml_loads() -> None:
@@ -559,3 +578,102 @@ def test_only_the_healthy_case_is_marked_observed() -> None:
             observed.append(case_dir.name)
     assert examined >= 1
     assert observed == ["eustack-healthy"]
+
+
+def test_eustack_gate_is_analyser_sensitive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-19-14: `sift eval` exits non-zero when the analyser stops
+    reproducing a declared eu-stack figure — the gate is proven to bite, not
+    merely to be configured. The INTACT run also proves D-19-16 (an
+    eu-stack-only suite reaches a verdict with an observably empty request
+    log); the NEUTERED run strips the warehouse-subsystem rule ONLY at the
+    `load_rules` seam via monkeypatch, never on disk (T-19-16)."""
+    import shutil
+
+    from typer.testing import CliRunner
+
+    from sift.cli import app
+
+    scoped_suite = tmp_path / "eustack-suite"
+    scoped_suite.mkdir()
+    for name in (
+        "eustack-healthy",
+        "eustack-hang-pool-warehouse",
+        "eustack-hang-pool-warehouse-mutated",
+    ):
+        shutil.copytree(_SUITE / name, scoped_suite / name)
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={"data": []})
+
+    def _factory(timeout: float) -> httpx.Client:
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
+        )
+
+    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    runner = CliRunner()
+
+    # INTACT: exit 0, and the recorded request log is observably empty — the
+    # eu-stack-only subset genuinely reaches no inference endpoint (D-19-16).
+    intact = runner.invoke(
+        app,
+        [
+            "eval",
+            "--suite",
+            str(scoped_suite),
+            "--thresholds",
+            "eval/thresholds.toml",
+        ],
+    )
+    assert intact.exit_code == 0, intact.output
+    assert calls == []
+
+    # NEUTERED: strip the warehouse-pattern rule at the load_rules SEAM only
+    # (never editing src/sift/rules/eustack_roles.toml on disk) — the
+    # warehouse-wait threads then classify unclassified, so the declared
+    # pool/dependency figures stop reproducing.
+    from sift.pipeline.eustack import load_rules as real_load_rules
+
+    def _neutered_load_rules(
+        rules_path: str | None = None,
+    ) -> tuple[object, str]:
+        rules, rules_hash = real_load_rules(rules_path)
+        stripped = tuple(
+            r
+            for r in rules.rule
+            if "CDSSQueryEngine::WaitUntilFinished" not in r.pattern
+        )
+        assert len(stripped) < len(rules.rule), (
+            "the warehouse rule was not present to strip"
+        )
+        return rules.model_copy(update={"rule": stripped}), rules_hash
+
+    monkeypatch.setattr("sift.pipeline.eustack.load_rules", _neutered_load_rules)
+
+    neutered = runner.invoke(
+        app,
+        [
+            "eval",
+            "--suite",
+            str(scoped_suite),
+            "--thresholds",
+            "eval/thresholds.toml",
+        ],
+    )
+    assert neutered.exit_code != 0
+    assert "eustack_detection_rate" in neutered.output
+
+    # The shipped rules file on disk is untouched by the neuter above.
+    diff = subprocess.run(
+        ["git", "diff", "--stat", "src/sift/rules/eustack_roles.toml"],
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert diff.stdout == ""

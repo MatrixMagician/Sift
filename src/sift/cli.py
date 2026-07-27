@@ -1485,6 +1485,10 @@ def eval_(
     negative case emitted a confident hypothesis (a non-suppressible CI signal).
     A missing/invalid ``--suite`` or unreadable ``--thresholds`` is a usage error
     (exit 2).
+
+    The eu-stack golden cases (``eustack-*``) are scored deterministically
+    against ``analyse_eustack_bundle`` and run without an inference endpoint at
+    all (D-19-16); every other case in the suite still requires one.
     """
     from sift.eval.metrics import SuiteResult
     from sift.eval.report import render_json_table, render_text_table
