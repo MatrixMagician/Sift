@@ -1,0 +1,615 @@
+-- authored eu-stack fixture; frames copied from the real reference capture, population authored (EUS-12, D-19-09) --
+-- warehouse-wait and idle-parked frame blocks below are copied VERBATIM from the real capture at ~/Downloads/iserver1_stacks_1-minute_diff/ (filename redacted -- carries an environment identifier); only TIDs are synthetic --
+-- scenario: 25 threads saturate the warehouse pool waiting on CDSSQueryEngine::WaitUntilFinished, alongside 10 idle-parked job-queue noise threads --
+2026-07-27T12:00:00+00:00 eu-stack backtrace of process castorserver
+PID 900000 - castorserver
+TID 900001:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900002:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900003:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900004:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900005:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900006:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900007:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900008:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900009:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900010:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900011:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900012:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900013:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900014:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900015:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900016:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900017:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900018:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900019:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900020:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900021:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900022:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900023:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900024:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 900025:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271ae188 MSynch::EventImpl::Wait(unsigned int) const
+#3  0x0000714c9dced506 CDSSQueryEngine::WaitUntilFinished()
+#4  0x0000714c9dd6361c CDSSQueryEngine::RunAllSQLs(int, MsiFileTable::MsiFileTableFlag, MDb::Error&, DFCStringResVec*, CDSSQueryEngine::Check_Cancel_Status*, bool*)
+#5  0x0000714c9dd65ff3 CDSSQueryEngine::RunReport(MDb::Error&)
+#6  0x0000714c9dd66c2b CDSSQueryEngine::RunReportPushdownTableWrapper(MDb::Error&)
+#7  0x0000714c9dd671f4 CDSSQueryEngine::Run()
+#8  0x0000714c9dd82fd8 CDSSQueryEngineServer::RunAndCleanup(CDSSQueryEngine*, int, bool, ICDSSReportInstance*, ICDSSProcessContext*)
+#9  0x0000714c9dd8404a CDSSQueryEngineServer::RealProcess(int, ICDSSProcessContext*)
+#10 0x0000714c9dd8509f CDSSQueryEngineServer::Process(int, ICDSSProcessContext*)
+#11 0x0000714e129b9204 DSSComponentTask::Run()
+#12 0x0000714e0b53e12e MSIStationTask::Run()
+#13 0x0000714e0b541d4d MSIQTask::Run()
+#14 0x0000714e122caca4 MSIThreadPoolTask::Run()
+#15 0x0000714e122c2167 MSIThread::Run()
+#16 0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#17 0x0000714e261912ea start_thread
+#18 0x0000714e262163c0 __clone3
+TID 901001:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901002:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901003:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901004:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901005:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901006:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901007:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901008:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901009:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
+TID 901010:
+#0  0x0000714e2618e37a __futex_abstimed_wait_common
+#1  0x0000714e26190abf pthread_cond_timedwait@@GLIBC_2.3.2
+#2  0x0000714e271b4a4f MSynch::Semaphore::SmartLock::WaitForResource(unsigned int)
+#3  0x0000714e0b52ef0e MSIQTask::GetNextPreferredJob(MSISubQ<MSIJob, MSIJobInfo>*, int, std::_List_iterator<int>, MSIJob**, MSIBasicQ<MSIJob, MSIJobInfo>**, MSIQReturnStatus*)
+#4  0x0000714e0b540a14 MSIQTask::Run()
+#5  0x0000714e122caca4 MSIThreadPoolTask::Run()
+#6  0x0000714e122c2167 MSIThread::Run()
+#7  0x0000714e271b4e22 MSynch::ThreadImpl::ThreadFunction(void*)
+#8  0x0000714e261912ea start_thread
+#9  0x0000714e262163c0 __clone3
