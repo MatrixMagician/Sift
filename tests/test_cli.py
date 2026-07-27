@@ -1409,9 +1409,17 @@ def test_ingest_perfmon_idempotent(tmp_path: Path) -> None:
 _MCM_LOG = _FIXTURES / "mcm" / "hartford_deny_slice.log"
 _PERFMON_FIXTURE_CSV = _FIXTURES / "dssperfmon" / _PERFMON_CSV
 
+# tests/fixtures/eustack/threaddump.txt parses to exactly 6 events (measured,
+# same figure the phase-5 e2e parametrisation pins), 4 of them thread records.
+_EUSTACK_THREADDUMP_EVENTS = 6
+_EUSTACK_FIXTURE_DUMP = _FIXTURES / "eustack" / "threaddump.txt"
 
-def _ingest_case(tmp_path: Path, case: str, *, with_csv: bool) -> None:
-    """Create and ingest a case from the shared log, optionally plus the CSV.
+
+def _ingest_case(
+    tmp_path: Path, case: str, *, with_csv: bool, with_eustack: bool = False
+) -> None:
+    """Create and ingest a case from the shared log, optionally plus the CSV
+    and/or the eu-stack thread dump.
 
     No `analyze` step, so no embedding or LLM call occurs — `show clusters`
     falls back to the template-group path, which is both the cheaper and the
@@ -1422,6 +1430,8 @@ def _ingest_case(tmp_path: Path, case: str, *, with_csv: bool) -> None:
     shutil.copy(_MCM_LOG, input_dir / _MCM_LOG.name)
     if with_csv:
         shutil.copy(_PERFMON_FIXTURE_CSV, input_dir / _PERFMON_CSV)
+    if with_eustack:
+        shutil.copy(_EUSTACK_FIXTURE_DUMP, input_dir / _EUSTACK_FIXTURE_DUMP.name)
     assert runner.invoke(app, ["new", case, "--input", str(input_dir)]).exit_code == 0
     result = runner.invoke(app, ["ingest", case])
     assert result.exit_code == 0, result.output
@@ -1483,6 +1493,78 @@ def test_every_perfmon_sample_citable_and_none_ranked(tmp_path: Path) -> None:
         assert ranked, "non-vacuity: ranking seam yielded nothing at all"
     finally:
         store.close()
+
+
+# --- plan 19-01: EUS-11 exclusion, mirroring the PERF-03 block above -------
+
+
+def test_cluster_output_identical_with_and_without_eustack(tmp_path: Path) -> None:
+    """D-19-03: adding an eu-stack dump perturbs no cluster output at all.
+
+    Compares the DERIVED cluster output, never the two case.db files — case B
+    legitimately holds the eu-stack events. Case A carries the shared MCM log
+    (a non-eu-stack ranked source), so — unlike a bare eu-stack-only
+    comparison — this guards against the vacuous case where both sides would
+    otherwise trivially be empty and the equality would pass while proving
+    nothing.
+    """
+    _ingest_case(tmp_path, "logonly", with_csv=False)
+    _ingest_case(tmp_path, "logplus", with_csv=False, with_eustack=True)
+
+    a = runner.invoke(app, ["show", "logonly", "clusters"])
+    b = runner.invoke(app, ["show", "logplus", "clusters"])
+    assert a.exit_code == 0, a.output
+    assert b.exit_code == 0, b.output
+    assert a.output == b.output, "eu-stack dump perturbed cluster output"
+
+    # Non-vacuity guard 1: case A genuinely has rendered cluster rows — an
+    # eu-stack-only comparison would leave both sides trivially empty.
+    assert a.output.strip() != "", "non-vacuity: case A rendered no clusters"
+
+    # Non-vacuity guard 2: the dump really was ingested, not silently dropped.
+    n_a = len(_read_event_ids("logonly"))
+    n_b = len(_read_event_ids("logplus"))
+    assert n_b > n_a, f"eu-stack dump was not ingested: {n_a} vs {n_b} events"
+
+    # Non-vacuity guard 3: the exact delta matches the measured fixture size.
+    assert n_b - n_a == _EUSTACK_THREADDUMP_EVENTS
+
+
+def test_every_eustack_event_citable_and_none_ranked(tmp_path: Path) -> None:
+    """EUS-11 over the whole ingested population, not one seeded event.
+
+    Mirrors test_every_perfmon_sample_citable_and_none_ranked: every eu-stack
+    event_id must resolve through the citation path while none reach the
+    ranking seam.
+    """
+    _ingest_case(tmp_path, "logplus", with_csv=False, with_eustack=True)
+    store = CaseStore(case_db_path(load_config().data_dir, "logplus"))
+    try:
+        eustack_ids = {
+            e.event_id for e in store.query_events() if e.source == "eustack"
+        }
+        assert len(eustack_ids) == _EUSTACK_THREADDUMP_EVENTS, (
+            "fixture did not ingest as expected"
+        )
+
+        cited = store.get_events_by_ids(sorted(eustack_ids))
+        assert set(cited) == eustack_ids, "eustack events not individually citable"
+
+        ranked = {row[0] for row in store.iter_event_summaries()}
+        assert not (eustack_ids & ranked), "eustack leaked into the ranking seam"
+        assert ranked, "non-vacuity: ranking seam yielded nothing at all"
+    finally:
+        store.close()
+
+
+def test_show_events_includes_eustack(tmp_path: Path) -> None:
+    """D-19-04 at CLI level: exclusion never reached the citation path."""
+    _ingest_case(tmp_path, "logplus", with_csv=False, with_eustack=True)
+    shown = runner.invoke(app, ["show", "logplus", "events"])
+    assert shown.exit_code == 0, shown.output
+    assert _EUSTACK_FIXTURE_DUMP.name in shown.output, (
+        "eustack rows vanished from show events"
+    )
 
 
 def _case_dir(case: str = "demo") -> Path:
