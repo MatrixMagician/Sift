@@ -1,7 +1,8 @@
 ---
 phase: 18-eu-stack-facts-into-sift-analyze
 verified: 2026-07-26T00:00:00Z
-status: human_needed
+status: passed
+resolved: 2026-07-27T00:00:00Z
 score: 4/4 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
@@ -9,6 +10,8 @@ human_verification:
   - test: "Ingest /home/oliverh/Downloads/iserver1_stacks_1-minute_diff/ into a case and run `uv run sift analyze <case>`"
     expected: "(a) the eu-stack fact block appears in the generated report's evidence; (b) its figures match `uv run sift eustack <case>` output for the same case; (c) the suppression statement is present, because that capture carries no header timestamp (multi-dump, unverified order); (d) every `[evt:]` id cited in the resulting hypotheses resolves via `uv run sift show events`"
     why_human: "Requires a live local inference endpoint (llama.cpp / Lemonade). The default test suite is socket-blocked per ADR 0002 and LLM prose/narration quality is not assertable by automated means. This is the sole Manual-Only Verification row in 18-VALIDATION.md and no executor or verifier ran it — no live endpoint is available to this agent either."
+    result: passed
+    signed_off: "2026-07-27 — user confirmed (a) against a live endpoint on case `p18uat`; (b), (c) and (d) machine-verified (see resolution note below)."
 ---
 
 # Phase 18: Eu-Stack Facts into `sift analyze` Verification Report
@@ -112,3 +115,46 @@ check to a whole-block invariant. The only reason this phase is not `passed` out
 single Manual-Only Verification row that no automated or agent process can execute in this
 environment (no live local inference endpoint) — that item is deferred to human sign-off per its
 own validation-strategy row, not because any automated check failed or is missing.
+
+### Resolution — human sign-off, 2026-07-27
+
+The Manual-Only Verification row is now **passed**. Executed against a fresh case `p18uat`
+(`sift new` + `sift ingest` over `/home/oliverh/Downloads/iserver1_stacks_1-minute_diff/`,
+100.0% parse coverage on both dumps, 7807 events, 84 template groups) built at HEAD `9f55706`,
+i.e. after the CR-01/WR-01/WR-02 fixes in `2a64b81`.
+
+- **(a) — user-confirmed.** The eu-stack fact block appears in the generated report's evidence
+  and narrates the real finding; no invented progression figure. `sift analyze` produced 2
+  hypotheses, both citation-status `OK`: "Http and Warehouse Pools at 100% Occupancy" and
+  "Idle Threads in Job-Queue, Evaluation, and Command-Queue Pools".
+- **(b) — machine-verified.** Every figure in the rendered block matches
+  `eustack_report.md` exactly: role composition 3652 idle-parked / 199 blocked-on-external /
+  52 unclassified of 3903 across 84 signatures; all 15 pool occupancies; dependency waits
+  97 http / 94 warehouse / 8 ipc; flag `unclassified_thread_pct` 1.3 (info).
+- **(c) — machine-verified.** The D-10 suppression statement is present and **no** delta figure
+  appears anywhere in the block, even though the deterministic report does print a full
+  Progression table (30 changed signatures, e.g. `1715 -> 1713`). This capture carries no header
+  timestamp, so ordering rests on the unverified filename-sort path — the divergence is D-10
+  behaving as designed.
+- **(d) — machine-verified.** 9 distinct `supporting_event_ids` across both hypotheses: 0 absent
+  from the case store, 0 drawn from outside the eu-stack block's 49-id citable set.
+
+Item 2 (signature cap / dropped-count / lock-site vocabulary, the 18-02 D3 SUMMARY metadata
+omission) was additionally confirmed empirically on this real capture: exactly 8 signature lines
+in most-populous-first order (1713, 1120, 244, 213, 110, 80, 79, 78) with no re-sort; the
+dropped-count sentence reads "76 further signatures not shown (of 84 total signatures)"
+(8 + 76 = 84); and no ownership/possession vocabulary is emitted. The CR-01 whole-block invariant
+also holds on real data — every `[evt:]`-bearing line carries the D-03 sampling-disclosure
+sentence.
+
+**Non-blocking observation, out of Phase 18 scope.** The report's "Unexplained signals" section
+rendered three bare event ids (`053ca6347771791f`, `085613be17851c30`, `127ca36695901e7e` — the
+unclassified-thread exemplars) rather than prose. That is the model reading `triage.md:33`
+("a list of notable events left unexplained…") literally. The field is M4/D-05 vintage, untouched
+by this phase, sits outside the `supporting_event_ids` citation-validation path, and all three ids
+resolve to real stored events — so it is a narration-wording wart, not a defect or a
+hallucination. Logged as a v1.4 seed (one-line prompt reword), not a Phase 18 gap.
+
+**Known coverage limit, carried forward unchanged.** This capture has zero lock sites, so the
+lock-site rendering path remains unexercised against real data (consistent with
+`blocked-on-lock = 0` on both real dumps; proven only by synthetic test).
