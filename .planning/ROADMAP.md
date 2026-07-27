@@ -181,7 +181,7 @@ Plans:
   3. Synthetic hang fixtures — labelled in the harness as authored, not observed — are detected, and stay detected under cosmetic mutation (renumbered TIDs, reordered threads, differing instruction addresses)
   4. `sift eval` exits non-zero on threshold regression across both the negative and the positive eu-stack cases, and a vacuous pass (empty positive set) is impossible
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans executed
 
 Plans:
 **Wave 1**
@@ -198,7 +198,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 19-04-PLAN.md — EUS-12 positives: the synthetic warehouse-pool-exhaustion case, its cosmetic-mutation twin, and the gate-bites sensitivity test
+- [x] 19-04-PLAN.md — EUS-12 positives: the synthetic warehouse-pool-exhaustion case, its cosmetic-mutation twin, and the gate-bites sensitivity test
 
 **Sequencing note (within phase)**: EUS-11 lands **first**, before EUS-12's fixtures are authored, so the golden fixtures reflect final ranking behaviour rather than a moving target. Exclusion stays a property of source kind through the single `EXCLUDED_FROM_RANKING` seam (`store.py`) with no opt-out flag and no composition-dependent middle option — the D-07 principle. Fixtures must derive from the documented hang scenario, never from the rules-file strings, or the eval proves only that the code runs.
 
