@@ -217,10 +217,21 @@ Plans:
 **Plans**: 5 plans across 4 waves
 
 Plans:
+**Wave 1**
+
 - [ ] 20-01-PLAN.md — Tracer: end-to-end vector reuse, read to printed `Embeddings: N new, M reused` split (wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 20-02-PLAN.md — Model-identity invalidation, unknown-identity warning, `--re-embed` cache bypass (wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 20-03-PLAN.md — Dimension-change rebuild: paired `vectors` + `kb_vectors` drop with blast-radius announcement (wave 3)
 - [ ] 20-05-PLAN.md — D-10: generation prompt-budget context window via `/props`, with precedence fix and estimated-budget warning (wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 20-04-PLAN.md — Determinism guarantees (dedup, exact-text key, mixed-run byte identity, batch-knob non-invalidation) + ADR 0018 (wave 4)
 
 **ADR flag**: The batch-knob decision is **already settled** — a knob change does not invalidate reuse; model or dimension change does; `--re-embed` is the escape hatch. The plan-time task is to **record** it as an ADR in `docs/decisions/`, not to re-decide it. Rationale: not invalidating is precisely what makes a re-run reproducible; invalidating would re-embed under a new batch layout on the first run after any knob change, reopening the hysteresis SEED-002 exists to eliminate.
