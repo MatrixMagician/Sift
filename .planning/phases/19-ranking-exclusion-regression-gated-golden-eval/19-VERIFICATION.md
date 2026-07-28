@@ -1,11 +1,12 @@
 ---
 phase: 19-ranking-exclusion-regression-gated-golden-eval
 verified: 2026-07-27T00:00:00Z
-status: human_needed
+status: passed
 score: 8/8 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "sift analyze on the real eu-stack-only capture narrates the fact block (D-19-02)"
     expected: "Running `uv run sift analyze <case>` against a case ingested from ~/Downloads/iserver1_stacks_1-minute_diff/ does NOT print 'Nothing to cluster; run sift ingest first', reaches hypothesise(), and the resulting report narrates/cites eu-stack event ids."
     why_human: "Requires a live local inference endpoint (llama-server/Lemonade) that no agent in this environment can reach. This is the single item recorded in 19-VALIDATION.md's Manual-Only table; every other behaviour in this phase (exclusion, byte-identity + non-vacuity, citability, fixture detection, mutation invariance, and the sift eval gate) is verified automated and offline."
@@ -18,7 +19,7 @@ deterministic replacement has shipped, and the whole eu-stack path is locked beh
 regression gates.
 
 **Verified:** 2026-07-27
-**Status:** human_needed
+**Status:** passed (human item signed off 2026-07-28 — see `19-UAT.md` test 20)
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
@@ -50,13 +51,16 @@ D-19-02's decision text in `19-CONTEXT.md` exactly.
 
 - **D-19-17** ("detected" = measured figures match, never `bool(flags)`): confirmed —
   `_eustack_verdict` never reads a boolean flag presence; `hang_detected` is declarative-only.
+
 - **D-19-18 / D-19-15 amendment** (severity-bucketed flag declaration, not `flags == 0`): confirmed
   in both `eustack-healthy/truth.yaml` (`warn: 0, critical: 0, info_dimensions: [...]`) and
   `_eustack_verdict`'s comparison logic.
+
 - **RESEARCH.md's superseded "Pattern 4"** (engineering the fixture to also trip
   `lock_convergence_count` so `bool(flags)` would work): confirmed ABSENT —
   `grep lock_convergence_count eval/cases/eustack-hang-*/truth.yaml` returns nothing; the SUMMARY
   explicitly records this was declined per D-19-17/D-19-18 supersession.
+
 - **D-19-16** (LLM-free split documented in the harness's own description): confirmed —
   `uv run sift eval --help` prints "The eu-stack golden cases (`eustack-*`) are scored
   deterministically against `analyse_eustack_bundle` and run without an inference endpoint at all

@@ -20,7 +20,7 @@ and `vX.Y-phases/` the archived phase directories.
 - [x] **Phase 16: Saturation, Contention & Signature Collapse** - Per-pool occupancy, ownership-blind lock convergence, external-wait concentration and signature ranking, all computed model-free (completed 2026-07-25)
 - [x] **Phase 17: Multi-Dump Progression & `sift eustack` Report + CSV** - One command produces the full deterministic report from one dump or many, with no DSSErrors log required (completed 2026-07-26)
 - [x] **Phase 18: Eu-Stack Facts into `sift analyze`** - Computed eu-stack figures reach the model as cited-not-authored evidence; no-eu-stack prompt stays byte-identical (completed 2026-07-27)
-- [ ] **Phase 19: Ranking Exclusion & Regression-Gated Golden Eval** - Thread events leave dedup/embed/cluster/salience once the replacement ships, then the whole path is regression-gated
+- [x] **Phase 19: Ranking Exclusion & Regression-Gated Golden Eval** - Thread events leave dedup/embed/cluster/salience once the replacement ships, then the whole path is regression-gated (completed 2026-07-28)
 - [ ] **Phase 20: SEED-002 Embedding Vector Reuse (DET-01)** - Re-analysing an unchanged case reuses stored vectors instead of re-embedding, closing the ADR 0014 exposure
 
 <details>
@@ -233,7 +233,7 @@ Plans:
 | 16. Saturation, Contention & Signature Collapse | v1.3 | 0/? | Complete    | 2026-07-25 |
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/3 | Complete    | 2026-07-26 |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Complete    | 2026-07-27 |
-| 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | In Progress|  |
+| 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Complete    | 2026-07-28 |
 | 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/? | Not started | - |
 
 ## Backlog
