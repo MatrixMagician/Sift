@@ -8,9 +8,10 @@ can be proven against observed evidence rather than an authored scenario.
 
 ## Provenance
 
-`input/threaddump.txt` is derived from the real capture at
-`/home/oliverh/Downloads/iserver1_stacks_1-minute_diff/` (the earlier,
-`160739`, dump of the two) via
+`input/threaddump.txt` is derived from the real reference capture (the earlier,
+`160739`, dump of the two; its directory and filename carry an environment
+identifier and are deliberately not recorded here — supply the path locally
+when re-deriving) via
 `tests/fixtures/eustack/derive_reference_capture_derivative.py`'s `--scale`
 mode, added in this plan (19-03). The tool is deliberately meaning-blind — no
 role, rule, pool or dependency concept, only per-signature block counts — so

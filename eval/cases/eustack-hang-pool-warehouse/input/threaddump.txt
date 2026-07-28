@@ -1,5 +1,5 @@
 -- authored eu-stack fixture; frames copied from the real reference capture, population authored (EUS-12, D-19-09) --
--- warehouse-wait and idle-parked frame blocks below are copied VERBATIM from the real capture at ~/Downloads/iserver1_stacks_1-minute_diff/ (filename redacted -- carries an environment identifier); only TIDs are synthetic --
+-- warehouse-wait and idle-parked frame blocks below are copied VERBATIM from the real reference capture (the earlier, 160739, dump; path and filename redacted -- they carry an environment identifier); only TIDs are synthetic --
 -- scenario: 25 threads saturate the warehouse pool waiting on CDSSQueryEngine::WaitUntilFinished, alongside 10 idle-parked job-queue noise threads --
 2026-07-27T12:00:00+00:00 eu-stack backtrace of process castorserver
 PID 900000 - castorserver

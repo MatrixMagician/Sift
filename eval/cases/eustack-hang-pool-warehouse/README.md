@@ -16,10 +16,10 @@ endpoint touched at all (D-19-06/D-19-16).
   `.planning/research/PITFALLS.md` Pitfall 5 and `19-CONTEXT.md` D-19-09
   specify.
 - **Frames (observed):** copied byte-for-byte from the real reference capture
-  at `~/Downloads/iserver1_stacks_1-minute_diff/` (the earlier, `160739`,
-  dump — the same capture `eustack-healthy`'s derivative is built from). The
-  capture's own filename carries an environment identifier and is never
-  written into this repository.
+  (the earlier, `160739`, dump — the same capture `eustack-healthy`'s
+  derivative is built from). The capture's own directory and filename carry an
+  environment identifier and are never written into this repository; supply the
+  path locally when re-deriving.
   - The warehouse-wait block (19 frames, `#0`–`#18`) is one of the two
     thread shapes measured among the capture's 79 genuinely
     `CDSSQueryEngine::WaitUntilFinished`-waiting threads (the majority
