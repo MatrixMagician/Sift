@@ -5,8 +5,8 @@ milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 20
 current_phase_name: DET-01
 status: planning
-stopped_at: Completed 19-04-PLAN.md
-last_updated: "2026-07-28T09:44:30.152Z"
+stopped_at: Phase 20 context gathered
+last_updated: "2026-07-28T10:19:37.188Z"
 last_activity: 2026-07-28
 last_activity_desc: Phase 19 complete, transitioned to Phase 20
 progress:
@@ -363,9 +363,9 @@ passed audit:
 
 ## Session Continuity
 
-Last session: 2026-07-27T18:08:45.156Z
-Stopped at: Completed 19-04-PLAN.md
-Resume file: None
+Last session: 2026-07-28T10:19:37.173Z
+Stopped at: Phase 20 context gathered
+Resume file: .planning/phases/20-seed-002-embedding-vector-reuse-det-01/20-CONTEXT.md
 
 ## Operator Next Steps
 
