@@ -214,7 +214,15 @@ Plans:
   3. Changing the embedding model or its dimension forces a full re-embed rather than silently reusing stale vectors under a new model's identity
   4. Changing a batch knob (`embeddings.context` / `batch_size` / `max_input_chars`) does **not** invalidate reuse, and `sift analyze --re-embed` is the explicit operator escape hatch that applies it
 
-**Plans**: TBD
+**Plans**: 5 plans across 4 waves
+
+Plans:
+- [ ] 20-01-PLAN.md — Tracer: end-to-end vector reuse, read to printed `Embeddings: N new, M reused` split (wave 1)
+- [ ] 20-02-PLAN.md — Model-identity invalidation, unknown-identity warning, `--re-embed` cache bypass (wave 2)
+- [ ] 20-03-PLAN.md — Dimension-change rebuild: paired `vectors` + `kb_vectors` drop with blast-radius announcement (wave 3)
+- [ ] 20-05-PLAN.md — D-10: generation prompt-budget context window via `/props`, with precedence fix and estimated-budget warning (wave 3)
+- [ ] 20-04-PLAN.md — Determinism guarantees (dedup, exact-text key, mixed-run byte identity, batch-knob non-invalidation) + ADR 0018 (wave 4)
+
 **ADR flag**: The batch-knob decision is **already settled** — a knob change does not invalidate reuse; model or dimension change does; `--re-embed` is the escape hatch. The plan-time task is to **record** it as an ADR in `docs/decisions/`, not to re-decide it. Rationale: not invalidating is precisely what makes a re-run reproducible; invalidating would re-embed under a new batch layout on the first run after any knob change, reopening the hysteresis SEED-002 exists to eliminate.
 **Drop candidate**: If v1.3 runs hot, this is the natural phase to defer — it is a determinism and cost fix, not a milestone capability, and no EUS requirement depends on it. Deferring it leaves ADR 0014's exposure documented but not closed.
 
@@ -234,7 +242,7 @@ Plans:
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/3 | Complete    | 2026-07-26 |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Complete    | 2026-07-27 |
 | 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Complete    | 2026-07-28 |
-| 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/? | Not started | - |
+| 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/5 | Planned | - |
 
 ## Backlog
 
