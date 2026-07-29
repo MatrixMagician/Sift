@@ -35,11 +35,11 @@ import json
 from typing import TYPE_CHECKING
 
 # Reuse the load-bearing markdown escaping (sanitise + Markdown/HTML escape) —
-# NOT a second implementation. ``_field`` wraps ``render._util.sanitise``;
-# importing it here is the sanctioned cross-module reuse (as ``mcm_report``
-# does), never a reimplementation.
-from sift.render._util import sanitise
-from sift.render.markdown import _field  # pyright: ignore[reportPrivateUsage]
+# NOT a second implementation. ``md_field`` wraps ``render._util.sanitise``;
+# the shared implementation lives in ``_util`` so sibling renderers never
+# import each other's private symbols.
+from sift.render._util import csv_safe as _csv_safe
+from sift.render._util import md_field as _field
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -70,12 +70,6 @@ PERFMON_CSV_HEADER: tuple[str, ...] = (
     "boundary_event_ids",
 )
 
-# The characters a spreadsheet treats as the start of a formula when it opens a
-# CSV. Only the four printable triggers: leading whitespace is handled by
-# testing the first SIGNIFICANT character in ``_csv_safe`` (WR-05) rather than
-# by smuggling whitespace into the trigger set, where a naive first-character
-# check would still miss ``" =cmd"`` (a space, then a real trigger).
-_FORMULA_TRIGGERS = ("=", "+", "-", "@")
 
 # D-20: an analysis with no groups must state both facts — that no denial
 # episode was found, and what was (or was not) computed instead — so the report
@@ -198,45 +192,6 @@ def render_perfmon_json(analysis: PerfmonAnalysis) -> str:
     """
     doc = analysis.model_dump(mode="json")
     return json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
-
-
-def _csv_safe(value: str) -> str:
-    """Neutralise a spreadsheet formula trigger at the start of a CSV cell.
-
-    Three facts make this guard necessary and non-redundant (T-13-CSVINJ):
-
-    1. Perfmon counter names originate in the customer's DSSPerformanceMonitor
-       CSV header and are therefore attacker-influenceable. This is exactly the
-       premise that does NOT hold for ``mcm_report.write_attribution_csv``,
-       whose keys are structurally hex SIDs/OIDs or ``[\\w:]+`` source values
-       that cannot begin with a trigger — so that writer's quoting-suffices
-       reasoning is deliberately NOT carried over here. The divergence is
-       intentional, not an inconsistency.
-    2. ``csv.writer`` quoting prevents delimiter and newline injection, but a
-       quoted cell beginning ``=`` is still evaluated as a formula when the file
-       is opened in a spreadsheet. Quoting is the wrong layer for this threat.
-    3. ``render._util.sanitise`` handles a DIFFERENT threat and is composed here
-       ALONGSIDE the formula guard, not instead of it (CR-02): it strips the
-       control characters and Unicode-Cf code points (a single-byte CSI 0x9B, a
-       bidi override) that would otherwise drive the terminal of an operator who
-       ``cat``s the bundle — the same threat T-13-MDESC/T-13-JSONESC close for
-       the Markdown and JSON artefacts. Every printable formula trigger passes
-       through it untouched, so it cannot replace the quote-prefix.
-
-    Only string cells are guarded. A numeric cell is written by ``csv.writer``
-    from a real ``float``/``int``, so a legitimately negative figure such as a
-    falling slope keeps its leading minus sign rather than being corrupted into
-    text by a guard it never needed.
-
-    Ordering is load-bearing: sanitise FIRST (strip the control bytes), then
-    quote — quoting first would leave a stripped-to-empty trigger sitting behind
-    the quote. The first SIGNIFICANT character is tested, not literally the first
-    one: a spreadsheet strips leading whitespace before deciding a cell is a
-    formula, so ``" =cmd"`` is as dangerous as a bare ``=`` (WR-05).
-    """
-    cleaned = sanitise(value)
-    significant = cleaned.lstrip(" \t\r\n")
-    return f"'{cleaned}" if significant.startswith(_FORMULA_TRIGGERS) else cleaned
 
 
 def write_perfmon_trend_csv(analysis: PerfmonAnalysis, path: Path) -> None:

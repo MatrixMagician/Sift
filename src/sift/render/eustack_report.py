@@ -27,8 +27,8 @@ import csv
 import json
 from typing import TYPE_CHECKING
 
-from sift.render.markdown import _field  # pyright: ignore[reportPrivateUsage]
-from sift.render.perfmon_report import _csv_safe  # pyright: ignore[reportPrivateUsage]
+from sift.render._util import csv_safe as _csv_safe
+from sift.render._util import md_field as _field
 
 if TYPE_CHECKING:
     from pathlib import Path

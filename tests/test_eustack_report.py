@@ -37,7 +37,7 @@ from sift.render.eustack_report import (
     render_eustack_markdown,
     write_eustack_signatures_csv,
 )
-from sift.render.perfmon_report import _csv_safe as _perfmon_csv_safe
+from sift.render._util import csv_safe as _perfmon_csv_safe
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "eustack" / "progression"
 _REQUIREMENTS_MD = Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
