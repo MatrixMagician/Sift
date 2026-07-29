@@ -96,6 +96,29 @@ def test_query_events_deterministic_order(tmp_path: Path) -> None:
     ]
 
 
+def test_query_events_sources_scope(tmp_path: Path) -> None:
+    """``sources=`` scopes the read to those Event.source values (the memory
+    seam for analyser paths); ``None`` keeps the read-everything behaviour,
+    and canonical ordering is preserved inside the scoped result."""
+    store = CaseStore(tmp_path / "case.db")
+    t1 = datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC)
+    t2 = datetime(2026, 7, 16, 10, 0, 5, tzinfo=UTC)
+    store.insert_events(
+        [
+            _ev("app.log", offset=0, ts=t1, source="genericlog"),
+            _ev("DSSErrors.log", offset=10, ts=t2, source="dsserrors", line_start=2),
+            _ev("dump.txt", offset=20, ts=t1, source="eustack", line_start=3),
+        ]
+    )
+    assert len(store.query_events()) == 3
+    scoped = store.query_events(sources=["dsserrors", "eustack"])
+    assert [(e.source, e.ts) for e in scoped] == [
+        ("eustack", t1),
+        ("dsserrors", t2),
+    ]
+    assert store.query_events(sources=[]) == []
+
+
 def test_ts_roundtrip(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     aware = datetime(2026, 7, 16, 12, 34, 56, tzinfo=UTC)

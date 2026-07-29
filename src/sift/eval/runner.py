@@ -181,7 +181,7 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
                     seed.set_meta("input_dir", str((case_dir / "input").resolve()))
                     seed.set_meta("adapter_overrides", "[]")
                     run_ingest(name, config, seed)
-                    events = seed.query_events()
+                    events = seed.query_events(sources=["eustack"])
                 finally:
                     # A clean close checkpoints the WAL (Pitfall 4).
                     seed.close()

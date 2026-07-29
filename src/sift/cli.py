@@ -939,7 +939,12 @@ def mcm(
         # _case_store validated (case_db_path asserts containment) — only
         # <case>/mcm/ beneath it is ever created, never a user-supplied path.
         mcm_dir = case_db_path(config.data_dir, case).parent / "mcm"
-        analysis = analyse_mcm(store.query_events(), config.mcm.thresholds)
+        # Scoped to the analyser's own source: hydrating (and zstd-
+        # decompressing) unrelated genericlog/journald rows would cost memory
+        # for events analyse_mcm filters straight back out.
+        analysis = analyse_mcm(
+            store.query_events(sources=["dsserrors"]), config.mcm.thresholds
+        )
         if fmt is McmFormat.json:
             report_name = "mcm_report.json"
             report_text = render_mcm_json(analysis)
@@ -1030,12 +1035,14 @@ def perfmon(
         # _case_store validated (case_db_path asserts containment) — only
         # <case>/perfmon/ beneath it is ever created, never a user-supplied path.
         perfmon_dir = case_db_path(config.data_dir, case).parent / "perfmon"
-        # ONCE (T-13-DOUBLEREAD): the call hydrates and zstd-decompresses every
-        # row in the case, so the same list feeds both analyses rather than
-        # doubling an already-accepted cost. config.mcm.thresholds is threaded
-        # in only because obtaining the episodes needs it — the perfmon hazards
-        # themselves take no config knob.
-        events = store.query_events()
+        # ONCE (T-13-DOUBLEREAD): the same list feeds both analyses rather
+        # than doubling the hydrate/decompress cost — and the read is scoped
+        # to the two sources the correlator consumes, so unrelated
+        # genericlog/journald rows are never materialised.
+        # config.mcm.thresholds is threaded in only because obtaining the
+        # episodes needs it — the perfmon hazards themselves take no config
+        # knob.
+        events = store.query_events(sources=["dsserrors", "dssperfmon"])
         analysis = analyse_perfmon(analyse_mcm(events, config.mcm.thresholds), events)
         if fmt is PerfmonFormat.json:
             report_name = "perfmon_report.json"
@@ -1140,7 +1147,10 @@ def eustack(
         eustack_dir = case_db_path(config.data_dir, case).parent / "eustack"
         rules, rules_hash = load_rules(config.eustack.rules_path)
         bundle = analyse_eustack_bundle(
-            store.query_events(), rules, rules_hash, config.eustack.thresholds
+            store.query_events(sources=["eustack"]),
+            rules,
+            rules_hash,
+            config.eustack.thresholds,
         )
         if fmt is EustackFormat.json:
             report_name = "eustack_report.json"
