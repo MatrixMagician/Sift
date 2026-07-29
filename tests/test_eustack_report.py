@@ -320,10 +320,10 @@ def test_csv_safe_guards_formula_trigger_symbol(tmp_path: Path) -> None:
     literal leading space before the trigger can never survive into a stored
     ``SignatureGroup`` frame — that leading-whitespace-before-a-trigger case
     is instead proven directly against the imported guard, exactly the shape
-    ``_csv_safe``'s own docstring (``perfmon_report.py:203``) documents.
+    ``csv_safe``'s own docstring (``render/_util.py``) documents.
     """
-    assert eustack_report._csv_safe is _perfmon_csv_safe  # noqa: SLF001
-    assert eustack_report._csv_safe(" =cmd").startswith("'")  # noqa: SLF001
+    assert eustack_report._csv_safe is _perfmon_csv_safe  # noqa: SLF001 # pyright: ignore[reportPrivateUsage]
+    assert _perfmon_csv_safe(" =cmd").startswith("'")
 
     trigger_frame = "=cmd|('calc')!A1"
     events = _synthetic_dump("dumpA.txt", (trigger_frame,), count=5) + _synthetic_dump(
