@@ -1,7 +1,7 @@
 """WR-07: a disk-full / I/O error mid-ingest aborts with zero committed events.
 
 Forces a real ``SQLITE_FULL`` via ``PRAGMA max_page_count`` (no actual disk
-fill) and drives ``_ingest`` past that page budget, asserting a ``DiskFullError``
+fill) and drives ``run_ingest`` past that page budget, asserting a ``DiskFullError``
 abort AND an empty event table — the whole transaction rolled back, never a
 disk-full swallowed as one failed-parse file (RESEARCH Pitfall 1).
 """
@@ -10,11 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from sift.cli import (
-    DiskFullError,
-    _ingest,  # pyright: ignore[reportPrivateUsage] — drives the ingest body directly
-)
 from sift.config import load_config
+from sift.pipeline.ingest import DiskFullError, run_ingest
 from sift.store import CaseStore, case_db_path
 
 
@@ -45,7 +42,7 @@ def test_disk_full_mid_ingest_aborts_with_zero_events(tmp_path: Path) -> None:
 
     try:
         with pytest.raises(DiskFullError, match="disk full"):
-            _ingest("demo", config, store)
+            run_ingest("demo", config, store)
         # The auto-rollback destroyed every savepoint AND the outer
         # transaction: zero events survive.
         assert store.query_events() == []

@@ -13,7 +13,6 @@ import sys
 from datetime import UTC, datetime
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
-from itertools import batched
 from pathlib import Path
 from typing import Annotated, cast
 
@@ -22,7 +21,6 @@ import typer
 from rich.console import Console
 from rich.progress import (
     BarColumn,
-    DownloadColumn,
     MofNCompleteColumn,
     Progress,
     TextColumn,
@@ -30,13 +28,22 @@ from rich.progress import (
 )
 
 from sift import adapters
-from sift.adapters.base import ConfigurableAdapter
-from sift.adapters.genericlog import GenericLogAdapter
 from sift.config import SiftConfig, load_config
 from sift.llm.client import Endpoint, InferenceClient
-from sift.pipeline import dedup, retrieve
+from sift.pipeline import retrieve
+from sift.pipeline.analysers import AnalyserSettings
 from sift.pipeline.cluster import cluster_and_label
+from sift.pipeline.hypothesise import (
+    DEFAULT_TOP_CLUSTERS as _DEFAULT_TOP_CLUSTERS,
+)
+from sift.pipeline.hypothesise import (
+    TRIAGE_CTX_FALLBACK as _TRIAGE_CTX_FALLBACK,
+)
+from sift.pipeline.hypothesise import (
+    TRIAGE_RESERVE_OUT as _TRIAGE_RESERVE_OUT,
+)
 from sift.pipeline.hypothesise import hypothesise
+from sift.pipeline.ingest import IngestError, IngestUsageError, run_ingest
 from sift.render._util import PdfExtraMissing
 from sift.render._util import sanitise as _sanitise
 from sift.store import CaseStore, case_db_path, vec_version
@@ -79,14 +86,6 @@ def _main(  # pyright: ignore[reportUnusedFunction] — registered via @app.call
 ) -> None:
     """Sift — a fully local, privacy-preserving incident triage engine."""
 
-
-class DiskFullError(Exception):
-    """A storage-exhaustion (SQLITE_FULL/IOERR) abort mid-ingest (WR-07).
-
-    Distinct from a recoverable per-file parse failure: SQLite auto-rolls-back
-    the whole transaction and destroys every savepoint, so the run must abort
-    loudly with zero committed events, never be swallowed as one bad file.
-    """
 
 DataDirOption = Annotated[
     Path | None,
@@ -286,11 +285,14 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
-        _ingest(case, config, store)
-    except DiskFullError as exc:
-        # WR-07: abort loudly, non-zero, with zero events committed (the
-        # transaction is already rolled back). Message text is already
-        # sanitised at construction, but re-sanitise for defence in depth.
+        run_ingest(case, config, store)
+    except IngestUsageError as exc:
+        print(f"Error: {_sanitise(str(exc))}")
+        raise typer.Exit(2) from None
+    except IngestError as exc:
+        # WR-07 disk-full included: abort loudly, non-zero, with zero events
+        # committed (the transaction is already rolled back). Message text is
+        # already sanitised at construction; re-sanitise for defence in depth.
         print(f"Error: {_sanitise(str(exc))}")
         raise typer.Exit(1) from None
     finally:
@@ -298,228 +300,6 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
         # case directory holds only case.db afterwards — deleting the
         # directory is deleting the case.
         store.close()
-
-
-def _ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
-    """Ingest body; the caller owns the store lifecycle (clean close)."""
-    input_dir_s = store.get_meta("input_dir")
-    if input_dir_s is None:
-        print(f"Error: case {case!r} has no recorded input directory")
-        raise typer.Exit(1)
-    input_dir = Path(input_dir_s)
-    if not input_dir.is_dir():
-        print(f"Error: input directory no longer exists: {input_dir}")
-        raise typer.Exit(1)
-
-    raw_specs: list[str] = json.loads(store.get_meta("adapter_overrides") or "[]")
-    try:
-        flag_overrides = adapters.parse_adapter_overrides(raw_specs)
-    except ValueError as exc:
-        print(f"Error: {exc}")
-        raise typer.Exit(2) from None
-    # D-08 flags > config: detect() picks the FIRST matching glob in insertion
-    # order, so flag globs must come first — merging config first would let an
-    # overlapping (non-identical) config glob shadow the flag.
-    overrides = dict(flag_overrides) | {
-        g: n for g, n in config.adapters.items() if g not in flag_overrides
-    }
-    unknown = sorted(
-        {name for name in overrides.values() if name not in adapters.REGISTRY}
-    )
-    if unknown:
-        print(
-            f"Error: unknown adapter(s) {unknown}; "
-            f"known adapters: {sorted(adapters.REGISTRY)}"
-        )
-        raise typer.Exit(2)
-
-    files = [p for p in sorted(input_dir.rglob("*")) if p.is_file()]
-    if not files:
-        print(f"0 files found in {input_dir}; nothing to ingest")
-        return
-    failed: list[str] = []
-    coverage: dict[str, dict[str, object]] = {}
-    total_new = 0
-    # CLI-03: live progress on stderr only — stdout stays scriptable and
-    # byte-identical to Phase 1. disable= makes non-TTY runs (CliRunner, CI,
-    # pipes) render nothing, deterministically.
-    err_console = Console(stderr=True)
-    sizes: dict[Path, int] = {}
-    for path in files:
-        try:
-            sizes[path] = path.stat().st_size
-        except OSError:
-            # IN-04: a file vanishing between rglob and stat must fail loudly
-            # in the per-file loop below, not abort the run with a traceback.
-            sizes[path] = 0
-    done_bytes = 0
-    with Progress(
-        # T-02-06: the description is a STATIC string — untrusted filenames
-        # never enter rich renderables; per-file names keep flowing through
-        # the existing _sanitise'd stdout prints.
-        TextColumn("Ingesting"),
-        BarColumn(),
-        DownloadColumn(),
-        TimeElapsedColumn(),
-        console=err_console,
-        transient=True,
-        disable=not err_console.is_terminal,
-    ) as progress:
-        ptask = progress.add_task("ingest", total=sum(sizes.values()))
-        # One transaction for all inserts plus the coverage meta write: an
-        # interrupted ingest leaves either the complete result or nothing.
-        with store.transaction():
-            for path in files:
-                file_size = sizes[path]
-                relpath = path.relative_to(input_dir).as_posix()
-                if path.is_symlink():
-                    # Trust boundary: a hostile bundle must never select files
-                    # outside itself for ingestion. Skip loudly and record it
-                    # so the persisted coverage meta shows the file existed.
-                    print(f"SKIP {_sanitise(relpath)}: symlink (not followed)")
-                    coverage[relpath] = {
-                        "skipped": "symlink (not followed)",
-                        "event_count": 0,
-                        "coverage": 0.0,
-                    }
-                    done_bytes += file_size
-                    progress.update(ptask, completed=done_bytes)
-                    continue
-                try:
-                    # CR-01: the whole per-file body runs inside a savepoint
-                    # nested in the outer BEGIN IMMEDIATE transaction — a
-                    # mid-stream parse failure rolls THIS file back to zero
-                    # rows while earlier files' inserts survive.
-                    with store.savepoint():
-                        # Detection reads (and decompresses) file heads, so a
-                        # corrupt archive can raise here too — it must hit the
-                        # same loud per-file error path as a parse failure,
-                        # never abort the run.
-                        file_adapter = adapters.detect(path, relpath, overrides)
-                        # Per-run configuration travels on the adapter
-                        # instance — the frozen Protocol has no config
-                        # attributes (01-02 pattern). D-05: config.timezones
-                        # reaches EVERY ConfigurableAdapter, not just genericlog
-                        # (05-01: dsserrors node-tagging + multi-node tz depend
-                        # on this delivery).
-                        if isinstance(file_adapter, ConfigurableAdapter):
-                            file_adapter.input_root = input_dir
-                            file_adapter.tz_overrides = dict(config.timezones)
-                        # T-02-05: stream events in bounded batches — a 100 MB
-                        # file never materialises all its Event objects at
-                        # once. Decompressed-stream offsets do not map to
-                        # on-disk bytes for .gz/.zst, so those advance
-                        # whole-file on completion.
-                        track_offsets = isinstance(
-                            file_adapter, GenericLogAdapter
-                        ) and path.suffix not in (".gz", ".zst")
-                        new_count = 0
-                        parsed_count = 0
-                        for batch in batched(
-                            file_adapter.parse(path, case), 5000
-                        ):
-                            new_count += store.insert_events(batch)
-                            parsed_count += len(batch)
-                            if track_offsets:
-                                attrs = batch[-1].attrs
-                                offset = int(
-                                    attrs.get("byte_offset", "0")
-                                ) + int(attrs.get("byte_len", "0"))
-                                progress.update(
-                                    ptask,
-                                    completed=done_bytes
-                                    + min(offset, file_size),
-                                )
-                except sqlite3.Error as exc:
-                    # WR-07: storage exhaustion is NOT a recoverable per-file
-                    # error — SQLite has auto-rolled-back the whole transaction
-                    # and destroyed every savepoint, so continuing would report
-                    # a disk-full as one bad file and commit zero events. Detect
-                    # the fatal codes (SQLITE_FULL=13, SQLITE_IOERR=10 + its
-                    # extended codes share the low byte) and abort loudly. Catch
-                    # order matters: sqlite3.Error is a subclass of Exception, so
-                    # this handler MUST precede the generic one below.
-                    code = getattr(exc, "sqlite_errorcode", None)
-                    if code in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_IOERR) or (
-                        code is not None and code & 0xFF == sqlite3.SQLITE_IOERR
-                    ):
-                        raise DiskFullError(
-                            f"disk full / I/O error during ingest at "
-                            f"{_sanitise(relpath)}: no events committed "
-                            "(transaction rolled back)"
-                        ) from exc
-                    # Any other sqlite3.Error is a recoverable per-file failure:
-                    # a sibling except cannot catch a re-raise, so record and
-                    # continue here exactly as the generic handler does below.
-                    failed.append(relpath)
-                    coverage[relpath] = {
-                        "error": str(exc),
-                        "event_count": 0,
-                        "coverage": 0.0,
-                    }
-                    print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
-                    done_bytes += file_size
-                    progress.update(ptask, completed=done_bytes)
-                    continue
-                except Exception as exc:
-                    # A bad file never silently vanishes: loud error, keep
-                    # going. T-04-01: relpath and exception text carry
-                    # untrusted bundle bytes (filenames may contain ESC) —
-                    # sanitise at render time. The failure is also persisted
-                    # so a report generated later still shows the file
-                    # existed and failed.
-                    failed.append(relpath)
-                    coverage[relpath] = {
-                        "error": str(exc),
-                        "event_count": 0,
-                        "coverage": 0.0,
-                    }
-                    print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
-                    done_bytes += file_size
-                    progress.update(ptask, completed=done_bytes)
-                    continue
-                # Read the REAL per-file coverage for EVERY ConfigurableAdapter
-                # (05-01): the stats=None -> cov=1.0 fallback must only apply to
-                # a genuine non-ConfigurableAdapter, never fabricate 100% for a
-                # domain adapter with unparseable regions (T-05-01).
-                stats = (
-                    file_adapter.last_stats
-                    if isinstance(file_adapter, ConfigurableAdapter)
-                    else None
-                )
-                cov = stats.coverage if stats else 1.0
-                event_count = stats.event_count if stats else parsed_count
-                coverage[relpath] = {
-                    "total_bytes": stats.total_bytes if stats else 0,
-                    "unknown_fallback_bytes": (
-                        stats.unknown_fallback_bytes if stats else 0
-                    ),
-                    "event_count": event_count,
-                    "coverage": cov,
-                    "notes": stats.notes if stats else [],
-                }
-                total_new += new_count
-                print(
-                    f"{_sanitise(relpath)}  coverage {cov * 100:.1f}%  "
-                    f"{event_count} events  {new_count} new"
-                )
-                for note in stats.notes if stats else []:
-                    print(f"  note: {note}")
-                done_bytes += file_size
-                progress.update(ptask, completed=done_bytes)
-            store.set_meta("parse_coverage", json.dumps(coverage, sort_keys=True))
-            # WR-03: mark the groups stale inside the same transaction as the
-            # event inserts; rebuild_template_groups clears it — a crash in
-            # between is detectable by `show clusters`.
-            store.set_meta("template_groups_stale", "1")
-    # Recompute template groups AFTER the event transaction commits, so the
-    # groups always reflect the store's actual contents (CLUS-01, Pitfall 6).
-    n_groups = dedup.rebuild_template_groups(store)
-    print(f"Total: {total_new} new events")
-    print(f"Template groups: {n_groups}")
-    if failed:
-        print(f"Error: {len(failed)} file(s) failed to parse")
-        raise typer.Exit(1)
 
 
 # The six-severity vocabulary (store CHECK constraint) for filter validation.
@@ -739,14 +519,6 @@ def show(
         store.close()
 
 
-# Triage-run defaults (CLI-04). Salience feeds at most this many top clusters to
-# the hypothesiser; the ctx/reserve fallbacks apply only when /props is absent
-# (Lemonade, LLM-04) — llama-server's n_ctx overrides ctx_fallback at runtime.
-_DEFAULT_TOP_CLUSTERS = 12
-_TRIAGE_CTX_FALLBACK = 8192
-_TRIAGE_RESERVE_OUT = 1024
-
-
 def _parse_moment(value: str | None, label: str) -> datetime | None:
     """Parse an ISO 8601 ``--since``/``--until`` value to a UTC datetime.
 
@@ -873,11 +645,21 @@ def analyze(
     config = load_config(overrides)
     store = _case_store(case, config)
     try:
-        # CLUS-01: zero template groups means ingest has not run (or produced
-        # nothing) — there is nothing to embed, so skip the client entirely and
-        # exit cleanly. groups > 0 always yields >= 1 cluster (auto-singleton).
+        # CLUS-01: zero template groups has two distinct causes, which must not
+        # be conflated (D-19-02, EUS-11). Zero events at all means ingest has
+        # not run (or produced nothing) — there is nothing to embed OR
+        # narrate, so skip the client entirely and exit cleanly. Zero groups
+        # WITH events present means every ingested source is held out of
+        # ranking (EXCLUDED_FROM_RANKING, e.g. an eu-stack-only case) — there
+        # is still nothing to embed, but the deterministic fact blocks
+        # (MCM/perfmon/eu-stack) must still reach hypothesise() so they
+        # narrate; falling through here is what makes exclusion a
+        # replacement, not a dead end. groups > 0 always yields >= 1 cluster
+        # (auto-singleton). The probe reads at most one row from the cheap
+        # unfiltered streaming generator — never store.query_events(), which
+        # decompresses every raw zstd blob.
         groups = store.query_template_groups()
-        if not groups:
+        if not groups and next(iter(store.iter_event_rows()), None) is None:
             print("Nothing to cluster; run 'sift ingest' first")
             return
 
@@ -973,7 +755,7 @@ def analyze(
                 until=until_dt,
                 hint=hint,
                 kb_context=kb_context,
-                mcm_thresholds=config.mcm.thresholds,
+                analyser_settings=AnalyserSettings.from_config(config),
                 ctx_fallback=config.generation.context or _TRIAGE_CTX_FALLBACK,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
@@ -1157,7 +939,12 @@ def mcm(
         # _case_store validated (case_db_path asserts containment) — only
         # <case>/mcm/ beneath it is ever created, never a user-supplied path.
         mcm_dir = case_db_path(config.data_dir, case).parent / "mcm"
-        analysis = analyse_mcm(store.query_events(), config.mcm.thresholds)
+        # Scoped to the analyser's own source: hydrating (and zstd-
+        # decompressing) unrelated genericlog/journald rows would cost memory
+        # for events analyse_mcm filters straight back out.
+        analysis = analyse_mcm(
+            store.query_events(sources=["dsserrors"]), config.mcm.thresholds
+        )
         if fmt is McmFormat.json:
             report_name = "mcm_report.json"
             report_text = render_mcm_json(analysis)
@@ -1248,12 +1035,14 @@ def perfmon(
         # _case_store validated (case_db_path asserts containment) — only
         # <case>/perfmon/ beneath it is ever created, never a user-supplied path.
         perfmon_dir = case_db_path(config.data_dir, case).parent / "perfmon"
-        # ONCE (T-13-DOUBLEREAD): the call hydrates and zstd-decompresses every
-        # row in the case, so the same list feeds both analyses rather than
-        # doubling an already-accepted cost. config.mcm.thresholds is threaded
-        # in only because obtaining the episodes needs it — the perfmon hazards
-        # themselves take no config knob.
-        events = store.query_events()
+        # ONCE (T-13-DOUBLEREAD): the same list feeds both analyses rather
+        # than doubling the hydrate/decompress cost — and the read is scoped
+        # to the two sources the correlator consumes, so unrelated
+        # genericlog/journald rows are never materialised.
+        # config.mcm.thresholds is threaded in only because obtaining the
+        # episodes needs it — the perfmon hazards themselves take no config
+        # knob.
+        events = store.query_events(sources=["dsserrors", "dssperfmon"])
         analysis = analyse_perfmon(analyse_mcm(events, config.mcm.thresholds), events)
         if fmt is PerfmonFormat.json:
             report_name = "perfmon_report.json"
@@ -1302,6 +1091,125 @@ def perfmon(
                 print(f"  Span {i}: no correlation hazards raised")
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring mcm.
+        store.close()
+
+
+class EustackFormat(StrEnum):
+    """Report format for ``sift eustack`` (an unknown value is a Typer usage
+    error, exit 2 — mirrors ``PerfmonFormat``; ADR 0007). The CSV is always
+    written."""
+
+    md = "md"
+    json = "json"
+
+
+@app.command()
+def eustack(
+    case: str,
+    fmt: Annotated[
+        EustackFormat,
+        typer.Option("--format", help="Report format: md (default) or json"),
+    ] = EustackFormat.md,
+    data_dir: DataDirOption = None,
+) -> None:
+    """Write the eu-stack thread-dump analysis bundle for a case (EUS-09).
+
+    Runs the deterministic ``analyse_eustack_bundle`` over the stored
+    eu-stack events (no LLM, no network — the figures are computed from
+    thread-dump text, never model-authored) and ALWAYS writes
+    ``<case>/eustack/eustack_report.md`` (or ``eustack_report.json`` with
+    ``--format json``) AND ``<case>/eustack/eustack_signatures.csv``, then
+    prints a short stdout summary. Works identically with NO DSSErrors log
+    anywhere in the case — eu-stack dumps are this command's sole input.
+    Classification and saturation are computed on the LAST dump only; a
+    single-dump case is the N=1 case of that same shape (D-11). The rules
+    file and saturation thresholds are config-only — there is no per-run CLI
+    knob (D-12). Exit-code contract (ADR 0007): 0 = bundle written (including
+    an empty case), 1 = missing case / write failure, 2 = Typer usage (bad
+    ``--format``).
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        from sift.pipeline.eustack import load_rules
+        from sift.pipeline.eustack_progression import analyse_eustack_bundle
+        from sift.render.eustack_report import (
+            changed_signature_count,
+            render_eustack_json,
+            render_eustack_markdown,
+            write_eustack_signatures_csv,
+        )
+
+        # T-17-03: the bundle dir is derived from the SAME resolved case path
+        # _case_store validated (case_db_path asserts containment) — only
+        # <case>/eustack/ beneath it is ever created, never a user-supplied
+        # path.
+        eustack_dir = case_db_path(config.data_dir, case).parent / "eustack"
+        rules, rules_hash = load_rules(config.eustack.rules_path)
+        bundle = analyse_eustack_bundle(
+            store.query_events(sources=["eustack"]),
+            rules,
+            rules_hash,
+            config.eustack.thresholds,
+        )
+        if fmt is EustackFormat.json:
+            report_name = "eustack_report.json"
+            report_text = render_eustack_json(bundle)
+        else:
+            report_name = "eustack_report.md"
+            report_text = render_eustack_markdown(bundle)
+        try:
+            eustack_dir.mkdir(parents=True, exist_ok=True)
+            (eustack_dir / report_name).write_text(report_text, encoding="utf-8")
+            write_eustack_signatures_csv(
+                bundle, eustack_dir / "eustack_signatures.csv"
+            )
+        except OSError as exc:
+            # T-17-04: the report is written before the CSV, so a mid-CSV
+            # failure would otherwise leave a valid-looking report next to a
+            # truncated CSV. Unlink both so a half-written bundle is never
+            # mistaken for a complete one; the message is sanitised and the
+            # traceback chain suppressed so no internal path or stack frame
+            # reaches the operator.
+            for partial in (
+                eustack_dir / report_name,
+                eustack_dir / "eustack_signatures.csv",
+            ):
+                partial.unlink(missing_ok=True)
+            print(
+                f"Error: cannot write eustack bundle to {eustack_dir}: "
+                f"{_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+
+        n_dumps = len(bundle.progression.dumps)
+        dump_plural = "dump" if n_dumps == 1 else "dumps"
+        n_signatures = bundle.analysis.total_signatures
+        sig_plural = "signature" if n_signatures == 1 else "signatures"
+        summary = (
+            f"Analysed {n_dumps} eu-stack {dump_plural}, {n_signatures} "
+            f"{sig_plural}; wrote {report_name} + eustack_signatures.csv to "
+            f"{eustack_dir}"
+        )
+        if n_dumps > 1:
+            n_changed = changed_signature_count(bundle.progression)
+            changed_plural = "signature" if n_changed == 1 else "signatures"
+            summary += f"; {n_changed} changed {changed_plural}"
+        print(_sanitise(summary))
+        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
+        flags = sorted(
+            bundle.saturation.flags, key=lambda f: _sev_rank.get(f.severity, 3)
+        )
+        if flags:
+            top = flags[0]
+            # T-17-02: matched/leaf-frame-derived hazard text originates in
+            # the customer's binary, so it goes through _sanitise before echo.
+            print(f"  {top.severity} — {_sanitise(top.message)}")
+        else:
+            print("  no saturation flags raised")
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
+        # mcm/perfmon.
         store.close()
 
 
@@ -1357,6 +1265,10 @@ def eval_(
     negative case emitted a confident hypothesis (a non-suppressible CI signal).
     A missing/invalid ``--suite`` or unreadable ``--thresholds`` is a usage error
     (exit 2).
+
+    The eu-stack golden cases (``eustack-*``) are scored deterministically
+    against ``analyse_eustack_bundle`` and run without an inference endpoint at
+    all (D-19-16); every other case in the suite still requires one.
     """
     from sift.eval.metrics import SuiteResult
     from sift.eval.report import render_json_table, render_text_table

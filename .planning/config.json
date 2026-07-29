@@ -92,7 +92,6 @@
   },
   "mode": "yolo",
   "granularity": "standard",
-  "quick_branch_template": null,
   "intel": {
     "enabled": true
   },
@@ -100,6 +99,5 @@
     "enabled": true,
     "auto_update": true
   },
-  "resolve_model_ids": "omit",
   "context_window": 1000000
 }

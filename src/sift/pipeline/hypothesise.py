@@ -24,43 +24,54 @@ from __future__ import annotations
 import hashlib
 import importlib.resources
 import json
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import httpx
 
-from sift.config import McmThresholdsConfig
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
-from sift.pipeline.mcm import analyse_mcm
-from sift.pipeline.mcm_facts import render_mcm_facts
-from sift.pipeline.perfmon import analyse_perfmon
-from sift.pipeline.perfmon_facts import render_perfmon_facts
+from sift.pipeline.analysers import (
+    ANALYSER_SOURCES,
+    ANALYSERS,
+    AnalyserSettings,
+    apply_block,
+    build_fact_blocks,
+)
 from sift.pipeline.salience import rank_clusters
 from sift.render._util import sanitise
 from sift.store import StoredHypothesis
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime as _dt
 
     from sift.llm.client import InferenceClient
     from sift.models import Hypothesis
+    from sift.pipeline.analysers import FactBlock
     from sift.store import CaseStore, Cluster, TemplateGroup
 
 _PROMPT_PACKAGE = "sift.prompts"
 _PROMPT_FILE = "triage.md"
 
-# The KB reference-material block in triage.md is delimited by these HTML-comment
-# sentinels; all KB prose lives in the template (CLI-02). ``_apply_kb_block``
-# either fills the slot and drops the marker lines (KB present) or removes the
-# whole block start-through-end (no KB) so the no-KB prompt is byte-identical.
+# Triage-run defaults (CLI-04), shared by the CLI and the eval harness so the
+# harness never imports the CLI. Salience feeds at most DEFAULT_TOP_CLUSTERS
+# top clusters to the hypothesiser; the ctx/reserve fallbacks apply only when
+# /props is absent (Lemonade, LLM-04) — llama-server's n_ctx overrides
+# TRIAGE_CTX_FALLBACK at runtime.
+DEFAULT_TOP_CLUSTERS = 12
+TRIAGE_CTX_FALLBACK = 8192
+TRIAGE_RESERVE_OUT = 1024
+
+# The KB reference-material block in triage.md mirrors the analyser blocks'
+# sentinel shape and reuses the registry's ``apply_block`` splice, but KB is
+# NOT an analyser: its chunks are retrieved reference material, sanitised here
+# (T-06-16 — untrusted data inserted as reference, never instructions) and
+# NEVER added to ``prompted_ids``, so a KB chunk stays structurally
+# non-citable (D-01). The analyser fact blocks are the deliberate inverse:
+# spliced AND citable via ``_assemble``'s ``prompted_ids`` union.
 _KB_SLOT = "<<KB_CONTEXT>>"
-_KB_BLOCK_RE = re.compile(
-    r"<!-- KB_BLOCK_START.*?-->\n.*?<!-- KB_BLOCK_END.*?-->\n", re.DOTALL
-)
-_KB_MARKER_RE = re.compile(r"<!-- KB_BLOCK_(?:START|END).*?-->\n", re.DOTALL)
 
 
 def _apply_kb_block(template: str, kb_context: list[str] | None) -> str:
@@ -69,77 +80,13 @@ def _apply_kb_block(template: str, kb_context: list[str] | None) -> str:
     No KB → the entire sentinel block (start marker through end marker) is
     removed, leaving the pre-change prompt bytes unchanged. KB present → the two
     marker lines are dropped and the ``<<KB_CONTEXT>>`` slot is replaced with the
-    joined, control-char-``sanitise``d chunks (T-06-16: KB text is untrusted data
-    inserted as reference material, never instructions). KB never becomes citable
-    — that guarantee lives in ``_assemble``'s ``prompted_ids``, not here.
+    joined, control-char-``sanitise``d chunks. KB never becomes citable —
+    that guarantee lives in ``_assemble``'s ``prompted_ids``, not here.
     """
-    if not kb_context:
-        return _KB_BLOCK_RE.sub("", template)
-    joined = "\n\n".join(sanitise(chunk) for chunk in kb_context)
-    return _KB_MARKER_RE.sub("", template).replace(_KB_SLOT, joined)
-
-
-# The MCM fact block in triage.md is delimited by these HTML-comment sentinels,
-# mirroring the KB block's shape exactly (same DOTALL regexes, same trailing-`\n`
-# capture). ``_apply_mcm_block`` either fills the ``<<MCM_FACTS>>`` slot and drops
-# the marker lines (MCM present) or removes the whole block start-through-end (no
-# MCM) so the no-MCM prompt is byte-identical to its pre-phase form. Unlike KB,
-# MCM facts ARE citable — that inversion lives in ``_assemble``'s ``prompted_ids``.
-_MCM_SLOT = "<<MCM_FACTS>>"
-_MCM_BLOCK_RE = re.compile(
-    r"<!-- MCM_BLOCK_START.*?-->\n.*?<!-- MCM_BLOCK_END.*?-->\n", re.DOTALL
-)
-_MCM_MARKER_RE = re.compile(r"<!-- MCM_BLOCK_(?:START|END).*?-->\n")
-
-
-def _apply_mcm_block(template: str, fact_block: str | None) -> str:
-    """Resolve the triage template's MCM block against ``fact_block`` (MCM-06).
-
-    No MCM data → the entire sentinel block (start marker through end marker,
-    including the trailing newline) is removed, leaving the pre-phase prompt bytes
-    unchanged. MCM present → the two marker lines are dropped and the
-    ``<<MCM_FACTS>>`` slot is replaced with ``fact_block`` (already
-    ``sanitise``d value-by-value by ``render_mcm_facts`` — this fn only splices,
-    it does NOT re-sanitise). MCM facts become citable via ``_assemble``'s
-    ``prompted_ids`` union, the inverse of the KB path.
-    """
-    if not fact_block:
-        return _MCM_BLOCK_RE.sub("", template)
-    return _MCM_MARKER_RE.sub("", template).replace(_MCM_SLOT, fact_block)
-
-
-# The perfmon fact block in triage.md is delimited by these HTML-comment
-# sentinels, mirroring the MCM block's shape exactly (same DOTALL regexes, same
-# trailing-`\n` capture). ``_apply_perfmon_block`` either fills the
-# ``<<PERFMON_FACTS>>`` slot and drops the marker lines (perfmon present) or
-# removes the whole block start-through-end (no perfmon) so the no-perfmon prompt
-# is byte-identical to its pre-phase form. Like MCM (and unlike KB), perfmon
-# facts ARE citable — that inversion lives in ``_assemble``'s ``prompted_ids``.
-_PERFMON_SLOT = "<<PERFMON_FACTS>>"
-_PERFMON_BLOCK_RE = re.compile(
-    r"<!-- PERFMON_BLOCK_START.*?-->\n.*?<!-- PERFMON_BLOCK_END.*?-->\n", re.DOTALL
-)
-_PERFMON_MARKER_RE = re.compile(
-    r"<!-- PERFMON_BLOCK_(?:START|END).*?-->\n", re.DOTALL
-)
-
-
-def _apply_perfmon_block(template: str, fact_block: str | None) -> str:
-    """Resolve the triage template's perfmon block against ``fact_block`` (PERF-07).
-
-    No perfmon data → the entire sentinel block (start marker through end marker,
-    including the trailing newline) is removed, leaving the pre-phase prompt bytes
-    unchanged. Perfmon present → the two marker lines are dropped and the
-    ``<<PERFMON_FACTS>>`` slot is replaced with ``fact_block`` (already
-    ``sanitise``d value-by-value by ``render_perfmon_facts`` — this fn only
-    splices, it does NOT re-sanitise). Perfmon facts become citable via
-    ``_assemble``'s ``prompted_ids`` union, the inverse of the KB path. The block
-    is stripped independently of the MCM block so perfmon presence can never
-    perturb the no-perfmon or MCM-only prompt bytes.
-    """
-    if not fact_block:
-        return _PERFMON_BLOCK_RE.sub("", template)
-    return _PERFMON_MARKER_RE.sub("", template).replace(_PERFMON_SLOT, fact_block)
+    joined = (
+        "\n\n".join(sanitise(chunk) for chunk in kb_context) if kb_context else None
+    )
+    return apply_block(template, "KB", _KB_SLOT, joined)
 
 
 # Explicit severity rank, mirroring cluster._SEVERITY_RANK — never lexicographic
@@ -267,8 +214,7 @@ def _assemble(
     budget: PromptBudget,
     *,
     kb_context: list[str] | None = None,
-    mcm_block: tuple[str, set[str]] | None = None,
-    perfmon_block: tuple[str, set[str]] | None = None,
+    fact_blocks: Mapping[str, FactBlock] | None = None,
 ) -> tuple[list[dict[str, str]], set[str], str]:
     """Assemble the triage prompt breadth-first over the ranked clusters.
 
@@ -279,24 +225,24 @@ def _assemble(
     timestamp. ``kb_context`` (retrieved KB reference material) enriches the
     prompt via the template's delimited KB block but is NEVER added to
     ``prompted_ids`` — KB chunks stay structurally non-citable (D-01).
-    ``mcm_block`` (``render_mcm_facts`` output — the fact text plus the exact set
-    of ids it printed as ``[evt:]`` tokens) is the INVERSE: its text is spliced
-    into the template's MCM block AND its printed ids are unioned into
-    ``prompted_ids``, making the deterministic MCM facts citable evidence
-    (MCM-06). Only the ids the renderer actually printed enter the set — never a
-    row id the block did not surface. ``perfmon_block`` (``render_perfmon_facts``
-    output) is treated identically to ``mcm_block``: its text is spliced into the
-    template's independent perfmon block (removed whole when absent, keeping the
-    no-perfmon prompt byte-identical) and its printed ids are unioned into
-    ``prompted_ids``, making the deterministic perfmon facts citable (PERF-07).
-    Returns the chat ``messages``, the ``prompted_ids`` set (the citable
-    universe), and the exact assembled prompt text (for hashing).
+    ``fact_blocks`` (``build_fact_blocks`` output — per-analyser fact text
+    plus the exact id set each renderer printed as ``[evt:]`` tokens) is the
+    INVERSE: each block's text is spliced into its own delimited template
+    block (removed whole when absent, keeping every other prompt
+    byte-identical) AND its printed ids are unioned into ``prompted_ids``,
+    making the deterministic analyser facts citable evidence (MCM-06,
+    PERF-07, EUS-10). Only the ids a renderer actually printed enter the set —
+    never a row id the block did not surface. Returns the chat ``messages``,
+    the ``prompted_ids`` set (the citable universe), and the exact assembled
+    prompt text (for hashing).
     """
+    blocks = fact_blocks or {}
     template = _apply_kb_block(template, kb_context)
-    template = _apply_mcm_block(template, mcm_block[0] if mcm_block else None)
-    template = _apply_perfmon_block(
-        template, perfmon_block[0] if perfmon_block else None
-    )
+    for analyser in ANALYSERS:
+        block = blocks.get(analyser.name)
+        template = apply_block(
+            template, analyser.marker, analyser.slot, block[0] if block else None
+        )
     event_ids: list[str] = []
     excerpts: list[str] = []
     for cluster, _score in ranked:
@@ -317,11 +263,9 @@ def _assemble(
     prompt = template + "\n".join(lines) + "\n"
     if hint:
         prompt += f"\nOperator hint (context only, not evidence): {hint}\n"
-    prompted_ids: set[str] = (
-        set(event_ids)
-        | (mcm_block[1] if mcm_block else set[str]())
-        | (perfmon_block[1] if perfmon_block else set[str]())
-    )
+    prompted_ids: set[str] = set(event_ids)
+    for block in blocks.values():
+        prompted_ids |= block[1]
     return [{"role": "user", "content": prompt}], prompted_ids, prompt
 
 
@@ -386,7 +330,7 @@ def hypothesise(
     until: _dt | None = None,
     hint: str | None = None,
     kb_context: list[str] | None = None,
-    mcm_thresholds: McmThresholdsConfig | None = None,
+    analyser_settings: AnalyserSettings | None = None,
     ctx_fallback: int = 8192,
     reserve_out: int = 1024,
 ) -> Outcome:
@@ -414,18 +358,18 @@ def hypothesise(
     messages_map = _gather_exemplar_messages(store, groups)
     template = _load_triage_template()
 
-    # Deterministic MCM + perfmon facts, built BEFORE generation from the
-    # analysers' model trees — figures are a pure function of the store, never
-    # authored by the LLM (T-11-02, T-14-07). ``render_mcm_facts`` /
-    # ``render_perfmon_facts`` return ("", set()) for a case without their data,
+    # Deterministic analyser facts (MCM + perfmon + eu-stack today), built
+    # BEFORE generation from the registered analysers' model trees — figures
+    # are a pure function of the store, never authored by the LLM (T-11-02,
+    # T-14-07). Each builder returns ("", set()) for a case without its data,
     # which ``_assemble`` strips residue-free. Built at this chokepoint so the
     # eval harness (which calls hypothesise directly) exercises injection too
-    # (MCM-06, PERF-08). ``store.query_events()`` is decompressed ONCE here and
-    # ``mcm_analysis`` computed once, reused by both renderers (no third pass).
-    events = store.query_events()
-    mcm_analysis = analyse_mcm(events, mcm_thresholds or McmThresholdsConfig())
-    mcm_block = render_mcm_facts(mcm_analysis)
-    perfmon_block = render_perfmon_facts(analyse_perfmon(mcm_analysis, events))
+    # (MCM-06, PERF-08, EUS-10). The store read is scoped to the union of the
+    # registered analyser sources and decompressed ONCE (single-decompression-
+    # pass discipline, shared by every builder) — a huge genericlog case is
+    # never materialised just to build fact blocks.
+    events = store.query_events(sources=ANALYSER_SOURCES)
+    fact_blocks = build_fact_blocks(events, analyser_settings or AnalyserSettings())
 
     ctx = _ctx_tokens(client, ctx_fallback)
     # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
@@ -434,7 +378,7 @@ def hypothesise(
     budget = PromptBudget(client, ctx, reserve_out)  # pyright: ignore[reportArgumentType]
     chat_messages, prompted_ids, prompt_text = _assemble(
         ranked, group_index, messages_map, template, hint, budget,
-        kb_context=kb_context, mcm_block=mcm_block, perfmon_block=perfmon_block,
+        kb_context=kb_context, fact_blocks=fact_blocks,
     )
     prompt_hash = _prompt_hash(prompt_text)
     rf = _schema_rf(HypothesisSet.model_json_schema())

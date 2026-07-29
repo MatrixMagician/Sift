@@ -1,0 +1,196 @@
+# eu-stack thread-role rules (EUS-01, EUS-02).
+#
+# Row order IS the precedence knob (D-01): rules are tried in file order, top
+# to bottom, and every frame #0..#N of a signature is scanned for the first
+# rule; the first rule that matches ANYWHERE in the stack wins. There is no
+# `priority` field, by design — position in this file is the only knob.
+#
+# Review rule for every future rule addition (verified empirically against
+# the reference capture, not a guess): any rule keyed on a task-dispatch or
+# pool-loop frame must sit AFTER the rules identifying that same task's
+# active-work frames. A task-dispatch frame (e.g. `MSIEvaluationTask::Run`)
+# can be a shared ancestor of BOTH the idle-wait call chain and the busy
+# call chain for the same task, so an idle rule keyed on it placed too early
+# silently reclassifies busy threads as idle. See rule 15 below for the
+# concrete, shipped instance of this trap.
+#
+# `match` defaults to `exact` when omitted (D-09) — every `contains` below is
+# therefore a deliberate, greppable choice, never an accident.
+#
+# Every pattern must already be written in normalise()'s canonical form: no
+# `@GLIBC_...`/`@@GLIBC_...` version suffix, no ` - <lib> <src>:<line>` tail.
+# The loader rejects a non-canonical pattern loudly at load time, quoting the
+# canonical form to use.
+#
+# Lock findings are ownership-blind by construction: eu-stack carries no
+# monitor-ownership edges, so contention can be observed but never attributed
+# to a holder (see docs/decisions/0015-eustack-thread-role-taxonomy.md).
+#
+# Do NOT add a catch-all or generic ancestor-frame rule (e.g. a bare
+# `MSIThread::Run`) to inflate coverage. `unclassified` is the sole residual
+# and its rate is the rules-drift signal this file's curator relies on —
+# driving it to zero by guessing destroys that signal.
+
+[meta]
+version = 2
+validated_against = "MicroStrategy Intelligence Server (castorserver) on glibc 2.34; v1.3 reference capture, 2 dumps, 3902 threads / 93 signatures"
+
+# Rules 1-5: running. D-02's five locked frames, placed FIRST so they win
+# before any idle rule sharing an ancestor frame is ever tested (see rule 15).
+[[rule]]
+role = "running"
+subsystem = "compute"
+match = "contains"
+pattern = '_shi_allocBlock'
+
+[[rule]]
+role = "running"
+subsystem = "compute"
+match = "contains"
+pattern = '_shi_allocVar'
+
+[[rule]]
+role = "running"
+subsystem = "compute"
+match = "contains"
+pattern = 'MemAllocPtr'
+
+[[rule]]
+role = "running"
+subsystem = "cube-generation"
+match = "contains"
+pattern = 'CDSSSubsetEngine::GenCube'
+
+[[rule]]
+role = "running"
+subsystem = "cube-generation"
+match = "contains"
+pattern = 'MCE::GetBaseRIbyID'
+
+# Rule 6: blocked-on-lock. glibc reaches this symbol only on the contended
+# futex slow path — the one sound single-leaf contention signal. The
+# reference capture is healthy and matches it zero times; that is the
+# expected result on a healthy server, not a missing rule.
+[[rule]]
+role = "blocked-on-lock"
+subsystem = "lock"
+match = "contains"
+pattern = '__lll_lock_wait'
+
+# Rules 7-15: idle-parked.
+[[rule]]
+role = "idle-parked"
+subsystem = "job-queue"
+match = "contains"
+pattern = 'MSIQTask::GetNextPreferredJob'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "job-queue"
+match = "contains"
+pattern = 'MSIQTask::GetNextJob'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "command-queue"
+match = "contains"
+pattern = 'MSICommandQTask::GetNextCommand'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "ipc"
+match = "contains"
+pattern = 'CrossProcessEventImpl::WaitOnPipe'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "generic-pool"
+match = "contains"
+pattern = 'ThreadPoolImpl::GetNextRunnable'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "bursting-pool"
+match = "contains"
+pattern = 'ParallelBursting::ThreadPool::WorkLoop'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "asio-reactor"
+match = "contains"
+pattern = 'boost::asio::detail::scheduler::run'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "cache-backup"
+match = "contains"
+pattern = 'CacheBackupRunnable'
+
+# `MSIEvaluationTask::Run` is the load-bearing ordering case: it is ALSO an
+# ancestor frame in genuinely busy cube-generation call chains (five distinct
+# reference-capture signatures contain it alongside a `running`-rule frame),
+# not exclusively idle-associated. It must sit after rules 1-5 — with the
+# running rules first, rule 1 matches those busy signatures and wins before
+# this rule is ever tested. Reordering this rule above the running rules
+# reclassifies 44% of the milestone's own headline population as idle.
+[[rule]]
+role = "idle-parked"
+subsystem = "evaluation"
+match = "contains"
+pattern = 'MSIEvaluationTask::Run'
+
+# Rules 16-19: blocked-on-external.
+[[rule]]
+role = "blocked-on-external"
+subsystem = "warehouse"
+match = "contains"
+pattern = 'CDSSQueryEngine::WaitUntilFinished'
+
+[[rule]]
+role = "blocked-on-external"
+subsystem = "http"
+match = "contains"
+pattern = 'curl_multi_poll'
+
+[[rule]]
+role = "blocked-on-external"
+subsystem = "ipc"
+match = "contains"
+pattern = 'SharedMemoryImpl::WaitOnSemaphore'
+
+[[rule]]
+role = "blocked-on-external"
+subsystem = "warehouse"
+match = "contains"
+pattern = 'MDb::Wrapper::InterpretStatus'
+
+# Rules 20-24: idle-parked.
+[[rule]]
+role = "idle-parked"
+subsystem = "timer"
+match = "contains"
+pattern = 'MTimer::Timer<'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "scheduled"
+match = "contains"
+pattern = 'MSIRecurrentTask::Run'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "network-reactor"
+match = "contains"
+pattern = 'MSINetReactorModern'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "kafka"
+match = "contains"
+pattern = 'rd_kafka_broker_thread_main'
+
+[[rule]]
+role = "idle-parked"
+subsystem = "kafka"
+match = "contains"
+pattern = 'rd_kafka_thread_main'

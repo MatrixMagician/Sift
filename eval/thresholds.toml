@@ -1,12 +1,17 @@
 # eval/thresholds.toml — the `sift eval` regression gate (EVAL-03, D-07).
 #
 # Each value is a LOWER-BOUND floor: the suite aggregate for that metric must
-# satisfy `value >= floor` or `sift eval` exits non-zero (ADR 0010). All four
+# satisfy `value >= floor` or `sift eval` exits non-zero (ADR 0010). All five
 # metrics share the "higher is better" direction so one comparison covers them.
 #
 # determinism_stability is the GATED form of "determinism drift" — the report
 # DISPLAYS drift = 1 - stability (SPEC §6 wording) but the gate compares the
 # stability floor, keeping every floor a uniform lower bound (ADR 0010).
+#
+# eustack_detection_rate (EUS-12, D-19-07) gates the fraction of scorable
+# eu-stack golden cases whose analyse_eustack_bundle() output reproduces every
+# figure its truth.yaml declares — every eu-stack case must reproduce its
+# declared figures exactly.
 #
 # Judge scores never appear here: the LLM-as-judge is advisory only and never
 # enters the gate (D-08).
@@ -15,3 +20,4 @@ retrieval_hit_rate     = 0.80   # fraction of required evidence surfaced to the 
 hypothesis_hit_at_k    = 1.00   # a top-k hypothesis must hit an acceptable keyword
 citation_validity_rate = 1.00   # the anti-hallucination invariant — 100% expected
 determinism_stability  = 1.00   # offline runs are byte-identical by construction
+eustack_detection_rate = 1.00   # every eu-stack golden case must reproduce its declared figures

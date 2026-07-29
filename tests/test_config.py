@@ -204,3 +204,81 @@ def test_env_generation_context_coerced_to_int(
     monkeypatch.setenv("SIFT_GENERATION_CONTEXT", "4096")
     config = load_config({})
     assert config.generation.context == 4096
+
+
+# ---------------------------------------------------- EUS-01 / D-16 ([eustack])
+
+
+def test_eustack_rules_path_defaults_to_none() -> None:
+    """None means the packaged default is loaded via importlib.resources."""
+    assert load_config().eustack.rules_path is None
+
+
+def test_eustack_rules_path_round_trips_from_toml() -> None:
+    _write_toml('[eustack]\nrules_path = "/tmp/custom_roles.toml"\n')
+    assert load_config().eustack.rules_path == "/tmp/custom_roles.toml"
+
+
+def test_env_beats_toml_for_eustack_rules_path_but_flag_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SIFT_* scalar env sits between toml and flags (precedence matrix)."""
+    _write_toml('[eustack]\nrules_path = "/tmp/from-toml.toml"\n')
+    monkeypatch.setenv("SIFT_EUSTACK_RULES_PATH", "/tmp/from-env.toml")
+    # Env overrides the toml value...
+    assert load_config().eustack.rules_path == "/tmp/from-env.toml"
+    # ...but a flag override still wins over env, without clobbering siblings.
+    config = load_config({"eustack": {"rules_path": "/tmp/from-flag.toml"}})
+    assert config.eustack.rules_path == "/tmp/from-flag.toml"
+
+
+def test_unknown_key_under_eustack_is_a_loud_error() -> None:
+    """T-04-02: extra=forbid on every nested model, not just the root."""
+    _write_toml('[eustack]\nrulez_path = "x"\n')  # typo'd key
+    with pytest.raises(ValidationError, match="rulez_path"):
+        load_config()
+
+
+# ------------------------------------------- [eustack.thresholds] (Phase 16)
+
+
+def test_eustack_thresholds_default_to_documented_cut_points() -> None:
+    """S-4: no config file present -> the documented defaults."""
+    thresholds = load_config().eustack.thresholds
+    unclassified = thresholds.unclassified_thread_pct
+    no_resolvable = thresholds.no_resolvable_frame_pct
+    lock_convergence = thresholds.lock_convergence_count
+    assert (unclassified.warn, unclassified.critical) == (5.0, 15.0)
+    assert (no_resolvable.warn, no_resolvable.critical) == (5.0, 15.0)
+    assert (lock_convergence.warn, lock_convergence.critical) == (5.0, 20.0)
+
+    # A partial override merges per key rather than replacing the whole
+    # [eustack.thresholds] table — the untouched siblings keep their defaults.
+    _write_toml(
+        "[eustack.thresholds]\n"
+        "unclassified_thread_pct = { warn = 10.0, critical = 30.0 }\n"
+    )
+    overridden = load_config().eustack.thresholds
+    assert (
+        overridden.unclassified_thread_pct.warn,
+        overridden.unclassified_thread_pct.critical,
+    ) == (10.0, 30.0)
+    assert (
+        overridden.no_resolvable_frame_pct.warn,
+        overridden.no_resolvable_frame_pct.critical,
+    ) == (5.0, 15.0)
+    assert (
+        overridden.lock_convergence_count.warn,
+        overridden.lock_convergence_count.critical,
+    ) == (5.0, 20.0)
+
+
+def test_unknown_key_under_eustack_thresholds_is_a_loud_error() -> None:
+    """T-16-05: a curator who believes they raised a threshold must be told,
+    not silently left on the old default."""
+    _write_toml(
+        "[eustack.thresholds]\n"
+        "unclassified_thread_pcnt = { warn = 10.0, critical = 30.0 }\n"
+    )
+    with pytest.raises(ValidationError, match="unclassified_thread_pcnt"):
+        load_config()

@@ -20,11 +20,12 @@ than any backtick run in the body, so hostile log bytes cannot break out.
 
 from __future__ import annotations
 
-import html
 import json
 import re
 from typing import TYPE_CHECKING, cast
 
+from sift.render._util import md_escape as _escape
+from sift.render._util import md_field as _field
 from sift.render._util import sanitise
 
 if TYPE_CHECKING:
@@ -37,34 +38,9 @@ _EVT_RE = re.compile(r"\[evt:([0-9a-f]{16})\]")
 # keep a tampered/non-conforming appendix id out of a raw HTML attribute (WR-05).
 _ID_RE = re.compile(r"[0-9a-f]{16}")
 
-# Markdown structural metacharacters that could inject headings, emphasis,
-# lists, code spans, links or table columns if left raw in a DB/model field.
-# Backslash comes first so we never double-escape our own escapes. `< > &` are
-# handled by html.escape (they become entities, safe in Markdown AND the PDF's
-# HTML), so they are deliberately NOT in this backslash set.
-_MD_STRUCT = ("\\", "`", "*", "_", "#", "[", "]", "|")
-
 # D-04: cap appendix raw text so multi-line stack traces / MCM blocks cannot
 # balloon the report. Measured in UTF-8 bytes.
 RAW_BYTE_CAP = 2048
-
-
-def _escape(text: str) -> str:
-    """Escape Markdown structural + HTML metacharacters in DB/model text (WR-04).
-
-    Backslash-escapes Markdown structure (``\\ ` * _ # [ ] |``) then HTML-escapes
-    ``& < >`` to entities. The result is inert both as inline Markdown and, once
-    ``markdown.markdown`` converts it, as HTML in the PDF path — so a title or
-    narrative cannot inject a heading, link, fake OK marker, or a raw ``<img>``.
-    """
-    for ch in _MD_STRUCT:
-        text = text.replace(ch, "\\" + ch)
-    return html.escape(text, quote=False)
-
-
-def _field(text: str) -> str:
-    """Sanitise (strip control chars) then escape a DB/model inline field."""
-    return _escape(sanitise(text))
 
 
 def _link_citations(narrative: str, appendix_ids: set[str]) -> str:

@@ -372,6 +372,21 @@ class InferenceClient:
         """
         return self._last_embedding_model or self._embeddings.model
 
+    @property
+    def embedding_context(self) -> int:
+        """Embedding context budget in tokens, as actually used (clamped, 0014)."""
+        return self._context
+
+    @property
+    def embedding_batch_size(self) -> int:
+        """Max inputs per embedding request, as actually used (clamped, 0014)."""
+        return self._batch_size
+
+    @property
+    def embedding_max_input_chars(self) -> int:
+        """Per-input char cap for embedding, as actually used (clamped, 0014)."""
+        return self._max_input_chars
+
     def chat(
         self,
         messages: Sequence[dict[str, str]],

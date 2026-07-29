@@ -164,7 +164,7 @@ def _assemble_mcm(
     )
     _msgs, prompted_ids, prompt = hypothesise._assemble(  # pyright: ignore[reportPrivateUsage]
         ranked, group_index, messages, template, None, budget,
-        kb_context=kb_context, mcm_block=mcm_block,
+        kb_context=kb_context, fact_blocks={"mcm": mcm_block},
     )
     return prompted_ids, prompt
 

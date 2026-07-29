@@ -18,17 +18,21 @@ stage independently re-runnable, idempotent, and inspectable with `sift show`.
 ## Component diagram
 
 ```
-        src/sift/cli.py  (Typer: new, ingest, show, analyze, report, mcm, perfmon, eval, doctor)
-                              │  orchestration only — no SQL, no HTTP
+   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, mcm, perfmon, eustack, eval, doctor)
+                              │  orchestration only — no HTTP; SQL only in the
+                              │  read-only `list` probe (see "The case store")
    ┌──────────────┬───────────┼───────────────┬──────────────┬─────────────┐
    ▼              ▼           ▼               ▼              ▼             ▼
 adapters/     pipeline/    pipeline/       pipeline/      render/          eval/
- base.py       dedup.py    cluster.py     hypothesise.py  markdown.py      runner.py
- dsserrors     salience.py retrieve.py    mcm.py          json_out.py      metrics.py
- dssperfmon                               mcm_facts.py    mcm_report.py     judge.py
- eustack                                  perfmon.py      perfmon_report.py thresholds.py
- journald                                 perfmon_facts.py pdf.py
- genericlog
+ base.py       ingest.py   cluster.py     hypothesise.py  markdown.py      runner.py
+ dsserrors     dedup.py    retrieve.py    analysers.py    json_out.py      metrics.py
+ dssperfmon    salience.py                mcm.py           mcm_report.py    judge.py
+ eustack                                  mcm_facts.py     perfmon_report.py thresholds.py
+ journald                                 perfmon.py       eustack_report.py
+ genericlog                               perfmon_facts.py pdf.py
+                                          eustack.py
+                                          eustack_facts.py
+                                          eustack_progression.py
    │              │           │               │              │             │
    └──────────────┴───────────┴───────┬───────┴──────────────┴─────────────┘
                                       ▼
@@ -58,15 +62,21 @@ raw files ──ingest──▶ events ──dedup──▶ template_groups ─�
 
 | Stage | Owner | What it does |
 |-------|-------|--------------|
-| Ingest | `cli.py::_ingest` + `adapters/` | Walks the recorded input directory, picks an adapter per file (`adapters.detect`), parses to `Event`s, inserts with `CaseStore.insert_events`. Each file is wrapped in a `CaseStore.savepoint` inside one outer transaction, so a mid-file parse failure rolls that file back to zero rows without losing the run. |
+| Ingest | `pipeline/ingest.py::run_ingest` + `adapters/` | Walks the recorded input directory, picks an adapter per file (`adapters.detect`), parses to `Event`s, inserts with `CaseStore.insert_events`. Each file is wrapped in a `CaseStore.savepoint` inside one outer transaction, so a mid-file parse failure rolls that file back to zero rows without losing the run. |
 | Dedup | `pipeline/dedup.py::rebuild_template_groups` | Masks volatile tokens (`mask`), groups identical masked messages, and writes `template_groups`. Recomputed from the store every time, so it is idempotent. |
 | Cluster | `pipeline/cluster.py::cluster_and_label` | Embeds one exemplar per template group, L2-normalises, clusters with `sklearn.cluster.HDBSCAN` (agglomerative fallback), writes `chunks`, `vectors`, `clusters`, and optionally LLM-generated cluster labels — all inside one transaction. |
 | Retrieve | `pipeline/retrieve.py` | `index_kb` chunks a directory of Markdown runbooks into `kb_chunks`/`kb_vectors`; `retrieve_kb` runs vec0 KNN and returns KB *text only*. |
 | Rank | `pipeline/salience.py::rank_clusters` | Scores clusters on severity, count, burstiness, novelty and proximity to the incident time (weights `_W_SEVERITY` 0.35, `_W_COUNT` 0.20, `_W_BURST` 0.15, `_W_NOVELTY` 0.10, `_W_PROXIMITY` 0.20), applying any `--since`/`--until` window at cluster granularity. |
 | Hypothesise | `pipeline/hypothesise.py::hypothesise` | Assembles the budgeted triage prompt, runs generate → validate → repair → citation gate, persists `hypotheses` plus `triage_*` meta. |
-| Render | `render/` | `render_markdown`, `render_json`, `render_pdf`, and the separate MCM and perfmon bundles in `render/mcm_report.py` and `render/perfmon_report.py`. Pure functions of an open `CaseStore` — no client is constructed, so no re-inference can occur. |
+| Render | `render/` | `render_markdown`, `render_json`, `render_pdf`, and the separate MCM, perfmon and eu-stack bundles in `render/mcm_report.py`, `render/perfmon_report.py` and `render/eustack_report.py`. Pure functions of an open `CaseStore` — no client is constructed, so no re-inference can occur. |
 
-Two deterministic, LLM-free analysers sit alongside these stages. `pipeline/mcm.py`
+The deterministic, LLM-free analysers sit alongside these stages, registered
+in `pipeline/analysers.py::ANALYSERS` — the analyser counterpart of the adapter
+registry. Each entry declares its triage-template block (marker + slot), the
+event sources it consumes (the store read is scoped to their union), and a
+`build` function producing the citable fact block. `hypothesise` iterates the
+registry, so adding analyser #4 is a new module plus one registry entry plus
+one sentinel block in `triage.md`. `pipeline/mcm.py`
 (`analyse_mcm`) is a MicroStrategy memory-contract-manager analyser over stored events, and
 `pipeline/mcm_facts.py` (`render_mcm_facts`) renders its findings as citable `[evt:…]` fact lines
 spliced into the triage prompt. `pipeline/perfmon.py` (`analyse_perfmon`) is the v1.2
@@ -75,8 +85,11 @@ episode with counter value-at-denial, slope-per-second and peak over the episode
 (`CounterTrend`), attaching graded correlation hazards (`PerfmonHazard`). With no MCM episodes it
 falls back to a per-source-file full-sample-range scope so it never implies a correlation it did not
 perform. `pipeline/perfmon_facts.py` (`render_perfmon_facts`) renders that analysis as citable
-`[evt:…]` fact lines the same way `mcm_facts` does. Neither analyser opens a socket or calls the
-LLM.
+`[evt:…]` fact lines the same way `mcm_facts` does. The v1.3 eu-stack family follows the same
+shape: `pipeline/eustack.py` (thread-role classification + saturation analysis over rules loaded
+by `load_rules`), `pipeline/eustack_progression.py` (`analyse_eustack_bundle`, multi-dump
+ordering and progression) and `pipeline/eustack_facts.py` (`render_eustack_facts`). None of the
+analysers opens a socket or calls the LLM.
 
 ## The canonical Event model and `event_id` determinism
 
@@ -103,8 +116,12 @@ than being dropped, and adapters report per-file coverage via `adapters.base.Par
 
 ## The case store
 
-`src/sift/store.py` owns **all** SQL in the codebase. Every statement uses `?` placeholders; no
-value is ever interpolated into SQL text. Filter keys reaching the store from the CLI are checked
+`src/sift/store.py` owns **all** SQL in the codebase, with one deliberate,
+documented exception: `cli.py::_case_row` opens a read-only (`mode=ro`) sqlite
+connection to display the `sift list` table without running migrations —
+constructing a `CaseStore` would rewrite the schema of every listed case as a
+side effect of displaying it. That probe never writes. Everywhere else, every
+statement uses `?` placeholders; no value is ever interpolated into SQL text. Filter keys reaching the store from the CLI are checked
 against allowlist dicts (`_EVENT_FILTER_SQL`, `_CLUSTER_FILTER_SQL`, `_CLUSTERS_TABLE_FILTER_SQL`)
 that map a key to a fixed `WHERE` snippet — an unknown key raises before any query is built.
 
@@ -140,9 +157,13 @@ local change. And `raw` text above 4 KB encoded is transparently zstd-compressed
 untrusted input.
 
 Run-level state lives in `meta`: `embedding_dim`, `embedding_metric`, `embedding_model`,
+`embedding_context`, `embedding_batch_size`, `embedding_max_input_chars`,
 `mask_version`, `cluster_label_prompt_hash`, and the `triage_*` keys
 (`triage_degraded`, `triage_prompt_hash`, `triage_created_at`, `triage_model`,
-`triage_timeline_summary`, `triage_unexplained_signals`, `triage_raw`).
+`triage_timeline_summary`, `triage_unexplained_signals`, `triage_raw`). The three
+`embedding_*` batch-layout keys are provenance only, recorded so a divergent
+re-run is diagnosable (ADR 0014) — they overwrite unconditionally on every
+`analyze`, unlike `embedding_dim`'s mismatch guard.
 
 The KB namespace is deliberately separate: `kb_chunks` has no `event_id` column anywhere, so a KB
 row structurally *cannot* become citable evidence. See
@@ -251,10 +272,10 @@ The output contract is two Pydantic models in `models.py`, both `extra="forbid"`
 `timeline_summary`, `unexplained_signals`).
 
 `hypothesise()` tracks a `prompted_ids` set — the exact universe of event ids the model was shown.
-`_assemble` builds it as the union of three sources: the representative exemplar id of each ranked
-cluster rendered as an `[evt:<event_id>] <message>` line, plus the ids `render_mcm_facts` printed,
-plus the ids `render_perfmon_facts` printed. MCM and perfmon facts are the deliberate inverse of the
-KB path: they are deterministic, LLM-free evidence spliced into the prompt as *cited-not-authored*
+`_assemble` builds it as the union of the representative exemplar id of each ranked cluster
+rendered as an `[evt:<event_id>] <message>` line, plus the ids each registered analyser's fact
+block printed (`build_fact_blocks` output). Analyser facts are the deliberate inverse of the KB
+path: they are deterministic, LLM-free evidence spliced into the prompt as *cited-not-authored*
 lines, so their ids join `prompted_ids` and become legitimately citable. Retrieved KB chunks are
 spliced into a delimited block but are **never** added to `prompted_ids`, so a KB row can never
 become a citation.
@@ -316,11 +337,12 @@ All prompts are Markdown files in `src/sift/prompts/`, loaded as package data vi
 `importlib.resources` and never executed: `triage.md`, `cluster_label.md`, `mcm_facts.md`,
 `perfmon_facts.md`, `judge.md`. Changing a prompt never requires touching Python.
 
-`triage.md` carries three delimited, optional blocks marked with HTML comments — a KB block, an
-MCM block, and a perfmon block. `hypothesise._apply_kb_block`, `_apply_mcm_block` and
-`_apply_perfmon_block` either splice content into the slot and strip the markers, or remove the
-whole block residue-free when there is nothing to inject; each block is stripped independently so
-perfmon presence can never perturb the no-perfmon or MCM-only prompt bytes. Each
+`triage.md` carries four delimited, optional blocks marked with HTML comments — a KB block plus
+one block per registered analyser (MCM, perfmon, eu-stack). A single shared splice,
+`pipeline/analysers.py::apply_block`, either fills a block's slot and strips its markers, or
+removes the whole block residue-free when there is nothing to inject; each block is stripped
+independently so one domain's presence can never perturb another domain's prompt bytes. The KB
+block reuses the same splice via `hypothesise._apply_kb_block` but stays non-citable. Each
 assembled prompt is hashed (`sha256(prompt)[:16]`) into `meta.triage_prompt_hash`; the cluster-label
 template hash goes to `meta.cluster_label_prompt_hash`. Identical inputs assemble an identical
 prompt and therefore an identical hash, which is what makes a run reproducible.
@@ -352,25 +374,30 @@ advisory local-model judge score that never affects the gate. Exit codes are rec
 
 ```
 src/sift/
-├── cli.py           Typer entry point; orchestration only — no SQL, no HTTP
+├── cli.py           Typer entry point; orchestration only — no HTTP, no SQL
+│                    except the read-only `list` probe documented above
 ├── config.py        Layered config resolution and validation
 ├── models.py        Frozen Event dataclass + event_id; hypothesis output contract
 ├── store.py         The only SQL: schema, migrations, sqlite-vec, transactions
 ├── adapters/        Pluggable parsers (sniff/parse) + the registry
-├── pipeline/        Stage logic: dedup, cluster, retrieve, salience, hypothesise, mcm, perfmon
+├── pipeline/        Stage logic: ingest, dedup, cluster, retrieve, salience,
+│                    hypothesise, and the analyser registry (analysers.py)
+│                    over mcm, perfmon and eustack
 ├── llm/             The only HTTP: InferenceClient + PromptBudget
 ├── prompts/         Versioned Markdown prompt templates (package data)
-├── render/          Pure store→text renderers: markdown, json, pdf, mcm + perfmon bundles
+├── render/          Pure store→text renderers: markdown, json, pdf, mcm +
+│                    perfmon + eustack bundles (shared escaping in _util.py)
 └── eval/            Golden-case harness: runner, metrics, thresholds, judge
-docs/decisions/      Architecture decision records (ADR 0001–0013)
+docs/decisions/      Architecture decision records (ADR 0001–0017)
 eval/cases/          Golden cases with frozen truth files
 tests/               pytest suite; no test ever opens a socket
 deploy/              Container/Quadlet deployment assets
 ```
 
-The boundaries exist to keep four claims cheaply auditable: only `store.py` writes SQL, only
-`llm/client.py` opens HTTP, only `prompts/` holds prompt text, and `render/` never re-infers. Each
-of those is a one-directory review rather than a codebase-wide grep.
+The boundaries exist to keep four claims cheaply auditable: only `store.py` writes SQL (the CLI's
+`list` probe is read-only), only `llm/client.py` opens HTTP, only `prompts/` holds prompt text, and
+`render/` never re-infers. Each of those is a one-directory review rather than a codebase-wide
+grep.
 
 ## Cross-cutting invariants
 

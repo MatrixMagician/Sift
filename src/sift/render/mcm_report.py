@@ -32,11 +32,11 @@ import json
 from typing import TYPE_CHECKING
 
 # Reuse the load-bearing markdown escaping (sanitise + Markdown/HTML escape) —
-# NOT a second implementation (RESEARCH Security V5). ``_field`` wraps
-# ``render._util.sanitise``; importing it here is the sanctioned cross-module
-# reuse the plan prescribes ("import them, do not reimplement escaping").
+# NOT a second implementation (RESEARCH Security V5). ``md_field`` wraps
+# ``render._util.sanitise``; the shared implementation lives in ``_util`` so
+# sibling renderers never import each other's private symbols.
 from sift.render._util import mb_bytes as _mb_bytes
-from sift.render.markdown import _field  # pyright: ignore[reportPrivateUsage]
+from sift.render._util import md_field as _field
 
 if TYPE_CHECKING:
     from pathlib import Path

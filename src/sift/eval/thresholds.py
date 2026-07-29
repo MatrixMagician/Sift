@@ -2,13 +2,16 @@
 
 ``load_thresholds`` reads ``eval/thresholds.toml`` with stdlib ``tomllib`` in
 binary mode (mirroring ``config.py`` — no code-execution surface, T-07-02) and
-coerces the four floors to ``float``. ``gate`` turns a scored ``SuiteResult``
-into a pass/fail verdict: every keyword-metric aggregate must clear its floor,
+coerces the five floors to ``float``. ``gate`` turns a scored ``SuiteResult``
+into a pass/fail verdict: every metric aggregate must clear its floor,
 AND — the load-bearing invariants the aggregates alone do NOT enforce — a
 ``run_failed`` case fails the gate (a crashed run is a regression, never
 silently excluded), a false-positive on an ``expect_no_incident`` case fails the
-gate, and an EMPTY positive set (which aggregates to a vacuous 1.0) is NOT a
-pass. Judge scores never enter the gate (advisory only, D-08).
+gate, an EMPTY positive set (which aggregates to a vacuous 1.0) is NOT a
+pass, and an EMPTY scorable eu-stack set (EUS-12, D-19-13) — which also
+aggregates to a vacuous 1.0 — is likewise NOT a pass, so deleting or skipping
+the eu-stack cases can never turn the gate green. Judge scores never enter the
+gate (advisory only, D-08).
 """
 
 from __future__ import annotations
@@ -21,18 +24,21 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sift.eval.metrics import SuiteResult
 
-# The four keyword floors, in the order they are displayed. Uniform direction:
-# every metric is "higher is better", gated as value >= floor (ADR 0010).
+# The five floors, in the order they are displayed. Uniform direction: every
+# metric is "higher is better", gated as value >= floor (ADR 0010).
+# eustack_detection_rate is last (EUS-12, Plan 19-03) so display order stays
+# stable for the original four.
 METRIC_KEYS: tuple[str, ...] = (
     "retrieval_hit_rate",
     "hypothesis_hit_at_k",
     "citation_validity_rate",
     "determinism_stability",
+    "eustack_detection_rate",
 )
 
 
 def load_thresholds(path: Path) -> dict[str, float]:
-    """Load the four float floors from ``path`` (binary-mode ``tomllib``).
+    """Load the five float floors from ``path`` (binary-mode ``tomllib``).
 
     Raises ``ValueError`` on an unreadable/malformed file or a missing/non-float
     floor — the caller maps that to a usage error (exit 2). This is the trust
@@ -69,6 +75,7 @@ class GateResult:
     run_failed_cases: list[str]
     false_positive_cases: list[str]
     no_positive_cases: bool
+    no_eustack_cases: bool
     passed: bool
 
     def as_dict(self) -> dict[str, object]:
@@ -82,22 +89,27 @@ class GateResult:
             "run_failed_cases": self.run_failed_cases,
             "false_positive_cases": self.false_positive_cases,
             "no_positive_cases": self.no_positive_cases,
+            "no_eustack_cases": self.no_eustack_cases,
         }
 
 
 def gate(suite: SuiteResult, thresholds: dict[str, float]) -> GateResult:
     """Decide pass/fail for a scored suite against ``thresholds``.
 
-    Passing requires ALL of: every keyword-metric aggregate clears its floor;
-    no ``run_failed`` case; no ``expect_no_incident`` false positive; at least
+    Passing requires ALL of: every metric aggregate clears its floor; no
+    ``run_failed`` case; no ``expect_no_incident`` false positive; at least
     one scorable positive case (an empty positive set aggregates to a vacuous
-    1.0 and must not be reported as a pass).
+    1.0 and must not be reported as a pass); and at least one scorable
+    eu-stack case (EUS-12, D-19-13) — an empty eu-stack set ALSO aggregates to
+    a vacuous 1.0 and must likewise not be reported as a pass, so deleting or
+    skipping the eu-stack cases can never turn the gate green.
     """
     values = {
         "retrieval_hit_rate": suite.mean_retrieval_hit_rate(),
         "hypothesis_hit_at_k": suite.mean_hypothesis_hit_at_k(),
         "citation_validity_rate": suite.mean_citation_validity_rate(),
         "determinism_stability": suite.mean_determinism_stability(),
+        "eustack_detection_rate": suite.mean_eustack_detection_rate(),
     }
     metrics = [
         MetricVerdict(
@@ -119,16 +131,21 @@ def gate(suite: SuiteResult, thresholds: dict[str, float]) -> GateResult:
     no_positive_cases = not any(
         not c.expect_no_incident and not c.run_failed for c in suite.cases
     )
+    no_eustack_cases = not any(
+        c.is_eustack and not c.run_failed for c in suite.cases
+    )
     passed = (
         all(m.passed for m in metrics)
         and not run_failed_cases
         and not false_positive_cases
         and not no_positive_cases
+        and not no_eustack_cases
     )
     return GateResult(
         metrics=metrics,
         run_failed_cases=run_failed_cases,
         false_positive_cases=false_positive_cases,
         no_positive_cases=no_positive_cases,
+        no_eustack_cases=no_eustack_cases,
         passed=passed,
     )

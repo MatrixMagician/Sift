@@ -13,16 +13,20 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 import pytest
 from typer.testing import CliRunner
 
+from sift.adapters.eustack import EustackAdapter
 from sift.cli import app
 from sift.config import load_config
 from sift.models import Event, event_id
 from sift.pipeline import dedup
 from sift.store import CaseStore, case_db_path
+
+_EUSTACK_FIXTURE_DIR = Path(__file__).parent / "fixtures" / "eustack"
 
 Handler = Callable[[httpx.Request], httpx.Response]
 runner = CliRunner()
@@ -189,6 +193,43 @@ def test_analyze_empty_case_reports_nothing_to_cluster(
     assert result.exit_code == 0, result.output
     assert "Nothing to cluster" in result.output
     assert calls == []  # the client was never contacted
+
+
+def test_analyze_eustack_only_case_still_narrates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-19-02/EUS-11: a case whose only ingested source is eu-stack has zero
+    template groups (EXCLUDED_FROM_RANKING now holds "eustack"), but that must
+    NOT be conflated with a genuinely empty case — analyze falls through to
+    hypothesise() so the Phase-18 eu-stack fact block still narrates, instead
+    of printing the factually wrong "run sift ingest first"."""
+    adapter = EustackAdapter()
+    adapter.input_root = _EUSTACK_FIXTURE_DIR
+    events = list(
+        adapter.parse(_EUSTACK_FIXTURE_DIR / "threaddump.txt", "eustack-only")
+    )
+    store = CaseStore(case_db_path(load_config().data_dir, "eustack-only"))
+    try:
+        with store.transaction():
+            store.insert_events(events)
+        dedup.rebuild_template_groups(store)
+    finally:
+        store.close()
+
+    calls: list[str] = []
+    _patch_http(monkeypatch, _handler(calls=calls))
+    result = runner.invoke(app, ["analyze", "eustack-only"])
+    assert result.exit_code == 0, result.output
+    assert "Nothing to cluster" not in result.output
+    assert "Clusters: 0" in result.output
+    # The citation-gated generation call (tagged "generate" by _handler, as
+    # opposed to the cluster-label "chat" call which never fires here since
+    # cluster_and_label short-circuits on zero groups) proves the generation
+    # leg genuinely ran.
+    assert "generate" in calls
+    # Zero exemplars to embed: cluster_and_label short-circuits before any
+    # embed round-trip.
+    assert "embeddings" not in calls
 
 
 def test_analyze_missing_case_exits_one(monkeypatch: pytest.MonkeyPatch) -> None:

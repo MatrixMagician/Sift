@@ -1,189 +1,225 @@
 # Stack Research
 
-**Domain:** Local-first, privacy-preserving LLM-powered incident/log triage CLI (Python)
-**Researched:** 2026-07-16
-**Confidence:** MEDIUM (versions verified against PyPI registry and official docs; provider tiers assigned via classify-confidence seam)
+**Domain:** eu-stack hang/slowdown analysis (v1.3) — rule-driven thread classification,
+deterministic saturation/contention metrics, multi-dump diffing, embedding-vector reuse
+**Researched:** 2026-07-25
+**Confidence:** HIGH (sqlite-vec read-back empirically verified against the exact installed
+version; TOML/tomllib claims verified against the spec and stdlib docs; matching-performance and
+Counter-vs-sklearn claims are arithmetic/architectural reasoning against measured v1.3 volumes, not
+external sources — flagged MEDIUM where they rest on reasoning rather than a fetched source)
 
-**Mandate:** SPEC.md prescribes the stack; this document validates it rather than proposing alternatives. Verdict up front: **the SPEC stack survives pressure-testing intact.** Every prescribed choice is current and fit for purpose. The open questions (Typer vs argparse, PDF library, drain3 vs hand-rolled) are resolved below with recommendations.
+**Scope note:** this supersedes the v1.0 stack validation that previously occupied this path
+(2026-07-16 — Python/httpx/Pydantic/sqlite-vec/scikit-learn/Typer/zstandard/PDF/embeddings
+questions). That validation is not re-litigated here: it shipped, it is unchanged, and its
+findings are preserved verbatim in `.claude/CLAUDE.md`'s "Technology Stack" section. This document
+is scoped **only** to the four new v1.3 asks below.
+
+## Verdict: no new runtime dependency for any of the four asks
+
+Every one of (a)–(d) is covered by stdlib or an already-declared dependency. The recommendation
+below is deliberately "add nothing" four times over, because that is what the evidence supports —
+not a default answer reached by not looking.
+
+### (a) Rules-file format — **TOML via stdlib `tomllib`**
+
+| Format | Verdict | Why |
+|--------|---------|-----|
+| **TOML (`tomllib`)** | **Use this** | Already the project's human-edited config format (`~/.config/sift/config.toml`) — this is a second file in the same format the team already reads and diffs, not a new convention. `tomllib` is stdlib since Python 3.11 (PEP 680); Sift's floor is 3.12, so it costs nothing. An ordered array of tables (`[[rule]]`) preserves file order 1:1 with parse order in Python's dict-preserves-insertion-order semantics — first-match-wins falls out for free, with no separate "priority" field to keep in sync with row position. |
+| YAML (PyYAML) | Reject | Not stdlib — currently scoped to the M7 eval harness only (`truth.yaml`); pulling it into the rules-loading path (used by every `sift eustack` run, not just `sift eval`) broadens a test-only dependency into a runtime one. YAML's unquoted-scalar ambiguities (the "Norway problem" class: bare `no`/`off`/`null`-like tokens coerce to booleans/null; a bare `key: value` colon-space is a mapping delimiter) are a real hazard surface for hand-typed C++ symbol text that a reviewer must get right on every edit — TOML's literal strings sidestep this entirely (below). |
+| Markdown-with-tables | Reject | No stdlib parser exists — you would hand-roll a markdown-table parser, which is *more* code than calling `tomllib.load()`, not less. Worse: pipe (`\|`) is the markdown table cell delimiter, and C++ symbols legitimately contain literal pipes — `operator\|`, `operator\|=`, `operator\|\|` are real overload names that would need per-cell escaping in every row that mentions them. TOML has no such collision. |
+
+**Escaping/quoting check (the specific hazard named in the question), verified against the TOML
+spec:** patterns are demangled C++ symbols containing `<`, `>`, `::`, `&`, quotes and commas.
+TOML's **literal strings** (single-quoted, `'...'`) perform **zero escaping** — every one of those
+characters is legal verbatim inside `'...'`. The only character that cannot appear in a literal
+string is a literal single quote itself (vanishingly rare in a demangled symbol; TOML's multi-line
+literal-string form is the escape hatch if one ever shows up). Practical rule-file row:
+
+```toml
+[[rule]]
+role = "idle-parked"
+subsystem = "job-queue"
+match = "contains"
+pattern = 'MSIQTask::GetNextPreferredJob'
+```
+
+No new dependency, no escaping code, first-match-wins is just "iterate the list in file order."
+
+### (b) Symbol matching — **plain `str` methods (`in`/`startswith`), not `re`, not a trie**
+
+Order-of-magnitude check against the *measured* v1.3 volumes (not the naive worst case): there are
+**93 distinct stack signatures per dump**, not 4,000 independent threads to classify — classifying
+a signature is what has to happen; tallying which of the 4,000 threads owns which signature is a
+`Counter` lookup (see (c)), not a second classification pass. So the real workload is:
+
+- **93 signatures × ≤19 frames (max observed depth) × R hand-curated rules.** Even at a generously
+  large R = 200 rules, that is 93 × 19 × 200 ≈ 353,000 string comparisons, once per dump.
+- Plain Python `str.startswith`/`in` over short strings (symbol names, tens of characters) runs at
+  roughly 10–50M ops/sec on any modern CPU — this workload finishes in **single-digit
+  milliseconds**, not seconds.
+- Even the pessimistic per-thread naive scan (4,000 threads × 10 frames × 200 rules = 8M
+  comparisons) is still well under a second in pure Python. There is no scale at which this
+  analysis is a bottleneck.
+
+**Conclusion: an anchored-prefix trie or a precompiled alternation regex is solving a performance
+problem that does not exist at this N.** Reach for it only if a future dump is orders of magnitude
+larger (hundreds of thousands of frames) — not speculatively now.
+
+Between plain `str` methods and `re`: **prefer plain `str` methods** (`match = "exact" |
+"prefix" | "contains"` as a rule field, dispatched to `==`, `str.startswith`, `str.__contains__`).
+This is not just laziness — it is consistent with an explicit existing convention in this exact
+adapter family: `eustack.py`'s own regexes are commented **"Anchored, linear-scan regexes — no
+ReDoS"** (`_TID_RE`, `_FRAME_RE`). A hand-curated, human-edited rules file is precisely the kind of
+input where a reviewer might paste in a `.*`-heavy pattern without thinking about backtracking;
+plain string containment/prefix checks have no ReDoS surface at all, by construction. If wildcard
+patterns are genuinely needed later (rare — demangled symbols are exact, not glob-shaped), stdlib
+`fnmatch` is the escape hatch: it translates glob syntax to a compiled `re` internally and caches
+compiled patterns (`_MAXCACHE`) automatically, so it costs nothing extra to reach for if the need
+arises — but do not add it speculatively now; `contains`/`prefix`/`exact` almost certainly covers
+every rule in the reference taxonomy (self-labelling frames like `MSIQTask::GetNextPreferredJob`,
+`CDSSQueryEngine::WaitUntilFinished`, `curl_multi_poll` are exact function names, not patterns
+needing wildcards).
+
+**Integration note for the roadmap:** the classifier needs the *full* frame list per thread, not
+just the top-5 "condensed" message the `eustack` adapter already stores (`CONDENSED_FRAMES = 5` in
+`src/sift/adapters/eustack.py`). The measured self-labelling frames sit at depth ~8–10 in a
+10-frame stack, below the condensation cutoff. The full frame text is still present, uncompressed,
+in `Event.raw` for any thread block under the 4 KB zstd threshold (`store.py`'s
+`_RAW_ZSTD_THRESHOLD`) — a typical ~10-line eu-stack thread block is well under that, so no new
+storage path or dependency, just read `raw` instead of `message` in the classifier's frame source.
+
+### (c) Signature grouping — **`collections.Counter` over frame tuples, not scikit-learn**
+
+Confirmed: this is exact structural grouping (identical frame sequence ⇒ identical signature), not
+fuzzy semantic similarity. `sklearn.cluster.HDBSCAN`/`AgglomerativeClustering` (both already
+dependencies, used for the *semantic* embedding-space clustering of free-text log messages
+elsewhere in the pipeline) solve a different problem — approximate grouping over a continuous
+distance metric. Applying an ML clustering algorithm to decide whether two identical tuples of
+frame strings are "the same" would be strictly worse than `==`: slower, non-deterministic across
+library versions in the general case, and unnecessary because equality is exact and free.
+
+- **Per-dump signature composition:** `collections.Counter(tuple(frames) for frames in threads)` —
+  one pass, O(n), stdlib only. This *is* the "93 distinct stack signatures" measurement from the
+  milestone context, computed directly.
+- **Multi-dump progression (per-signature population deltas):** two `Counter`s, diffed with plain
+  dict arithmetic (`Counter` subtraction/`|`/`&`, or a manual `set(a) | set(b)` walk to also
+  surface *which* TIDs appeared/disappeared per signature, since the milestone also wants per-TID
+  advancement, not just per-signature counts). No new dependency; this is arithmetic over
+  dictionaries already keyed by signature.
+
+### (d) SEED-002 vector reuse — **read the existing `vectors` vec0 table directly; no BLOB column**
+
+This was the one open API question worth actually testing rather than reasoning about, so it was
+verified empirically against the exact pinned version in this environment
+(`sqlite-vec==0.1.9`, `src/sift/store.py`'s existing `_load_sqlite_vec`/`_blob_to_vec` path) with a
+live in-memory round-trip:
+
+```python
+conn.execute("create virtual table vectors using vec0(chunk_id integer primary key, embedding float[4])")
+conn.execute("insert into vectors (chunk_id, embedding) values (?, ?)", (2, blob))
+conn.execute("select embedding from vectors where chunk_id = ?", (2,)).fetchone()
+# -> returns the exact stored float32 blob, no MATCH/KNN clause needed
+conn.execute("select chunk_id, embedding from vectors").fetchall()
+# -> plain unfiltered scan also returns embeddings directly
+```
+
+**Both a point lookup by primary key and a full unfiltered scan work on the `vec0` table exactly
+like an ordinary table column** — no `MATCH`/`k =` KNN machinery is required to read a vector back
+out; that machinery is only for *similarity* search. `store.py` already has the read half of the
+confined vector-serialisation pair, `_blob_to_vec` (currently only pyright-suppressed as unused
+outside tests) — SEED-002's incremental-embed path is: `SELECT chunk_id, embedding FROM vectors
+WHERE chunk_id IN (...)` (mirroring the existing `?`-bound `IN (...)` idiom already used by
+`get_events_by_ids`), decode with `_blob_to_vec`, and only call `client.embed()` for the chunk_ids
+not returned. **No parallel BLOB column, no schema migration, no new dependency.** This closes the
+concrete API question the milestone flagged as needing verification rather than assumption.
 
 ## Recommended Stack
 
 ### Core Technologies
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| Python | 3.12+ (3.13 fine) | Language | SPEC constraint; 3.12 gives `itertools.batched`, improved error messages, per-interpreter GIL groundwork. Do not require 3.14 yet (see zstandard note) |
-| uv | latest (self-updating) | Dependency/venv/tool management | SPEC constraint; `uv tool install` is the packaging target for M8 |
-| httpx | 0.28.1 | OpenAI-compatible HTTP client | Latest release (Dec 2024, still current Jul 2026 — stable, slow-moving). Sync client is sufficient; timeouts, connection pooling, and `base_url` per role built in. No vendor SDK, per SPEC |
-| Pydantic | 2.13.x | Schema validation for hypothesis JSON contract, config | Current 2.13.4 (May 2026). `model_json_schema()` output feeds directly into llama.cpp schema-constrained decoding; `model_validate_json` is the enforcement backstop |
-| SQLite (stdlib `sqlite3`) + sqlite-vec | sqlite-vec 0.1.9 | Case store + vector KNN | Zero-daemon, one `case.db` per case, per SPEC. See maturity notes below |
-| scikit-learn | 1.9.0 | HDBSCAN clustering + agglomerative fallback | `sklearn.cluster.HDBSCAN` (in sklearn since 1.3) covers the semantic-clustering stage AND the agglomerative fallback in one dependency — the standalone `hdbscan` package is redundant here (see Alternatives) |
-| Typer | 0.27.0 | CLI framework | Actively released (Jul 2026). Resolves SPEC open question #1 — recommendation: **Typer**, rationale below |
-| zstandard | 0.25.0 | Compress `raw` event text > 4 KB | Maintained (Sep 2025 release). Required because Python floor is 3.12; stdlib `compression.zstd` only exists from 3.14 |
+No new core technology. All four capabilities are built on what is already declared in
+`pyproject.toml`.
 
-### Supporting Libraries
+### Supporting Libraries (already present — zero version change)
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| numpy | 2.x (sklearn dependency) | Vector serialisation to sqlite-vec (`float32` little-endian blobs), cosine maths | Comes free with scikit-learn; use `np.asarray(embedding, dtype=np.float32).tobytes()` for sqlite-vec inserts |
-| markdown | 3.x | Markdown → HTML for the PDF path | Only inside the optional `sift[pdf]` extra |
-| WeasyPrint | 69.0 | HTML → PDF | Only inside `sift[pdf]`; resolves SPEC open question #2, rationale below |
-| PyYAML | 6.x | `truth.yaml` in the eval harness | M7 only. (`tomllib` is stdlib for config/thresholds — prefer TOML wherever Sift owns the format; YAML only for eval truth files if human-authoring ergonomics matter, else use TOML there too and drop PyYAML entirely) |
-| respx | 0.22.x | Mock httpx in tests (fake OpenAI-compatible server) | Test-only; SPEC names it. Keeps the zero-network-in-tests rule enforceable |
+| Library | Version (pinned) | New use in v1.3 | Why it already covers this |
+|---------|-------------------|------------------|------------------------------|
+| `tomllib` (stdlib) | 3.12+ (no package) | Parse the versioned thread-role rules file | Same format as `~/.config/sift/config.toml`; literal strings need no escaping for `< > :: &` or quotes |
+| `sqlite-vec` | 0.1.9 (pinned exact) | Read persisted vectors back for SEED-002 reuse | Verified: point-select and full-scan both return the stored blob without KNN |
+| `scikit-learn` | 1.9.0 (pinned exact) | **Not used** for eu-stack signature grouping (see (c)) — stays scoped to its existing semantic-clustering role | Confirms the negative: don't reach for it here |
+| `collections` (stdlib) | — | `Counter`-based signature tally and multi-dump diff | Exact-match grouping is a dict operation, not an ML problem |
+| `re` (stdlib) | — | Only if a rule genuinely needs a pattern beyond exact/prefix/contains | Kept as an escape hatch, not the default matcher |
+| `fnmatch` (stdlib) | — | Only if hand-curated glob wildcards are later needed in the rules file | Caches compiled patterns automatically; not needed for the reference taxonomy |
 
 ### Development Tools
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| ruff | Lint + format | Part of the "done" gate per SPEC §9 |
-| pyright | Type checking | Part of the "done" gate; strict mode recommended from M1 so it never becomes a retrofit |
-| pytest | Test runner | Fixtures include per-adapter sample artefacts |
+No change. `ruff`, `pyright`, `pytest` continue to gate "done" as already configured.
 
 ## Installation
 
 ```bash
-# Core runtime
-uv add httpx pydantic sqlite-vec scikit-learn typer zstandard
-
-# Optional PDF extra (declare as [project.optional-dependencies] pdf = [...])
-uv add --optional pdf markdown weasyprint
-
-# Dev
-uv add --dev pytest respx ruff pyright pyyaml
+# Nothing to add — every capability above resolves to stdlib or an already-pinned dependency.
+uv sync   # unchanged
 ```
-
-## Validation Findings (the questions asked)
-
-### 1. sqlite-vec — maturity and API
-
-- **Current:** PyPI 0.1.9 (2026-03-31); upstream on a 0.1.10-alpha track. **Pre-v1 software.**
-- **History to know:** development visibly stalled in H1 2025 (GitHub issue #226 "is this maintained?"), then resumed with 2026 releases. Single-maintainer risk is real but acceptable: the extension is small pure C, the stable API surface is tiny, and Sift's usage (one vec0 table, brute-force KNN) touches only the oldest, most-tested code path.
-- **API confirmed (Context7, official docs):** `import sqlite_vec; db.enable_load_extension(True); sqlite_vec.load(db)`. Create `create virtual table vectors using vec0(chunk_id integer primary key, embedding float[<dim>])`; KNN is `where embedding match ? and k = ? order by distance`. Metadata columns (up to 16) can be filtered in the KNN `WHERE` clause — useful if cluster-scoped retrieval is ever needed. Max 8192 dims (nomic/bge are 768/1024 — no issue).
-- **Caveat:** stable path is brute-force scan. Fine to ~100K vectors; SPEC's tens-of-thousands scale is comfortably inside. ANN modes (IVF/DiskANN) are experimental — do not use them.
-- **Caveat:** `sqlite3.enable_load_extension` requires the interpreter's SQLite to permit extension loading. Fedora's python3 does; some macOS system Pythons don't. `sift doctor` should verify `vec_version()` loads and report it.
-- **Verdict: keep.** Record embedding dimension in `meta` and hard-fail on mismatch, exactly as SPEC prescribes. Confidence: MEDIUM.
-
-### 2. hdbscan vs scikit-learn's HDBSCAN
-
-- Standalone `hdbscan` 0.8.44 (2026-06-01) is still maintained. `sklearn.cluster.HDBSCAN` has been in scikit-learn since 1.3; current sklearn is 1.9.0.
-- **They are not identical:** sklearn's `min_samples` includes the point itself (add 1 to match standalone results); `cluster_selection_epsilon` behaviour differs; sklearn lacks soft clustering (`membership_vector`) and `approximate_predict`.
-- Sift needs none of the standalone extras: it clusters template exemplars once per case, batch, no prediction on new points.
-- **Verdict: use `sklearn.cluster.HDBSCAN` and do not add the standalone package.** scikit-learn is required anyway for the agglomerative fallback (`AgglomerativeClustering` with `metric="cosine"`, `distance_threshold` from config), so this deletes one compiled dependency with zero capability loss. Confidence: MEDIUM.
-
-### 3. Typer vs argparse (SPEC open question #1)
-
-- Typer 0.27.0 released 2026-07-15 — very actively maintained.
-- Dependency cost: standard `typer` pulls `click`, `typing-extensions`, `rich`, `shellingham`. If that offends, `typer-slim` drops rich/shellingham.
-- **Verdict: Typer.** The CLI surface is non-trivial — seven subcommands, repeated `--adapter glob=name` options, per-command flags — and Typer gives typed parameters that pyright checks, auto-generated help, and shell completion for roughly four packages of dependency cost. argparse is the correct call only if the dependency budget is absolute; it is explicitly sanctioned by SPEC, so this is preference not correctness. Record the decision in `docs/decisions/`. Confidence: MEDIUM.
-
-### 4. zstandard bindings
-
-- `zstandard` 0.25.0 (2025-09-14), maintained (Gregory Szorc). This is the canonical binding; do not use `zstd` or `pyzstd`.
-- Python 3.14 shipped stdlib `compression.zstd`, but the project floor is 3.12 — the package stays. Note the future deletion: when the floor reaches 3.14, swap to stdlib and drop the dependency.
-- **Verdict: keep `zstandard` 0.25.x.** Confidence: MEDIUM.
-
-### 5. Structured output against llama.cpp
-
-Confirmed from the current llama-server README (2026-07):
-
-- `response_format` accepts `{"type": "json_object"}` and `{"type": "json_schema", "schema": {...}}`. **Gotcha: the nesting is NOT OpenAI's.** OpenAI puts the schema at `response_format.json_schema.schema`; llama.cpp expects it at `response_format.schema` directly (historical issues #10732, #11847 document clients breaking on this). Sift's client must send llama.cpp's shape when talking to llama-server/Lemonade-GGUF — feature-detect or just use the llama.cpp shape since remote OpenAI is out of scope anyway.
-- Non-standard request fields also exist: top-level `json_schema` and `grammar` (GBNF). Specifying both `json_schema` and `grammar` is a hard error. External `$ref` in schemas is unsupported — keep the hypothesis schema self-contained (Pydantic's `model_json_schema()` inlines by default with `ref_template` tweaks; verify no `$defs` indirection trips the converter, or flatten).
-- Grammar-constrained decoding guarantees syntactic shape only, not semantic validity — the SPEC's Pydantic-validate → one repair round-trip → degrade pipeline remains load-bearing. Keep it regardless of server-side constraints.
-- **Verdict: SPEC §5.5 enforcement pipeline is correct as written.** Confidence: MEDIUM.
-
-### 6. Embeddings via llama-server
-
-Confirmed from the current README:
-
-- `--embedding`/`--embeddings` flag **restricts the server to embedding-only use** — so generation and embeddings genuinely need two server instances (or Lemonade managing both). SPEC's per-role `base_url` design is validated as necessary, not optional.
-- `/v1/embeddings` (OpenAI-compatible) requires pooling ≠ `none` and returns Euclidean-normalised vectors. `--pooling {none,mean,cls,last,rank}`; model default applies if unspecified (nomic/bge GGUFs carry sane defaults — mean/cls).
-- Normalised output means cosine distance and L2 distance rank identically — pick one in sqlite-vec (`distance_metric=cosine` on the vec0 column or default L2) and record it in `meta`.
-- `/props` and `/tokenize` exist for feature-detection and the `PromptBudget` tokenize path, exactly as SPEC §5.6 assumes.
-- **Verdict: SPEC assumptions all hold.** Confidence: MEDIUM.
-
-### 7. Lemonade Server compatibility
-
-- OpenAI-compatible base URL `http://localhost:13305/v1` (**default port 13305 in current versions — older docs say 8000; make the port config-only, never assumed**).
-- Supports `/v1/chat/completions`, `/v1/completions`, `/v1/embeddings`, `/v1/models`; `response_format` and `tools` accepted.
-- **Critical compat note:** `/v1/embeddings` works **only for models loaded via the `llamacpp` or `flm` recipes; ONNX/OGA-recipe models do not support embeddings.** On Strix Halo, users may default to NPU/OGA models for chat — `sift doctor` must actually round-trip an embedding call, not just check `/v1/models`, and report this failure mode by name.
-- GGUF models in Lemonade route through llama.cpp, so structured-output behaviour matches llama-server (same `response_format.schema` nesting).
-- **Verdict: compatible; encode the embeddings-recipe caveat into `sift doctor`.** Confidence: MEDIUM.
-
-### 8. Template mining: drain3 vs hand-rolled (SPEC open question, implied)
-
-- `drain3` 0.9.11: **last release 2022-07-17**, metadata claims Python 3.7–3.11 only. Effectively dormant; wrong tool for a 3.12+ project in 2026.
-- Hand-rolled masking (regexes for numbers, hex, UUIDs, SIDs, OIDs, paths, timestamps → placeholders, then group by masked string) is ~50 lines, fully deterministic, auditable, and tunable per adapter — which matters because DSSErrors SIDs/OIDs need domain-specific masks drain3 would never learn cleanly.
-- **Verdict: hand-rolled masking, as SPEC §5.4 already describes. Do not add drain3.** Confidence: MEDIUM.
-
-### 9. PDF: reportlab vs weasyprint (SPEC open question #2)
-
-- ReportLab 5.0.0 (2026-06): pure Python since 4.0, no system deps — but it is a programmatic canvas/flowables API. It does not render Markdown or HTML; a Sift PDF renderer on ReportLab means hand-writing layout code for every report element. That is the expensive path disguised as the light one.
-- WeasyPrint 69.0 (2026-06): renders HTML+CSS to print-quality PDF; the pipeline is trivially `markdown → HTML → PDF`, reusing the Markdown renderer that already exists. Cost: system libraries (pango, harfbuzz, gdk-pixbuf) that pip cannot install. On Fedora (reference platform) these are one `dnf install` away; the Quadlet container can bake them in.
-- **Verdict: WeasyPrint behind an optional extra `sift[pdf]`, implemented in M6 or deferred post-M8.** Core `uv tool install sift` stays system-dep-free; `sift report --format pdf` errors helpfully ("install sift[pdf] and pango") when the extra is absent. Do not use ReportLab — its zero-system-deps advantage is bought with an order of magnitude more rendering code. Confidence: MEDIUM.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| sklearn.cluster.HDBSCAN | standalone `hdbscan` 0.8.44 | Only if soft clustering / `approximate_predict` becomes a requirement (it isn't in v1) |
-| Typer | argparse (stdlib) | If the dependency budget becomes absolute; SPEC permits either |
-| sqlite-vec | Plain BLOB columns + numpy brute-force | If sqlite-vec maintenance dies again before v1; at Sift's scale (<100K vectors) numpy cosine over an in-memory matrix is an afternoon's migration — this is the documented escape hatch, not a reason to switch now |
-| sqlite-vec | Qdrant/Chroma/LanceDB | Only past ~1M chunks/case (SPEC's own threshold); all violate zero-daemon or dependency-light constraints |
-| WeasyPrint (`[pdf]` extra) | Defer PDF entirely to post-M8 | If M6 runs hot; Markdown+JSON are the load-bearing outputs |
-| httpx | stdlib `urllib.request` | Never — retries, timeouts, pooling, respx-testability justify it |
-| zstandard | stdlib `compression.zstd` | When Python floor reaches 3.14 — then delete the dependency |
+| TOML (`tomllib`) rules file | YAML (PyYAML) | Only if the rules file needs structures TOML genuinely can't express well (deep nesting, anchors/refs) — the flat `[[rule]]` list here doesn't |
+| TOML (`tomllib`) rules file | Markdown table (matches `sift/prompts/*.md`) | Never for *data* the program parses — Markdown convention stays reserved for LLM prompt text, which is prose, not a row-oriented table with an ordering contract |
+| Plain `str` matching (`contains`/`prefix`/`exact`) | `re` | If a rule genuinely needs alternation/character classes beyond literal substrings — write the pattern anchored, per the adapter's existing "no ReDoS" convention |
+| Plain `str` matching | `fnmatch` | If hand-curated glob wildcards (`*`, `?`) are needed — stdlib, cached, no new dependency, but not warranted by the reference taxonomy's exact symbol names |
+| `collections.Counter` signature grouping | `sklearn.cluster.HDBSCAN`/`AgglomerativeClustering` | Never for this — those solve approximate similarity over embeddings, a different problem than exact frame-tuple equality |
+| Read vectors back from the existing `vectors` vec0 table | A parallel BLOB column for vector storage | Never needed — empirically verified point-select and full-scan both work directly on `vec0` |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| `openai` SDK | Vendor coupling, drags in httpx anyway, hides the request shape Sift must control (llama.cpp's non-standard `response_format.schema` nesting) | Hand-rolled httpx client (~200 lines), per SPEC §5.6 |
-| `drain3` | Dormant since 2022; Python ≤3.11 metadata; learns templates non-deterministically vs Sift's determinism constraint | Hand-rolled regex masking in `pipeline/dedup.py` |
-| standalone `hdbscan` package | Redundant compiled dependency; sklearn (already required) ships HDBSCAN since 1.3 | `sklearn.cluster.HDBSCAN` |
-| ReportLab for the report renderer | No Markdown/HTML rendering — you'd hand-write all layout | WeasyPrint via `sift[pdf]` extra |
-| LangChain / LlamaIndex / instructor | Framework weight, network-egress surface, abstraction over an API Sift must control precisely | httpx + Pydantic + prompt files |
-| `chromadb` / `qdrant-client` | Daemon or heavyweight deps; violates one-file-per-case portability | sqlite-vec |
-| sqlite-vec ANN modes (IVF/DiskANN) | Explicitly experimental | Default brute-force KNN |
-| OpenAI-style `response_format.json_schema.json_schema.schema` nesting against llama-server | llama.cpp expects `{"type":"json_schema","schema":{...}}` — the OpenAI shape historically failed (issues #10732/#11847) | Send llama.cpp's shape; Pydantic-validate regardless |
+| PyYAML for the rules file | Broadens a test-only dependency to a runtime one; unquoted-scalar ambiguity is a real editing hazard for hand-typed symbol text | `tomllib` (stdlib, already the config format) |
+| A hand-rolled Markdown-table parser for the rules file | More code than `tomllib.load()`; `\|` collides with real C++ operator-overload symbol names | `tomllib` |
+| A prefix trie / precompiled alternation over frame patterns | Solves a throughput problem that doesn't exist at 93 signatures × ≤19 frames × ~hundreds of rules (sub-10ms either way) | Plain `str.startswith`/`in`, dispatched by a `match` field in the rule row |
+| `sklearn.cluster.*` for stack-signature grouping | Approximate ML clustering applied to an exact-equality problem — slower and the wrong tool | `collections.Counter` over frame tuples |
+| A new parallel BLOB column for vector storage (SEED-002) | Unnecessary — the existing `vectors` vec0 table already supports cheap point-select and full-scan read-back | `SELECT ... FROM vectors WHERE chunk_id IN (...)` + the existing `_blob_to_vec` |
 
 ## Stack Patterns by Variant
 
-**If the inference server is llama-server:**
-- Two instances: one generation (`llama-server -m <30B>.gguf`), one embeddings (`llama-server -m nomic-embed.gguf --embeddings`) — the `--embeddings` flag makes the server embedding-only, so one instance cannot serve both roles.
-- Feature-detect `/props` and `/tokenize` for context length and token budgeting.
+**If a rule needs a wildcard later (not needed for the reference taxonomy):**
+- Add `match = "glob"` dispatching to `fnmatch.fnmatch` (stdlib), alongside the existing
+  `exact`/`prefix`/`contains` dispatch — additive, no new dependency, no breaking change to
+  existing rule rows.
 
-**If the inference server is Lemonade:**
-- Single base URL `:13305/v1` for both roles; embedding model must be a `llamacpp`/`flm`-recipe model — `sift doctor` must round-trip an actual embedding, not just list models.
-
-**If PDF output is requested:**
-- `sift[pdf]` extra (markdown + WeasyPrint); document `dnf install pango` for Fedora; bake into the Quadlet image.
-
-**If sqlite-vec becomes unmaintained pre-v1:**
-- Escape hatch: swap the `vectors` vec0 table for a BLOB column + numpy brute-force scan behind the same store interface. Keep vector access confined to `store.py` so this stays an afternoon's work.
+**If eu-stack event volume per case grows by orders of magnitude in a future milestone:**
+- Revisit the "plain `str` matching is fast enough" conclusion — at that point (not before) a
+  precompiled alternation (`re.compile("|".join(...))`) is the next lazy step before reaching for
+  anything heavier.
 
 ## Version Compatibility
 
 | Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| sqlite-vec 0.1.9 | Python 3.12/3.13 sqlite3 | Requires `enable_load_extension`; Fedora python3 OK — verify in `sift doctor` |
-| scikit-learn 1.9.0 | numpy 2.x, Python 3.12+ | HDBSCAN `min_samples` counts self (+1 vs standalone semantics) — matters only if comparing against literature defaults |
-| zstandard 0.25.0 | Python 3.12+ | Prebuilt wheels for Fedora x86_64 |
-| Typer 0.27.0 | click 8.x | Pulls rich + shellingham; `typer-slim` if trimming |
-| WeasyPrint 69.0 | pango ≥1.44 system lib | Fedora: `dnf install pango` — not pip-installable; hence optional extra |
-| Pydantic 2.13.4 | llama.cpp json_schema converter | Keep schemas self-contained (no external `$ref`); verify `$defs` handling with the target server build in M4 |
-| httpx 0.28.1 | respx 0.22.x | respx pins compatibility with httpx minor versions — pin both in dev deps |
+| `tomllib` | Python 3.12+ | Sift's floor is already 3.12; `tomllib` shipped in 3.11 (PEP 680) — no compatibility gap |
+| `sqlite-vec==0.1.9` | Python 3.12/3.13 `sqlite3` | Already pinned; point-select/full-scan read-back verified against this exact version, not a newer/older one |
+| `scikit-learn==1.9.0` | numpy 2.x | Unchanged — deliberately not extended to cover eu-stack signature grouping |
 
 ## Sources
 
-- `/asg017/sqlite-vec` (Context7) — Python bindings, vec0 API, KNN queries, capacity limits — MEDIUM
-- https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md (fetched 2026-07-16) — response_format/json_schema/grammar, `--embeddings`, pooling, `/props`, `/tokenize` — MEDIUM (official docs, cross-checked with issues #10732, #11847)
-- https://lemonade-server.ai/docs/api/openai/ (fetched 2026-07-16) — endpoints, port 13305, embeddings recipe restriction — MEDIUM
-- PyPI JSON API (fetched 2026-07-16) — exact versions + release dates for sqlite-vec, hdbscan, typer, zstandard, httpx, pydantic, drain3, weasyprint, reportlab, scikit-learn — MEDIUM
-- https://github.com/scikit-learn/scikit-learn/issues/27829 — sklearn vs standalone HDBSCAN result differences — MEDIUM
-- https://github.com/asg017/sqlite-vec/issues/226 — 2025 maintenance stall — MEDIUM
-- https://doc.courtbouillon.org/weasyprint/stable/first_steps.html — pango/harfbuzz system deps — MEDIUM
-- https://docs.reportlab.com/install/open_source_installation/ — pure-Python since 4.0 — MEDIUM
+- `/asg017/sqlite-vec` (Context7, docs on auxiliary/metadata columns and KNN — did not
+  explicitly document plain point-select, which is why it was verified empirically instead) — MEDIUM
+- **Empirical verification**, live in-memory round-trip against the exact pinned
+  `sqlite-vec==0.1.9` in this project's own `.venv` (point-select by primary key + full unfiltered
+  scan both returned the stored float32 vector without a `MATCH`/`k =` clause) — **HIGH**
+- https://toml.io (TOML spec, literal-string escaping rules — fetched via web search,
+  cross-referenced against the official spec text) — MEDIUM
+- https://docs.python.org/3/library/tomllib.html and PEP 680 (`tomllib` stdlib since 3.11) — MEDIUM
+- `src/sift/adapters/eustack.py`, `src/sift/store.py` (this repo) — read directly; ReDoS-avoidance
+  convention, `CONDENSED_FRAMES`/`raw` frame-depth mismatch, and the existing `_blob_to_vec`/
+  `get_events_by_ids` idioms are all first-party facts, not external sources — HIGH (primary source)
+- Order-of-magnitude matching-performance and Counter-vs-sklearn reasoning: arithmetic against the
+  measured v1.3 volumes in `.planning/research/MILESTONE-CONTEXT-v1.3.md` (93 signatures, ≤19
+  frames, ~4,000 threads) — MEDIUM (reasoning, not a fetched benchmark source)
 
 ---
-*Stack research for: local-LLM incident triage CLI (Sift)*
-*Researched: 2026-07-16*
+*Stack research for: eu-stack hang/slowdown analysis (Sift v1.3)*
+*Researched: 2026-07-25*

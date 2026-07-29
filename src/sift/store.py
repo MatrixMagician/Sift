@@ -324,15 +324,19 @@ _HYP_COLUMNS = (
     "citations_valid"
 )
 
-# Sources held out of every ranking stage (PERF-03). Perfmon samples are
-# periodic observations, not diagnostics: they carry no incident signal to
-# dedup, cluster, salience or hypothesis excerpts, and thousands of near-
-# identical rows would dominate template counts. They stay FULLY retrievable
-# by identifier, so citation and `show events` are unaffected — see the
-# paired comments on iter_event_summaries / iter_event_rows below.
+# Sources held out of every ranking stage (PERF-03, EUS-11). Perfmon samples
+# are periodic observations, not diagnostics: they carry no incident signal
+# to dedup, cluster, salience or hypothesis excerpts, and thousands of near-
+# identical rows would dominate template counts. Eu-stack thread records are
+# a population census, not diagnostics either: they are replaced for ranking
+# purposes by the deterministic `sift eustack` analyser and the Phase-18 fact
+# block, and thousands of near-identical thread bodies would likewise
+# dominate template counts. Both stay FULLY retrievable by identifier, so
+# citation and `show events` are unaffected — see the paired comments on
+# iter_event_summaries / iter_event_rows below.
 # Owned here, never caller-supplied: exclusion is a property of the source
 # kind, not of the caller (D-07).
-EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon"})
+EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon", "eustack"})
 
 # Allowlisted filter key -> fixed WHERE snippet (T-02-08). Filter VALUES are
 # only ever bound via ?; keys never reach SQL text — an unknown key raises
@@ -570,11 +574,32 @@ class CaseStore:
         )
         return self._conn.total_changes - before
 
-    def query_events(self) -> list[Event]:
-        """All events, ordered by ts (NULLs last), source_file, line_start."""
+    def query_events(self, sources: Sequence[str] | None = None) -> list[Event]:
+        """Events ordered by ts (NULLs last), source_file, line_start.
+
+        ``sources`` scopes the result to those ``Event.source`` values — the
+        memory seam for full-``Event`` consumers: every row hydrates its
+        (possibly zstd-compressed) ``raw``, so an unscoped call materialises
+        the entire decompressed case. Analyser paths pass the sources they
+        actually consume (e.g. ``analysers.ANALYSER_SOURCES``) so a huge
+        genericlog case is never decompressed just to build fact blocks.
+        ``None`` keeps the read-everything behaviour. Source values are
+        ``?``-bound, never interpolated.
+        """
+        where = ""
+        params: tuple[str, ...] = ()
+        if sources is not None:
+            ordered = sorted(set(sources))
+            placeholders = ",".join("?" for _ in ordered)
+            # S608: only the placeholder COUNT is interpolated; every source
+            # value is ?-bound (iter_event_summaries idiom).
+            where = f"WHERE source IN ({placeholders}) "  # noqa: S608
+            params = tuple(ordered)
         rows = self._conn.execute(
-            f"SELECT {_EVENT_COLUMNS} FROM events "
-            "ORDER BY ts IS NULL, ts, source_file, line_start"
+            f"SELECT {_EVENT_COLUMNS} FROM events "  # noqa: S608 — column list is a module constant
+            + where
+            + "ORDER BY ts IS NULL, ts, source_file, line_start",
+            params,
         ).fetchall()
         return [
             Event(
@@ -812,6 +837,27 @@ class CaseStore:
                 f"embedding dimension mismatch: index has {existing}, "
                 f"server returned {dim}"
             )
+
+    def record_embedding_batch_knobs(
+        self, *, context: int, batch_size: int, max_input_chars: int
+    ) -> None:
+        """Record the embedding batch-layout knobs actually used, as meta (0014).
+
+        Batch composition perturbs the embedding vectors well above float32
+        noise (`.planning/todos/pending/2026-07-21-embedding-batch-composition-
+        determinism.md`, ADR 0014), so the layout must be recoverable from the
+        case to make a divergent re-run diagnosable.
+
+        Deliberately does NOT mirror :meth:`record_embedding_identity`'s
+        mismatch guard: an unconditional overwrite, no read, no comparison, no
+        raise. Unlike the model/dim identity (which should not silently
+        change), these three knobs legitimately vary between runs as ordinary
+        reconfiguration — hard-failing on a changed value would make a
+        re-analyze impossible after any config tweak.
+        """
+        self.set_meta("embedding_context", str(context))
+        self.set_meta("embedding_batch_size", str(batch_size))
+        self.set_meta("embedding_max_input_chars", str(max_input_chars))
 
     def upsert_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
         """Write (chunk_id, embedding) pairs, replacing any prior vector.
