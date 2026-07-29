@@ -356,7 +356,7 @@ def test_analyze_kb_empty_dir_exits_cleanly(
     assert result.exception is None or isinstance(result.exception, SystemExit)
 
 
-# --- _apply_mcm_block + no-MCM byte-identity (Plan 11-02, criterion 5) --------
+# --- MCM apply_block + no-MCM byte-identity (Plan 11-02, criterion 5) --------
 
 
 def test_apply_mcm_block_strips_and_substitutes() -> None:

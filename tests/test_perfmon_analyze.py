@@ -46,7 +46,7 @@ _PERFMON_CASE = _REPO_ROOT / "eval" / "cases" / "perfmon-denial"
 
 # Frozen pre-phase byte-identity baselines for the perfmon-denial case (D-02,
 # Pitfall 4). The NEITHER (no MCM, no perfmon) and MCM-ONLY assembled prompts must
-# be byte-identical to their pre-perfmon-phase form — ``_apply_perfmon_block``
+# be byte-identical to their pre-perfmon-phase form — the shared ``analysers.apply_block``
 # removes the whole sentinel block, restoring the original bytes. A moved baseline
 # is a regression to investigate, NEVER a constant to rebaseline away.
 _NEITHER_PROMPT_HASH = "8c4341e77deee439"
