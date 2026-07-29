@@ -255,7 +255,7 @@ def run_case(
         docs: list[dict[str, object]] = []
         metric_texts: list[str] = []
         metric_hyps = None
-        # _ingest prints coverage to stdout and the store prints migration
+        # run_ingest prints coverage to stdout and the store prints migration
         # notes to stderr; the metric table is the only thing eval should
         # emit, so contain both streams around all pipeline work here.
         noise = io.StringIO()
