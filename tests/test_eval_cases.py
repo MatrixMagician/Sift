@@ -178,8 +178,8 @@ def _ingest_case(
     import io
     import tempfile
 
-    from sift.pipeline.ingest import run_ingest
     from sift.config import McmThresholdsConfig
+    from sift.pipeline.ingest import run_ingest
     from sift.pipeline.mcm import analyse_mcm
 
     noise = io.StringIO()
@@ -287,13 +287,13 @@ def test_mcm_denial_citation_validity_is_mcm_sensitive(
 
     # INJECTION OFF: strip BOTH deterministic fact blocks at the chokepoint. The
     # same cited denial id is no longer in prompted_ids -> the gate FLAGS it.
-    from sift.pipeline import hypothesise
+    from sift.pipeline import analysers
 
     def _no_block(_analysis: object) -> tuple[str, set[str]]:
         return "", set()
 
-    monkeypatch.setattr(hypothesise, "render_mcm_facts", _no_block)
-    monkeypatch.setattr(hypothesise, "render_perfmon_facts", _no_block)
+    monkeypatch.setattr(analysers, "render_mcm_facts", _no_block)
+    monkeypatch.setattr(analysers, "render_perfmon_facts", _no_block)
     client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
     try:
         off = run_case(_MCM_CASE, client2, config)
@@ -321,8 +321,8 @@ def _citable_perfmon_id(config: SiftConfig, case_dir: Path) -> str:
     import io
     import tempfile
 
-    from sift.pipeline.ingest import run_ingest
     from sift.config import McmThresholdsConfig
+    from sift.pipeline.ingest import run_ingest
     from sift.pipeline.mcm import analyse_mcm
     from sift.pipeline.perfmon import analyse_perfmon
     from sift.pipeline.perfmon_facts import render_perfmon_facts
@@ -396,12 +396,12 @@ def test_perfmon_denial_citation_validity_is_perfmon_sensitive(
 
     # INJECTION OFF: strip ONLY the perfmon fact block at the chokepoint. The same
     # cited perfmon id is no longer in prompted_ids -> the gate FLAGS it.
-    from sift.pipeline import hypothesise
+    from sift.pipeline import analysers
 
     def _no_block(_analysis: object) -> tuple[str, set[str]]:
         return "", set()
 
-    monkeypatch.setattr(hypothesise, "render_perfmon_facts", _no_block)
+    monkeypatch.setattr(analysers, "render_perfmon_facts", _no_block)
     client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([perfmon_id]))
     try:
         off = run_case(_PERFMON_CASE, client2, config)

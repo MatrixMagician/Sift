@@ -247,9 +247,14 @@ def _assemble_blocks(
     perfmon_block = (
         render_perfmon_facts(analyse_perfmon(mcm, events)) if with_perfmon else None
     )
+    fact_blocks: dict[str, tuple[str, set[str]]] = {}
+    if mcm_block is not None:
+        fact_blocks["mcm"] = mcm_block
+    if perfmon_block is not None:
+        fact_blocks["perfmon"] = perfmon_block
     _msgs, prompted_ids, prompt = hypothesise._assemble(  # pyright: ignore[reportPrivateUsage]
         ranked, group_index, messages, template, None, budget,
-        mcm_block=mcm_block, perfmon_block=perfmon_block,
+        fact_blocks=fact_blocks,
     )
     return prompted_ids, prompt
 

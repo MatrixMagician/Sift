@@ -214,9 +214,16 @@ def _assemble_blocks(
             events, rules, rules_hash, EustackThresholdsConfig()
         )
         eustack_block = render_eustack_facts(bundle, events)
+    fact_blocks: dict[str, tuple[str, set[str]]] = {}
+    if mcm_block is not None:
+        fact_blocks["mcm"] = mcm_block
+    if perfmon_block is not None:
+        fact_blocks["perfmon"] = perfmon_block
+    if eustack_block is not None:
+        fact_blocks["eustack"] = eustack_block
     _msgs, prompted_ids, prompt = hypothesise._assemble(  # pyright: ignore[reportPrivateUsage]
         ranked, group_index, messages, template, None, budget,
-        mcm_block=mcm_block, perfmon_block=perfmon_block, eustack_block=eustack_block,
+        fact_blocks=fact_blocks,
     )
     return prompted_ids, prompt
 

@@ -360,13 +360,16 @@ def test_analyze_kb_empty_dir_exits_cleanly(
 
 
 def test_apply_mcm_block_strips_and_substitutes() -> None:
-    """`_apply_mcm_block(t, None)` removes the whole MCM sentinel block; a body
-    drops the two marker lines and fills the slot — mirroring `_apply_kb_block`."""
+    """`apply_block(t, "MCM", ..., None)` removes the whole MCM sentinel block;
+    a body drops the two marker lines and fills the slot — mirroring the KB
+    path, which reuses the same registry splice."""
+    from sift.pipeline.analysers import apply_block
+
     template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
-    stripped = hypothesise._apply_mcm_block(template, None)  # pyright: ignore[reportPrivateUsage]
+    stripped = apply_block(template, "MCM", "<<MCM_FACTS>>", None)
     assert "MCM_BLOCK" not in stripped
     assert "<<MCM_FACTS>>" not in stripped
-    filled = hypothesise._apply_mcm_block(template, "BODYLINE")  # pyright: ignore[reportPrivateUsage]
+    filled = apply_block(template, "MCM", "<<MCM_FACTS>>", "BODYLINE")
     assert "MCM_BLOCK" not in filled
     assert "<<MCM_FACTS>>" not in filled
     assert "BODYLINE" in filled

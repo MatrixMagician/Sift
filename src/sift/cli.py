@@ -31,6 +31,7 @@ from sift import adapters
 from sift.config import SiftConfig, load_config
 from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import retrieve
+from sift.pipeline.analysers import AnalyserSettings
 from sift.pipeline.cluster import cluster_and_label
 from sift.pipeline.hypothesise import (
     DEFAULT_TOP_CLUSTERS as _DEFAULT_TOP_CLUSTERS,
@@ -754,9 +755,7 @@ def analyze(
                 until=until_dt,
                 hint=hint,
                 kb_context=kb_context,
-                mcm_thresholds=config.mcm.thresholds,
-                eustack_rules_path=config.eustack.rules_path,
-                eustack_thresholds=config.eustack.thresholds,
+                analyser_settings=AnalyserSettings.from_config(config),
                 ctx_fallback=config.generation.context or _TRIAGE_CTX_FALLBACK,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )

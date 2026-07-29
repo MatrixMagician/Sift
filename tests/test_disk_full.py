@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from sift.pipeline.ingest import DiskFullError, run_ingest
 from sift.config import load_config
+from sift.pipeline.ingest import DiskFullError, run_ingest
 from sift.store import CaseStore, case_db_path
 
 

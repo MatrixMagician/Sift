@@ -574,11 +574,32 @@ class CaseStore:
         )
         return self._conn.total_changes - before
 
-    def query_events(self) -> list[Event]:
-        """All events, ordered by ts (NULLs last), source_file, line_start."""
+    def query_events(self, sources: Sequence[str] | None = None) -> list[Event]:
+        """Events ordered by ts (NULLs last), source_file, line_start.
+
+        ``sources`` scopes the result to those ``Event.source`` values — the
+        memory seam for full-``Event`` consumers: every row hydrates its
+        (possibly zstd-compressed) ``raw``, so an unscoped call materialises
+        the entire decompressed case. Analyser paths pass the sources they
+        actually consume (e.g. ``analysers.ANALYSER_SOURCES``) so a huge
+        genericlog case is never decompressed just to build fact blocks.
+        ``None`` keeps the read-everything behaviour. Source values are
+        ``?``-bound, never interpolated.
+        """
+        where = ""
+        params: tuple[str, ...] = ()
+        if sources is not None:
+            ordered = sorted(set(sources))
+            placeholders = ",".join("?" for _ in ordered)
+            # S608: only the placeholder COUNT is interpolated; every source
+            # value is ?-bound (iter_event_summaries idiom).
+            where = f"WHERE source IN ({placeholders}) "  # noqa: S608
+            params = tuple(ordered)
         rows = self._conn.execute(
-            f"SELECT {_EVENT_COLUMNS} FROM events "
-            "ORDER BY ts IS NULL, ts, source_file, line_start"
+            f"SELECT {_EVENT_COLUMNS} FROM events "  # noqa: S608 — column list is a module constant
+            + where
+            + "ORDER BY ts IS NULL, ts, source_file, line_start",
+            params,
         ).fetchall()
         return [
             Event(
