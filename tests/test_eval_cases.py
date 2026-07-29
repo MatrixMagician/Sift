@@ -178,7 +178,7 @@ def _ingest_case(
     import io
     import tempfile
 
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.pipeline.ingest import run_ingest
     from sift.config import McmThresholdsConfig
     from sift.pipeline.mcm import analyse_mcm
 
@@ -190,7 +190,7 @@ def _ingest_case(
             try:
                 store.set_meta("input_dir", str((case_dir / "input").resolve()))
                 store.set_meta("adapter_overrides", "[]")
-                _ingest(case_dir.name, config, store)
+                run_ingest(case_dir.name, config, store)
                 texts = [m for _e, _t, _s, m in store.iter_event_summaries()]
                 analysis = analyse_mcm(store.query_events(), McmThresholdsConfig())
             finally:
@@ -321,7 +321,7 @@ def _citable_perfmon_id(config: SiftConfig, case_dir: Path) -> str:
     import io
     import tempfile
 
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.pipeline.ingest import run_ingest
     from sift.config import McmThresholdsConfig
     from sift.pipeline.mcm import analyse_mcm
     from sift.pipeline.perfmon import analyse_perfmon
@@ -335,7 +335,7 @@ def _citable_perfmon_id(config: SiftConfig, case_dir: Path) -> str:
             try:
                 store.set_meta("input_dir", str((case_dir / "input").resolve()))
                 store.set_meta("adapter_overrides", "[]")
-                _ingest(case_dir.name, config, store)
+                run_ingest(case_dir.name, config, store)
                 events = store.query_events()
                 mcm = analyse_mcm(events, McmThresholdsConfig())
                 _block, pids = render_perfmon_facts(analyse_perfmon(mcm, events))

@@ -147,14 +147,14 @@ def _seed_eustack(store: CaseStore, rel: str = "threaddump.txt") -> None:
 def _ingested_store(config: SiftConfig, input_dir: Path, db: Path):
     """Ingest ``input_dir`` into a PERSISTENT store (kept open) via the real
     `sift ingest` path — mirrors ``test_perfmon_analyze._perfmon_store``."""
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.pipeline.ingest import run_ingest
 
     noise = io.StringIO()
     with contextlib.redirect_stdout(noise), contextlib.redirect_stderr(noise):
         store = CaseStore(db)
         store.set_meta("input_dir", str(input_dir.resolve()))
         store.set_meta("adapter_overrides", "[]")
-        _ingest(db.parent.name, config, store)
+        run_ingest(db.parent.name, config, store)
     try:
         yield store
     finally:

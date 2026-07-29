@@ -55,6 +55,15 @@ if TYPE_CHECKING:
 _PROMPT_PACKAGE = "sift.prompts"
 _PROMPT_FILE = "triage.md"
 
+# Triage-run defaults (CLI-04), shared by the CLI and the eval harness so the
+# harness never imports the CLI. Salience feeds at most DEFAULT_TOP_CLUSTERS
+# top clusters to the hypothesiser; the ctx/reserve fallbacks apply only when
+# /props is absent (Lemonade, LLM-04) — llama-server's n_ctx overrides
+# TRIAGE_CTX_FALLBACK at runtime.
+DEFAULT_TOP_CLUSTERS = 12
+TRIAGE_CTX_FALLBACK = 8192
+TRIAGE_RESERVE_OUT = 1024
+
 # The KB reference-material block in triage.md is delimited by these HTML-comment
 # sentinels; all KB prose lives in the template (CLI-02). ``_apply_kb_block``
 # either fills the slot and drops the marker lines (KB present) or removes the

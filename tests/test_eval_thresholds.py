@@ -523,7 +523,7 @@ def test_eustack_case_ingest_failure_surfaces_as_run_failed(
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise ValueError("simulated ingest failure")
 
-    monkeypatch.setattr("sift.cli._ingest", _boom)
+    monkeypatch.setattr("sift.eval.runner.run_ingest", _boom)
     try:
         result = run_case(case_dir, client, config)
     finally:

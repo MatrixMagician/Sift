@@ -639,7 +639,7 @@ def test_combined_fact_block_headroom_measured(tmp_path: Path) -> None:
     falls back to. This is a regression bound on block growth, not a
     functional assertion — the message always prints the measured figure so
     it is recoverable from CI output."""
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.pipeline.ingest import run_ingest
 
     repo_root = Path(__file__).resolve().parents[1]
     perfmon_case_input = repo_root / "eval" / "cases" / "perfmon-denial" / "input"
@@ -659,7 +659,7 @@ def test_combined_fact_block_headroom_measured(tmp_path: Path) -> None:
         store = CaseStore(db)
         store.set_meta("input_dir", str(combined_input.resolve()))
         store.set_meta("adapter_overrides", "[]")
-        _ingest(db.parent.name, config, store)
+        run_ingest(db.parent.name, config, store)
     try:
         events = store.query_events()
         mcm_analysis = analyse_mcm(events, McmThresholdsConfig())

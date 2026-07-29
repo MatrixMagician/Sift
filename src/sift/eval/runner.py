@@ -1,7 +1,7 @@
 """Per-case orchestration: drive one golden case through the pipeline (EVAL-02).
 
-``run_case`` reuses the exact calls ``sift analyze`` makes — ``cli._ingest`` then
-``dedup.rebuild_template_groups`` (inside ``_ingest``), ``cluster_and_label`` and
+``run_case`` reuses the exact calls ``sift analyze`` makes — ``ingest.run_ingest``
+then ``dedup.rebuild_template_groups`` (inside it), ``cluster_and_label`` and
 ``hypothesise`` — against a temp ``case.db`` under a tempfile-managed directory
 (never the user's real data dir, mirroring the conftest XDG isolation, T-07-06).
 Every metric is then a pure read of the persisted rows against the frozen
@@ -42,7 +42,13 @@ from sift.eval.metrics import (
 )
 from sift.eval.truth import load_truth
 from sift.pipeline.cluster import cluster_and_label
-from sift.pipeline.hypothesise import hypothesise
+from sift.pipeline.hypothesise import (
+    DEFAULT_TOP_CLUSTERS,
+    TRIAGE_CTX_FALLBACK,
+    TRIAGE_RESERVE_OUT,
+    hypothesise,
+)
+from sift.pipeline.ingest import run_ingest
 from sift.render.json_out import normalise_for_determinism, render_json
 from sift.store import CaseStore
 
@@ -86,19 +92,15 @@ def _run_pipeline(
         cluster_and_label(store, client, config.clustering, label=True)
         # A negative/quiet case still runs the full triage; incident_time=None
         # lets salience derive the anchor from the case-end timestamp. These are
-        # the analyze triage defaults reused verbatim (the sanctioned seam).
-        from sift.cli import (  # noqa: PLC0415 — lazy import breaks a cli↔eval cycle
-            _TRIAGE_CTX_FALLBACK,  # pyright: ignore[reportPrivateUsage]
-            _TRIAGE_RESERVE_OUT,  # pyright: ignore[reportPrivateUsage]
-        )
-
+        # the analyze triage defaults reused verbatim (shared constants in
+        # pipeline.hypothesise — eval never imports the CLI).
         hypothesise(
             store,
             client,
             top_clusters=top_clusters,
             incident_time=None,
-            ctx_fallback=_TRIAGE_CTX_FALLBACK,
-            reserve_out=_TRIAGE_RESERVE_OUT,
+            ctx_fallback=TRIAGE_CTX_FALLBACK,
+            reserve_out=TRIAGE_RESERVE_OUT,
         )
     finally:
         # A clean close checkpoints the WAL on every path (Pitfall 4).
@@ -161,11 +163,6 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
     fabricated ``1.0``) — they are excluded from every aggregate by
     ``CaseResult.is_eustack`` (``eval/metrics.py``).
     """
-    # Lazy imports break a cli<->eval cycle (matches run_case's own pattern).
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
-    from sift.pipeline.eustack import load_rules
-    from sift.pipeline.eustack_progression import analyse_eustack_bundle
-
     name = case_dir.name
     truth = load_truth(case_dir / "truth.yaml")
     if truth.expect_eustack is None:
@@ -183,7 +180,7 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
                 try:
                     seed.set_meta("input_dir", str((case_dir / "input").resolve()))
                     seed.set_meta("adapter_overrides", "[]")
-                    _ingest(name, config, seed)
+                    run_ingest(name, config, seed)
                     events = seed.query_events()
                 finally:
                     # A clean close checkpoints the WAL (Pitfall 4).
@@ -202,8 +199,12 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
             error=sanitise(str(exc)),
         )
 
-    rules, rules_hash = load_rules(config.eustack.rules_path)
-    bundle = analyse_eustack_bundle(
+    # Resolved late through the module attribute (not a top-level from-import)
+    # so tests can monkeypatch the ``load_rules`` seam on sift.pipeline.eustack.
+    from sift.pipeline import eustack, eustack_progression  # noqa: PLC0415
+
+    rules, rules_hash = eustack.load_rules(config.eustack.rules_path)
+    bundle = eustack_progression.analyse_eustack_bundle(
         events, rules, rules_hash, config.eustack.thresholds
     )
 
@@ -239,13 +240,6 @@ def run_case(
     score is attached to ``CaseResult.judge_score`` but NEVER enters any metric
     or gate (D-08). ``judge_case`` degrades to ``None`` on any error, so it
     cannot turn a scored case into a ``run_failed`` one."""
-    # Reuse the analyze CLI seams verbatim (the sanctioned reuse points): the
-    # top-clusters default and the ingest leg. Lazy import breaks a cli↔eval cycle.
-    from sift.cli import (  # noqa: PLC0415
-        _DEFAULT_TOP_CLUSTERS,  # pyright: ignore[reportPrivateUsage]
-        _ingest,  # pyright: ignore[reportPrivateUsage]
-    )
-
     name = case_dir.name
     truth = load_truth(case_dir / "truth.yaml")
     # D-19-06/D-19-16: dispatch BEFORE any client work, right after loading
@@ -253,7 +247,7 @@ def run_case(
     # state can never occur (19-CONTEXT.md).
     if truth.expect_eustack is not None:
         return _run_eustack_case(case_dir, config)
-    top_clusters = _DEFAULT_TOP_CLUSTERS
+    top_clusters = DEFAULT_TOP_CLUSTERS
 
     with tempfile.TemporaryDirectory(prefix="sift-eval-") as tmp:
         tmp_dir = Path(tmp)
@@ -271,7 +265,7 @@ def run_case(
                 try:
                     seed.set_meta("input_dir", str((case_dir / "input").resolve()))
                     seed.set_meta("adapter_overrides", "[]")
-                    _ingest(name, config, seed)
+                    run_ingest(name, config, seed)
                 finally:
                     # A clean close checkpoints the WAL so the file copies are
                     # complete (Pitfall 4).

@@ -80,7 +80,7 @@ def _ingest_perfmon_case(
     ``id``s are a stable function of ``(relpath, byte_offset)`` regardless of
     where the case was ingested.
     """
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.pipeline.ingest import run_ingest
 
     noise = io.StringIO()
     with tempfile.TemporaryDirectory(prefix="sift-perfmon-test-") as tmp:
@@ -90,7 +90,7 @@ def _ingest_perfmon_case(
             try:
                 store.set_meta("input_dir", str((case_dir / "input").resolve()))
                 store.set_meta("adapter_overrides", "[]")
-                _ingest(case_dir.name, config, store)
+                run_ingest(case_dir.name, config, store)
                 events = store.query_events()
                 mcm = analyse_mcm(events, McmThresholdsConfig())
             finally:
@@ -208,14 +208,14 @@ def _perfmon_store(config: SiftConfig, case_dir: Path, db: Path):
     Unlike ``_ingest_perfmon_case`` (which discards the temp db), this yields a
     live ``CaseStore`` so a test can rank, assemble and hypothesise over it.
     """
-    from sift.cli import _ingest  # pyright: ignore[reportPrivateUsage]
+    from sift.pipeline.ingest import run_ingest
 
     noise = io.StringIO()
     with contextlib.redirect_stdout(noise), contextlib.redirect_stderr(noise):
         store = CaseStore(db)
         store.set_meta("input_dir", str((case_dir / "input").resolve()))
         store.set_meta("adapter_overrides", "[]")
-        _ingest(case_dir.name, config, store)
+        run_ingest(case_dir.name, config, store)
     try:
         yield store
     finally:
