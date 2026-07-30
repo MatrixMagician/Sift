@@ -11,6 +11,7 @@ Phase-2 dedup path.
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -915,3 +916,266 @@ def test_label_clusters_chunks_large_case_within_context() -> None:
     labels = cluster._label_clusters(client, ids, excerpts, "T:\n")  # pyright: ignore[reportPrivateUsage, reportArgumentType]
     assert len(labels) == n  # every cluster labelled despite the per-call cap
     assert client.calls == 2  # split into chunks, not one oversized call
+
+
+# --- DET-01 determinism adjacency + encoding edges (ADR 0018) --------------
+
+
+def _capturing_handler(inputs: list[list[str]]) -> Handler:
+    """`_embed_handler` plus a record of every batch of inputs received."""
+    inner = _embed_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/embeddings"):
+            inputs.append(list(json.loads(request.content)["input"]))
+        return inner(request)
+
+    return handler
+
+
+def test_reuse_dedupes_identical_miss_texts(tmp_path: Path) -> None:
+    """D-02: byte-identical exemplar text is embedded ONCE and fans out.
+
+    Without the dedup, run 1 embeds the same text twice into two independently
+    batched vectors differing by up to the measured 4.8e-3 (ADR 0014), while
+    run 2 fans one cached vector out to both positions — a determinism gap
+    between run 1 and run 2 that the tool inflicts on itself.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    inputs: list[list[str]] = []
+    try:
+        # Two DISTINCT templates whose exemplar text is byte-identical: the
+        # numeric run masks to <NUM> differently per message, but exemplar_text
+        # returns the raw message, so equal messages under different templates
+        # need the ids to differ. Seed the same message twice at different
+        # offsets, then plant a second template group pointing at the same text.
+        _seed(store, [_ALPHA_A, _BETA_A])
+        groups = store.query_template_groups()
+        assert len(groups) == 2
+        # Force both groups to resolve to the same exemplar text by pointing the
+        # second group's exemplar at the first group's event (the reachable
+        # partial-store route exemplar_text degrades through).
+        with store.transaction():
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+                "UPDATE template_groups SET exemplar_event_ids = ? "
+                "WHERE template_id = ?",
+                (json.dumps([event_id("case.log", 0)]), groups[1].template_id),
+            )
+
+        result = cluster.cluster_and_label(
+            store, _client(_capturing_handler(inputs)), ClusteringConfig()
+        )
+        flat = [text for batch in inputs for text in batch]
+        assert flat.count(_ALPHA_A) == 1, flat
+        assert result.embedded_count == 1
+        # Both chunk rows hold the identical fanned-out vector.
+        stored = store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT vectors.embedding FROM chunks JOIN vectors USING (chunk_id)"
+        ).fetchall()
+        assert len(stored) == 2
+        assert stored[0][0] == stored[1][0]
+    finally:
+        store.close()
+
+
+def test_reuse_duplicate_stored_text_resolves_deterministically(
+    tmp_path: Path,
+) -> None:
+    """T-20-06: duplicate stored text resolves to the HIGHEST chunk_id.
+
+    Without `ORDER BY chunks.chunk_id` SQLite guarantees no row order, so the
+    dict-build winner would be unspecified — a silent nondeterminism inside a
+    determinism feature.
+    """
+    db = tmp_path / "case.db"
+    store = CaseStore(db)
+    duplicated = "identical exemplar text"
+    low = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    high = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    try:
+        assert low != high, "seeded vectors must differ or the test is vacuous"
+        with store.transaction():
+            store.ensure_vectors_table(8)
+            store.replace_chunks(
+                [
+                    (1, "t-low", duplicated, ["e1"]),
+                    (2, "t-high", duplicated, ["e2"]),
+                ]
+            )
+            store.upsert_vectors([(1, low), (2, high)])
+
+        for _ in range(3):
+            got = store.load_vectors_by_text()[duplicated]
+            assert got == high
+            assert got != low
+    finally:
+        store.close()
+
+    # A freshly opened CaseStore on the same file agrees.
+    reopened = CaseStore(db)
+    try:
+        assert reopened.load_vectors_by_text()[duplicated] == high
+    finally:
+        reopened.close()
+
+
+def test_reuse_key_is_exact_text_no_unicode_normalisation(tmp_path: Path) -> None:
+    """The reuse key is EXACT code-point equality — a settled decision (ADR 0018).
+
+    Canonically equivalent but not code-point-identical text MISSES and is
+    re-embedded. Do not "fix" this by adding normalisation, case folding,
+    trimming or a COLLATE clause: the worst outcome of a miss is one wasted
+    embed, whereas a normalising match could return a vector computed from
+    different bytes than the text being clustered — the silent mis-attribution
+    D-01 rejected `template_id` as the key to avoid.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    nfc = unicodedata.normalize("NFC", "cafe\u0301 latency spike")
+    nfd = unicodedata.normalize("NFD", nfc)
+    try:
+        # The two really are canonically equivalent, and really are different
+        # code-point sequences — otherwise the miss would prove nothing.
+        assert unicodedata.normalize("NFC", nfd) == nfc
+        assert nfd != nfc
+
+        _seed(store, [nfc])
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        reuse_map = store.load_vectors_by_text()
+        assert nfc in reuse_map
+        assert nfd not in reuse_map, "NFD must not match a stored NFC key"
+        assert nfc + "\n" not in reuse_map, "a trailing newline must not match"
+
+        # And the miss really does reach the endpoint: re-seed with the NFD form
+        # alongside the NFC one and assert exactly one fresh embed.
+        _seed(store, [nfc, nfd])
+        calls: list[str] = []
+        result = cluster.cluster_and_label(
+            store, _client(_embed_handler(calls)), ClusteringConfig()
+        )
+        assert calls.count("embeddings") == 1
+        assert result.embedded_count == 1
+        assert result.reused_count == 1
+    finally:
+        store.close()
+
+
+def test_reuse_mixed_hit_miss_matches_full_reembed(tmp_path: Path) -> None:
+    """D-12: a mixed hit/miss run is byte-identical to a full re-embed.
+
+    Order is what this pins: were hits and misses concatenated rather than
+    spliced positionally, `vector_rows`, the `rep_excerpt` selection and
+    HDBSCAN's row order would all desynchronise from `groups`, corrupting
+    clustering silently rather than crashing.
+
+    Assertable ONLY under the deterministic fake transport. Against a real
+    backend a full re-embed is precisely what perturbs the vectors — that is
+    ADR 0014's entire finding — so a live-backend byte-identity test would
+    assert the opposite of the measured behaviour. Do not write one.
+    """
+    full = CaseStore(tmp_path / "full.db")
+    mixed = CaseStore(tmp_path / "mixed.db")
+    try:
+        _seed(full, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            full, _client(_embed_handler()), ClusteringConfig()
+        )
+
+        # Partial cache first, then the remainder, so run 2 is genuinely mixed.
+        _seed(mixed, _SYNONYM_CORPUS[:3])
+        cluster.cluster_and_label(
+            mixed, _client(_embed_handler()), ClusteringConfig()
+        )
+        _seed(mixed, _SYNONYM_CORPUS)
+        result = cluster.cluster_and_label(
+            mixed, _client(_embed_handler()), ClusteringConfig()
+        )
+        # Non-vacuity: the run really was mixed, not all-hit or all-miss.
+        assert result.embedded_count > 0
+        assert result.reused_count > 0
+
+        assert mixed.load_vectors_by_text() == full.load_vectors_by_text()
+        assert [
+            (c.cluster_id, tuple(c.template_ids)) for c in mixed.query_clusters()
+        ] == [
+            (c.cluster_id, tuple(c.template_ids)) for c in full.query_clusters()
+        ]
+    finally:
+        full.close()
+        mixed.close()
+
+
+def test_reuse_survives_batch_knob_change(tmp_path: Path) -> None:
+    """D-11: a batch-knob change is provenance, never a cache guard (ADR 0018).
+
+    Invalidating on a knob change would re-embed under a new batch layout on the
+    first run after any reconfiguration, reopening the exact hysteresis this
+    phase exists to eliminate. `--re-embed` is the explicit way to apply one.
+    """
+
+    def _knobbed(
+        handler: Handler, *, context: int, batch_size: int, max_input_chars: int
+    ) -> InferenceClient:
+        http = httpx.Client(transport=httpx.MockTransport(handler))
+        ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=None)
+        return InferenceClient(
+            ep,
+            ep,
+            http,
+            backoff_base=0.0,
+            context=context,
+            batch_size=batch_size,
+            max_input_chars=max_input_chars,
+        )
+
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store,
+            _knobbed(
+                _embed_handler(), context=8192, batch_size=8, max_input_chars=100
+            ),
+            ClusteringConfig(),
+        )
+        assert store.get_meta("embedding_context") == "8192"
+
+        calls: list[str] = []
+        result = cluster.cluster_and_label(
+            store,
+            _knobbed(
+                _embed_handler(calls),
+                context=32768,
+                batch_size=2,
+                max_input_chars=50,
+            ),
+            ClusteringConfig(),
+        )
+        assert calls.count("embeddings") == 0
+        assert result.reused_count == len(_SYNONYM_CORPUS)
+        # The knobs are recorded (overwritten), just not consulted as a guard.
+        assert store.get_meta("embedding_context") == "32768"
+        assert store.get_meta("embedding_batch_size") == "2"
+        assert store.get_meta("embedding_max_input_chars") == "50"
+
+        # --re-embed remains the way to make a new knob take effect.
+        forced_calls: list[str] = []
+        forced = cluster.cluster_and_label(
+            store,
+            _knobbed(
+                _embed_handler(forced_calls),
+                context=32768,
+                batch_size=2,
+                max_input_chars=50,
+            ),
+            ClusteringConfig(),
+            re_embed=True,
+        )
+        # batch_size=2 legitimately splits 5 texts across several requests, so
+        # the assertion is "the endpoint was reached", not a request count.
+        assert forced_calls.count("embeddings") >= 1
+        assert forced.embedded_count == len(_SYNONYM_CORPUS)
+        assert forced.reused_count == 0
+    finally:
+        store.close()
