@@ -106,7 +106,7 @@ def _vec_to_blob(vec: list[float]) -> bytes:
     return np.asarray(vec, dtype="<f4").tobytes()
 
 
-def _blob_to_vec(  # pyright: ignore[reportUnusedFunction] — read half of the confined pair; KNN retrieval (Phase 4/6) + tests use it
+def _blob_to_vec(
     blob: bytes,
 ) -> list[float]:
     """SINGLE vector read path — the inverse of ``_vec_to_blob``."""
@@ -858,6 +858,27 @@ class CaseStore:
         self.set_meta("embedding_context", str(context))
         self.set_meta("embedding_batch_size", str(batch_size))
         self.set_meta("embedding_max_input_chars", str(max_input_chars))
+
+    def load_vectors_by_text(self) -> dict[str, list[float]]:
+        """Read every stored (chunks.text, vector) pair, keyed by exact text (D-01).
+
+        The DET-01 reuse read: joining ``chunks`` to ``vectors`` on
+        ``chunk_id`` recovers the text-to-embedding map with no schema
+        migration. The ``ORDER BY`` on ``chunks.chunk_id`` makes the winner
+        deterministic if two rows ever hold byte-identical text — the highest
+        ``chunk_id`` wins, never unspecified SQLite row order. A case with no
+        ``vectors`` table yet (vec0 tables are created lazily) degrades to an
+        empty map so a first run simply embeds everything.
+        """
+        self._ensure_vec_loaded()
+        try:
+            rows = self._conn.execute(
+                "SELECT chunks.text, vectors.embedding FROM chunks "
+                "JOIN vectors USING (chunk_id) ORDER BY chunks.chunk_id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        return {str(text): _blob_to_vec(blob) for text, blob in rows}
 
     def upsert_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
         """Write (chunk_id, embedding) pairs, replacing any prior vector.

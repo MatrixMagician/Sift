@@ -126,7 +126,7 @@ def test_cluster_merges_synonyms_and_singletons_noise(tmp_path: Path) -> None:
         _seed(store, _SYNONYM_CORPUS)
         n = cluster.cluster_and_label(
             store, _client(_embed_handler()), ClusteringConfig()
-        )
+        ).cluster_count
         # alpha+beta merge into two clusters, gamma is a noise singleton -> 3.
         assert n == 3
         assert _cluster_of(store, _ALPHA_A) == _cluster_of(store, _ALPHA_B)
@@ -180,7 +180,7 @@ def test_cluster_zero_groups_returns_zero_no_embed(tmp_path: Path) -> None:
     try:
         n = cluster.cluster_and_label(
             store, _client(_embed_handler(calls)), ClusteringConfig()
-        )
+        ).cluster_count
         assert n == 0
         assert calls == []  # no embedding call when there are no groups
         assert store.query_clusters() == []
@@ -194,7 +194,7 @@ def test_cluster_single_group_is_one_singleton(tmp_path: Path) -> None:
         _seed(store, [_ALPHA_A])
         n = cluster.cluster_and_label(
             store, _client(_embed_handler()), ClusteringConfig()
-        )
+        ).cluster_count
         assert n == 1
         (only,) = store.query_clusters()
         assert only.count == 1
@@ -222,7 +222,9 @@ def test_cluster_agglomerative_fallback_routes_and_merges(tmp_path: Path) -> Non
     try:
         _seed(store, _SYNONYM_CORPUS)
         cfg = ClusteringConfig(algorithm="agglomerative", distance_threshold=0.3)
-        n = cluster.cluster_and_label(store, _client(_embed_handler()), cfg)
+        n = cluster.cluster_and_label(
+            store, _client(_embed_handler()), cfg
+        ).cluster_count
         assert n == 3
         assert _cluster_of(store, _ALPHA_A) == _cluster_of(store, _ALPHA_B)
         assert _cluster_of(store, _GAMMA) != _cluster_of(store, _ALPHA_A)
@@ -244,6 +246,108 @@ def test_cluster_persists_vectors_and_chunks(tmp_path: Path) -> None:
         ).fetchone()[0]
         assert chunk_rows == len(_SYNONYM_CORPUS)
         assert vec_rows == len(_SYNONYM_CORPUS)
+    finally:
+        store.close()
+
+
+# --- DET-01: embedding vector reuse --------------------------------------
+
+
+def test_cluster_and_label_returns_result_dataclass(tmp_path: Path) -> None:
+    """D-05: the split travels on the return value, not just in meta."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        result = cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        assert isinstance(result, cluster.ClusterResult)
+        assert result.cluster_count == 3
+        assert result.embedded_count + result.reused_count == len(_SYNONYM_CORPUS)
+    finally:
+        store.close()
+
+
+def test_reuse_empty_on_first_run_embeds_everything(tmp_path: Path) -> None:
+    """A fresh case has no vectors table: reuse degrades to a full embed."""
+    store = CaseStore(tmp_path / "case.db")
+    calls: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        assert store.load_vectors_by_text() == {}
+        result = cluster.cluster_and_label(
+            store, _client(_embed_handler(calls)), ClusteringConfig()
+        )
+        assert result.embedded_count == len(_SYNONYM_CORPUS)
+        assert result.reused_count == 0
+        assert calls.count("embeddings") == 1
+        assert store.get_meta("embedding_new_count") == str(len(_SYNONYM_CORPUS))
+        assert store.get_meta("embedding_reused_count") == "0"
+    finally:
+        store.close()
+
+
+def test_reuse_zero_embeds_on_unchanged_case(tmp_path: Path) -> None:
+    """DET-01 headline: a second run makes ZERO embedding HTTP calls."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        first = cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        before = [
+            (c.cluster_id, tuple(c.template_ids)) for c in store.query_clusters()
+        ]
+
+        calls: list[str] = []
+        second = cluster.cluster_and_label(
+            store, _client(_embed_handler(calls)), ClusteringConfig()
+        )
+        assert "embeddings" not in calls
+        assert second.reused_count == len(_SYNONYM_CORPUS)
+        assert second.embedded_count == 0
+        assert second.cluster_count == first.cluster_count
+        # The splice preserved order: identical cluster membership.
+        after = [(c.cluster_id, tuple(c.template_ids)) for c in store.query_clusters()]
+        assert after == before
+        assert store.get_meta("embedding_new_count") == "0"
+        assert store.get_meta("embedding_reused_count") == str(len(_SYNONYM_CORPUS))
+    finally:
+        store.close()
+
+
+def test_reuse_partial_cache_embeds_only_misses(tmp_path: Path) -> None:
+    """An interrupted prior run leaves a partial cache: only misses embed."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        full = cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        expected = [
+            (c.cluster_id, tuple(c.template_ids)) for c in store.query_clusters()
+        ]
+        # Evict exactly one cached vector, simulating a partial cache.
+        victim = store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT chunk_id FROM chunks ORDER BY chunk_id LIMIT 1"
+        ).fetchone()[0]
+        with store.transaction():
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+                "DELETE FROM vectors WHERE chunk_id = ?", (victim,)
+            )
+
+        calls: list[str] = []
+        mixed = cluster.cluster_and_label(
+            store, _client(_embed_handler(calls)), ClusteringConfig()
+        )
+        assert mixed.embedded_count == 1
+        assert mixed.reused_count == len(_SYNONYM_CORPUS) - 1
+        assert calls.count("embeddings") == 1
+        assert mixed.cluster_count == full.cluster_count
+        # Mixed hit/miss membership matches the all-miss run (order preserved).
+        assert [
+            (c.cluster_id, tuple(c.template_ids)) for c in store.query_clusters()
+        ] == expected
     finally:
         store.close()
 

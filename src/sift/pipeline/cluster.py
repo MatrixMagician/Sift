@@ -21,6 +21,7 @@ import hashlib
 import importlib.resources
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -307,30 +308,63 @@ def _label_clusters(
     return labels
 
 
+@dataclass(frozen=True)
+class ClusterResult:
+    """DET-01/D-05: cluster count plus the true embed/reuse split.
+
+    Frozen so a caller cannot restate the split after the fact — the printed
+    and persisted counts are the real number of texts embedded and the real
+    number of vectors reused, never a nominal figure.
+    """
+
+    cluster_count: int
+    embedded_count: int
+    reused_count: int
+
+
 def cluster_and_label(
     store: CaseStore,
     client: InferenceClient,
     cfg: ClusteringConfig,
     *,
     label: bool = True,
-) -> int:
+) -> ClusterResult:
     """Embed exemplars, cluster template groups, label them, and persist.
 
-    Returns the number of clusters written. Zero template groups short-circuit
-    to 0 with no embedding call and no writes. When ``label`` is ``True`` a
-    single batched chat call labels every cluster eagerly (D-01); ``label=False``
-    is the ``--no-label`` / no-endpoint path (clusters keep their signature).
-    Persistence (vectors, chunks, clusters, labels, prompt hash) happens inside
-    one ``store.transaction()`` — the caller-owns-transaction idiom mirrored
-    from ``rebuild_template_groups``.
+    Returns a :class:`ClusterResult` carrying the number of clusters written
+    plus the DET-01 embed/reuse split. Zero template groups short-circuit to
+    ``ClusterResult(0, 0, 0)`` with no reuse read, no embedding call and no
+    writes. When ``label`` is ``True`` a single batched chat call labels every
+    cluster eagerly (D-01); ``label=False`` is the ``--no-label`` /
+    no-endpoint path (clusters keep their signature). Persistence (vectors,
+    chunks, clusters, labels, prompt hash, embed/reuse meta counts) happens
+    inside one ``store.transaction()`` — the caller-owns-transaction idiom
+    mirrored from ``rebuild_template_groups``.
     """
     groups = store.query_template_groups()
     if not groups:
-        return 0
+        return ClusterResult(0, 0, 0)
 
     messages = _exemplar_messages(store, groups)
     texts = [exemplar_text(group, messages) for group in groups]
-    vectors = client.embed(texts)
+    # DET-01: read the previous run's vectors back BEFORE any write — the
+    # chunks rows the JOIN needs are deleted by replace_chunks later inside
+    # the transaction. Embedding still precedes every write (T-03-22).
+    reuse_map = store.load_vectors_by_text()
+    # D-02: deduplicate misses, preserving first-appearance order.
+    miss_texts = list(dict.fromkeys(t for t in texts if t not in reuse_map))
+    fresh: dict[str, list[float]] = {}
+    if miss_texts:
+        # An all-hit run makes ZERO embedding HTTP calls — DET-01's headline.
+        embedded = client.embed(miss_texts)
+        fresh = dict(zip(miss_texts, embedded, strict=True))
+    # D-12: splice hits and misses back in original group order — never a
+    # hits-list + misses-list concatenation. vector_rows, rep_excerpt and
+    # HDBSCAN's row order all index positionally against groups/texts, so a
+    # reordered list corrupts clustering silently (RESEARCH Pitfall 2).
+    vectors = [reuse_map[t] if t in reuse_map else fresh[t] for t in texts]
+    embedded_count = len(miss_texts)
+    reused_count = len(texts) - embedded_count
     dim = len(vectors[0])
 
     # np.asarray re-types normalize's partially-typed sklearn output as a
@@ -397,4 +431,13 @@ def cluster_and_label(
             store.set_cluster_labels(label_map)
         if label:
             store.set_meta("cluster_label_prompt_hash", _template_hash(template))
-    return len(clusters)
+        # D-05: persist the true split in the SAME transaction as the vectors
+        # and chunks it describes, so a rolled-back run cannot leave counts
+        # claiming work that was never committed (T-20-07).
+        store.set_meta("embedding_new_count", str(embedded_count))
+        store.set_meta("embedding_reused_count", str(reused_count))
+    return ClusterResult(
+        cluster_count=len(clusters),
+        embedded_count=embedded_count,
+        reused_count=reused_count,
+    )

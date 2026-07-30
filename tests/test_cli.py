@@ -987,6 +987,17 @@ def _seed_analyzable(case: str, messages: list[str]) -> list[str]:
     return ids
 
 
+def _embedding_line(output: str) -> str:
+    """The single ``Embeddings:`` summary line (D-06), for a scoped assertion.
+
+    Asserting on the whole output would let an unrelated ``0 new`` elsewhere
+    satisfy a reuse assertion, so the line is isolated first.
+    """
+    lines = [ln for ln in output.splitlines() if ln.startswith("Embeddings: ")]
+    assert len(lines) == 1, f"expected exactly one Embeddings line, got {lines!r}"
+    return lines[0]
+
+
 def test_analyze_exit_0_with_valid_cited_hypotheses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1022,6 +1033,36 @@ def test_analyze_exit_0_with_valid_cited_hypotheses(
         assert store.get_meta("triage_degraded") == "0"
     finally:
         store.close()
+
+
+def test_analyze_prints_embedding_split(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DET-01/D-06: the split is always printed, first run included."""
+    messages = ["solo memory pressure warning", "smtp queue backing up"]
+    _seed_analyzable("demo", messages)
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 0, result.output
+    assert f"Embeddings: {len(messages)} new, 0 reused" in result.output
+
+
+def test_analyze_second_run_reports_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DET-01: a second analyze with no re-ingest reports full reuse."""
+    messages = ["solo memory pressure warning", "smtp queue backing up"]
+    _seed_analyzable("demo", messages)
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+
+    first = runner.invoke(app, ["analyze", "demo"])
+    assert first.exit_code == 0, first.output
+    assert "0 new" not in _embedding_line(first.output)
+
+    second = runner.invoke(app, ["analyze", "demo"])
+    assert second.exit_code == 0, second.output
+    assert "0 new" in _embedding_line(second.output)
+    assert f"{len(messages)} reused" in _embedding_line(second.output)
 
 
 def test_analyze_exit_3_on_malformed_output(

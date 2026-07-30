@@ -712,7 +712,7 @@ def analyze(
                     # store.transaction(); an interrupted embed (client raises)
                     # rolls back to zero clusters/vectors — the embed call is the
                     # first step and precedes every write, so nothing survives.
-                    n_clusters = cluster_and_label(
+                    cluster_result = cluster_and_label(
                         store, client, config.clustering, label=not no_label
                     )
                 except (httpx.HTTPError, ValueError) as exc:
@@ -765,7 +765,13 @@ def analyze(
         # Counts are ints — no untrusted text. The labels themselves are only
         # rendered by `show clusters`, where the whole line is _sanitise'd.
         labelled = sum(1 for c in store.query_clusters() if c.label)
-        print(f"Clusters: {n_clusters} ({labelled} labelled)")
+        # D-06: always printed, including a first run where reused is 0 — a
+        # stable shape is what tests assert, and zero reuse is itself a signal.
+        print(
+            f"Embeddings: {cluster_result.embedded_count} new, "
+            f"{cluster_result.reused_count} reused"
+        )
+        print(f"Clusters: {cluster_result.cluster_count} ({labelled} labelled)")
 
         # CLI-04 exit-code contract: failed -> 1, degraded -> 3, success -> 0.
         # (Typer/Click usage errors stay 2; never reused here.)
