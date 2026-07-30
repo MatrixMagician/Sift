@@ -73,14 +73,33 @@ class SiftApp(App[None]):
             self.pop_screen()
 
     def action_clusters(self) -> None:
-        """'c': open the cluster browser (R002); a no-op if already there."""
+        """'c': open the cluster browser (R002); a no-op if already there.
+
+        The two roam surfaces are siblings, so hopping from the timeline
+        replaces it instead of stacking — alternating c/t holds the stack
+        flat and escape returns to wherever roaming started.
+        """
         if isinstance(self.screen, ClustersScreen):
+            return
+        if isinstance(self.screen, TimelineScreen):
+            # Textual types switch_screen's parameter as Screen[Unknown].
+            self.switch_screen(  # pyright: ignore[reportUnknownMemberType]
+                ClustersScreen(self.store)
+            )
             return
         self.push_screen(ClustersScreen(self.store))
 
     def action_timeline(self) -> None:
-        """'t': open the event timeline (R002); a no-op if already there."""
+        """'t': open the event timeline (R002); a no-op if already there.
+
+        Sibling-switch mirror of :meth:`action_clusters`.
+        """
         if isinstance(self.screen, TimelineScreen):
+            return
+        if isinstance(self.screen, ClustersScreen):
+            self.switch_screen(  # pyright: ignore[reportUnknownMemberType]
+                TimelineScreen(self.store)
+            )
             return
         self.push_screen(TimelineScreen(self.store))
 

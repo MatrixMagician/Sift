@@ -23,10 +23,12 @@ from sift.cli import app as cli_app
 from sift.config import load_config
 from sift.store import CaseStore, case_db_path
 from sift.tui.app import SiftApp
+from sift.tui.screens.clusters import ClusterDetailScreen, ClustersScreen
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
 from sift.tui.screens.evidence import EvidenceScreen, RawSourceScreen
 from sift.tui.screens.help_overlay import HelpOverlay
 from sift.tui.screens.hypotheses import HypothesesScreen
+from sift.tui.screens.timeline import TimelineScreen
 
 runner = CliRunner()
 
@@ -280,3 +282,86 @@ def test_tui_corrupt_case_exits_one_sanitised() -> None:
     assert "cannot open case" in result.output
     assert "\x1b" not in result.output
     assert "Traceback" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Navigation integration (T05): the full roam across every screen
+# ---------------------------------------------------------------------------
+
+
+async def test_full_roam_across_every_screen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One session roams the whole case: the R001 drill-down chain, both
+    R002 roam surfaces, cluster expansion, and the escape trail home."""
+    case = build_analysed_case(monkeypatch, case="tuiroam")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, EvidenceScreen)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, RawSourceScreen)
+            await pilot.press("t")  # roam out of the drill-down
+            await pilot.pause()
+            assert isinstance(app.screen, TimelineScreen)
+            await pilot.press("c")  # sibling switch, not a push
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+            # Escape retraces the trail exactly, ending on the landing screen.
+            for expected in (
+                ClustersScreen,
+                RawSourceScreen,
+                EvidenceScreen,
+                HypothesesScreen,
+            ):
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, expected)
+            await pilot.press("escape")  # landing: a no-op, never blank
+            assert isinstance(app.screen, HypothesesScreen)
+            assert app.is_running
+    finally:
+        store.close()
+
+
+async def test_roam_toggle_keeps_stack_flat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Alternating c/t hops between the sibling roam surfaces in place —
+    the screen stack must not grow — and a repeated key is a no-op."""
+    case = build_analysed_case(monkeypatch, case="tuiflat")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            depth = len(app.screen_stack)
+            hops = [
+                ("t", TimelineScreen),
+                ("t", TimelineScreen),  # repeat: no-op, no restacking
+                ("c", ClustersScreen),
+                ("t", TimelineScreen),
+            ]
+            for key, expected in hops:
+                await pilot.press(key)
+                await pilot.pause()
+                assert isinstance(app.screen, expected)
+                assert len(app.screen_stack) == depth
+            # One escape lands back where roaming started.
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+    finally:
+        store.close()
