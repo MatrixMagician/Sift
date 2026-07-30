@@ -25,3 +25,8 @@ dist/
 # documents in .planning/research/ ARE tracked on purpose; only this cache is
 # derived. Path-anchored so it can never mask a tracked .cache elsewhere.
 /.planning/research/.cache/
+
+# Editor-local MCP/server wiring: absolute paths to this machine's binaries, so
+# it is environment config rather than shared source. Path-anchored so a tracked
+# .vscode/ elsewhere in the tree could never be masked.
+/.vscode/
