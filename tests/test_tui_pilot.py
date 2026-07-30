@@ -15,16 +15,18 @@ R019 excludes visual snapshot testing: these tests assert structure
 """
 
 import pytest
-from _report_fixtures import build_analysed_case, open_case
+from _report_fixtures import REAL_RAW, build_analysed_case, open_case
 from textual.widgets import Static
 from typer.testing import CliRunner
 
 from sift.cli import app as cli_app
 from sift.config import load_config
 from sift.store import CaseStore, case_db_path
-from sift.tui.app import OverviewScreen, SiftApp
+from sift.tui.app import SiftApp
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
+from sift.tui.screens.evidence import EvidenceScreen, RawSourceScreen
 from sift.tui.screens.help_overlay import HelpOverlay
+from sift.tui.screens.hypotheses import HypothesesScreen
 
 runner = CliRunner()
 
@@ -35,11 +37,11 @@ def _static_text(app: SiftApp, widget_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Landing: analysed case → overview
+# Landing: analysed case → ranked hypothesis list (R001)
 # ---------------------------------------------------------------------------
 
 
-async def test_open_analysed_case_lands_on_overview(
+async def test_open_analysed_case_lands_on_hypothesis_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = build_analysed_case(monkeypatch, case="tuidemo")
@@ -48,13 +50,43 @@ async def test_open_analysed_case_lands_on_overview(
         app = SiftApp(store, case)
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert isinstance(app.screen, OverviewScreen)
-            summary = _static_text(app, "overview-summary")
-            assert "Case: tuidemo" in summary
-            # build_analysed_case plants 2 hypotheses over 3 real clusters.
-            assert "Hypotheses: 2" in summary
-            assert "Clusters: 3" in summary
-            assert "Press ? for help" in summary
+            assert isinstance(app.screen, HypothesesScreen)
+            table = app.screen.table
+            # build_analysed_case plants 2 hypotheses, hyp_index-ordered.
+            assert table.row_count == 2
+            first = [c.plain for c in table.get_row_at(0)]
+            assert first[0] == "0"
+            assert first[1] == "high"
+            assert "Memory pressure" in first[3]
+    finally:
+        store.close()
+
+
+async def test_drill_down_hypothesis_to_evidence_to_raw_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The full R001 review loop: list → evidence → raw source and back."""
+    case = build_analysed_case(monkeypatch, case="tuidrill")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, EvidenceScreen)
+            assert "memory watermark" in _static_text(app, "evidence-narrative")
+            assert "Confidence: high" in _static_text(app, "evidence-confidence")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, RawSourceScreen)
+            assert REAL_RAW in _static_text(app, "raw-text")
+            assert "case.log:1" in _static_text(app, "raw-context")
+            await pilot.press("escape")
+            assert isinstance(app.screen, EvidenceScreen)
+            await pilot.press("escape")
+            assert isinstance(app.screen, HypothesesScreen)
     finally:
         store.close()
 
@@ -70,7 +102,7 @@ async def test_escape_on_landing_screen_is_a_noop(
         async with app.run_test() as pilot:
             await pilot.press("escape")
             assert app.is_running
-            assert isinstance(app.screen, OverviewScreen)
+            assert isinstance(app.screen, HypothesesScreen)
     finally:
         store.close()
 
@@ -140,7 +172,7 @@ async def test_error_screen_escape_pops_back_to_parent(
             await pilot.pause()
             assert isinstance(app.screen, ErrorScreen)
             await pilot.press("escape")
-            assert isinstance(app.screen, OverviewScreen)
+            assert isinstance(app.screen, HypothesesScreen)
     finally:
         store.close()
 
@@ -177,7 +209,7 @@ async def test_help_overlay_lists_active_bindings_and_closes(
             keys = {key for key, _ in entries}
             assert "?" in keys  # key_display honoured, not "question_mark"
             await pilot.press("escape")
-            assert isinstance(app.screen, OverviewScreen)
+            assert isinstance(app.screen, HypothesesScreen)
     finally:
         store.close()
 
@@ -194,7 +226,7 @@ async def test_help_key_toggles_and_never_stacks(
             assert isinstance(app.screen, HelpOverlay)
             # A second '?' closes the overlay (toggle), never stacks another.
             await pilot.press("question_mark")
-            assert isinstance(app.screen, OverviewScreen)
+            assert isinstance(app.screen, HypothesesScreen)
     finally:
         store.close()
 

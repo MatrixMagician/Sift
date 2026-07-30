@@ -2,9 +2,10 @@
 
 The shell owns exactly three concerns every screen inherits:
 
-* **Landing** — on mount it decides between the case overview (analysed),
-  the not-analysed screen (R012's "clear screen, not an error exit"), and a
-  sanitised :class:`ErrorScreen` when even that first meta read fails.
+* **Landing** — on mount it decides between the hypothesis list (analysed;
+  the R001 review loop's entry point), the not-analysed screen (R012's
+  "clear screen, not an error exit"), and a sanitised :class:`ErrorScreen`
+  when even that first meta read fails.
 * **Navigation actions** — ``back`` (escape pops to the parent screen, a
   no-op on the landing screen) and ``help`` ('?' snapshots the current
   screen's active bindings into a :class:`HelpOverlay`, R013).
@@ -16,57 +17,14 @@ The shell owns exactly three concerns every screen inherits:
 import sqlite3
 from typing import ClassVar
 
-from textual.app import App, ComposeResult
+from textual.app import App
 from textual.binding import Binding, BindingType
-from textual.widgets import Footer, Header, Static
 
 from sift.render._util import sanitise
 from sift.store import CaseStore
-from sift.tui.screens.base import CaseScreen
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
 from sift.tui.screens.help_overlay import HelpOverlay
-
-
-class OverviewScreen(CaseScreen):
-    """Interim landing screen: the analysed case at a glance.
-
-    T03 replaces this as the landing screen with the hypothesis list. It
-    reads only the bounded aggregate tables (hypotheses, clusters) and meta —
-    never an events scan — so mounting costs nothing at any case size (R008).
-    """
-
-    def __init__(self, store: CaseStore, case_name: str) -> None:
-        super().__init__()
-        self._store = store
-        self._case_name = case_name
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        yield Static("", id="overview-summary", markup=False)
-        yield Footer()
-
-    def on_mount(self) -> None:
-        loaded = self.guarded(
-            lambda: (
-                len(self._store.query_hypotheses()),
-                len(self._store.query_clusters()),
-                self._store.get_meta("created_at"),
-            )
-        )
-        if loaded is None:
-            return
-        n_hypotheses, n_clusters, created_at = loaded
-        summary = (
-            f"Case: {self._case_name}\n"
-            f"Created: {created_at or '—'}\n"
-            f"Hypotheses: {n_hypotheses}\n"
-            f"Clusters: {n_clusters}\n"
-            "\n"
-            "Press ? for help."
-        )
-        # created_at is DB-sourced and therefore untrusted in a shared
-        # case.db — sanitise the complete rendered block (WR-01).
-        self.query_one("#overview-summary", Static).update(sanitise(summary))
+from sift.tui.screens.hypotheses import HypothesesScreen
 
 
 class SiftApp(App[None]):
@@ -95,7 +53,7 @@ class SiftApp(App[None]):
             self.push_screen(ErrorScreen(str(exc)))
             return
         if analysed:
-            self.push_screen(OverviewScreen(self.store, self.case_name))
+            self.push_screen(HypothesesScreen(self.store))
         else:
             self.push_screen(NotAnalysedScreen(self.case_name))
 

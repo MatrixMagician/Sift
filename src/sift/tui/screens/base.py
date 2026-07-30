@@ -36,6 +36,18 @@ class CaseScreen(Screen[None]):
         Binding("question_mark", "app.help", "Help", key_display="?"),
     ]
 
+    def push(self, screen: Screen[None]) -> None:
+        """Push a screen via the app, typed once here for every subclass.
+
+        Textual types Screen.app as App[Unknown]; the typed alternative
+        (getters.app(SiftApp)) would be a circular import, so cast once.
+        """
+        app = cast(
+            "App[object]",
+            self.app,  # pyright: ignore[reportUnknownMemberType]
+        )
+        app.push_screen(screen)
+
     def guarded[T](self, read: Callable[[], T]) -> T | None:
         """Run a store read; a sqlite failure becomes a sanitised ErrorScreen.
 
@@ -45,11 +57,5 @@ class CaseScreen(Screen[None]):
         try:
             return read()
         except sqlite3.Error as exc:
-            # Textual types Screen.app as App[Unknown]; the typed alternative
-            # (getters.app(SiftApp)) would be a circular import, so cast once.
-            app = cast(
-                "App[object]",
-                self.app,  # pyright: ignore[reportUnknownMemberType]
-            )
-            app.push_screen(ErrorScreen(str(exc)))
+            self.push(ErrorScreen(str(exc)))
             return None
