@@ -13,6 +13,10 @@ Budgets are ~10-100x the measured baselines (page 0 ≈ 36 ms including the
 one-off ORDER BY sort, next page < 1 ms) so the gate catches a paging
 regression — an accidental fetchall or a per-page re-sort — without flaking
 on slow CI. The measured numbers print as acceptance evidence (``-s``).
+
+S05 extends the gate (R007): verdict recording, review progress, and full
+Markdown report rendering on the same 200k-event case with a few-hundred-row
+append-only verdict history, under the same generous-budget discipline.
 """
 
 import time
@@ -22,15 +26,20 @@ from pathlib import Path
 import pytest
 
 from sift.models import Event, event_id
+from sift.render.markdown import render_markdown
 from sift.store import CaseStore, StoredHypothesis
 from sift.tui.app import SiftApp
 from sift.tui.data_access import DEFAULT_PAGE_SIZE, EventPager
+from sift.tui.review_state import review_progress
 from sift.tui.screens.hypotheses import HypothesesScreen
 from sift.tui.screens.timeline import TimelineScreen
+from sift.verdicts import record_validation
 
 pytestmark = pytest.mark.perf
 
 EVENT_COUNT = 200_000
+VERDICT_COUNT = 300
+_VERDICT_CYCLE = ("confirmed", "rejected", "uncertain")
 _BATCH = 20_000
 _BASE = datetime(2026, 7, 16, 0, 0, 0, tzinfo=UTC)
 _SEVERITIES = ("info", "warning", "error", "unknown")
@@ -187,5 +196,75 @@ async def test_tui_screens_stay_page_bounded_at_scale(
                 f"timeline open {open_s * 1000:.0f}ms, "
                 f"next page {next_page_s * 1000:.0f}ms"
             )
+    finally:
+        store.close()
+
+
+def test_verdicts_and_report_stay_bounded_at_scale(big_case_db: Path) -> None:
+    """S05 extension (R007): verdict recording, review progress, and the
+    Markdown report stay bounded on the 200k-event case with a few hundred
+    rows of append-only verdict history.
+
+    Each ``record_validation`` call is the real TUI/CLI write path — target
+    resolution, context snapshot, one committed INSERT — so the worst
+    single-call latency is the responsiveness number a user feels in the
+    VerdictModal. ``review_progress`` and ``render_markdown`` then read the
+    whole history back; neither may scale with the events table (only one
+    event is cited). Runs after the read-only paging tests and appends to the
+    shared module fixture — append-only history is the designed behaviour,
+    and the earlier tests never read the verdicts table.
+    """
+    store = CaseStore(big_case_db)
+    try:
+        worst_record = 0.0
+        start = time.perf_counter()
+        for i in range(VERDICT_COUNT):
+            t0 = time.perf_counter()
+            record_validation(
+                store,
+                "hypothesis:0",
+                _VERDICT_CYCLE[i % len(_VERDICT_CYCLE)],
+                note=f"perf pass {i}",
+            )
+            worst_record = max(worst_record, time.perf_counter() - t0)
+        record_total_s = time.perf_counter() - start
+        assert worst_record < 1.0, (
+            f"worst record_validation took {worst_record * 1000:.1f}ms "
+            "(budget 1000ms)"
+        )
+        assert record_total_s < 30.0, (
+            f"{VERDICT_COUNT} verdicts took {record_total_s:.1f}s (budget 30s)"
+        )
+
+        t0 = time.perf_counter()
+        progress = review_progress(store)
+        progress_s = time.perf_counter() - t0
+        # 300 history rows collapse to one ruled hypothesis; the empty
+        # cluster/template levels stay 0/0 rather than counting history.
+        assert progress.hypotheses.ruled == 1
+        assert progress.hypotheses.total == 1
+        assert progress.clusters.total == 0
+        assert progress.templates.total == 0
+        assert progress_s < 2.0, (
+            f"review_progress took {progress_s * 1000:.1f}ms (budget 2000ms)"
+        )
+
+        t0 = time.perf_counter()
+        report = render_markdown(store)
+        render_s = time.perf_counter() - t0
+        assert "## Recorded verdicts" in report
+        # Full append-only history renders — no dedup, no collapsing.
+        assert report.count("perf pass ") == VERDICT_COUNT
+        assert render_s < 5.0, (
+            f"render_markdown took {render_s:.2f}s (budget 5.0s)"
+        )
+
+        print(
+            f"\n{VERDICT_COUNT} verdicts on {EVENT_COUNT} events: "
+            f"worst record {worst_record * 1000:.1f}ms, "
+            f"record total {record_total_s * 1000:.0f}ms, "
+            f"review_progress {progress_s * 1000:.1f}ms, "
+            f"render_markdown {render_s * 1000:.0f}ms"
+        )
     finally:
         store.close()
