@@ -488,7 +488,33 @@ def cluster_and_label(
     ]
     vector_rows = list(enumerate(vectors))
 
+    # D-03 (dimension half): a dimension change is recoverable ONLY when the
+    # operator explicitly asked for it. Without --re-embed the run falls through
+    # to ensure_vectors_table below and raises the shipped STORE-03 mismatch
+    # error naming both dimensions — that error is what tells the operator what
+    # disagrees and therefore what to recover from, so it is never pre-empted.
+    stored_dim = store.get_meta("embedding_dim")
+    rebuild_dim = (
+        re_embed and stored_dim is not None and int(stored_dim) != dim
+    )
+
     with store.transaction():
+        if rebuild_dim:
+            # D-08/T-20-03: both vec0 tables, the orphaned KB chunks and the
+            # shared dim meta go together, as the FIRST statements of the one
+            # transaction that owns every write — so an interrupted rebuild
+            # rolls back to the original tables at their original widths and a
+            # partial drop can never commit.
+            dropped_vectors, dropped_kb = store.drop_vector_tables()
+            if announce is not None:
+                # D-09: the blast radius, announced after the in-transaction
+                # drop but BEFORE the commit — nothing is actually lost yet.
+                # The counts come from the drop's own return value, so the
+                # numbers and the deletion are provably the same event.
+                announce(
+                    f"dimension changed {stored_dim} -> {dim}; dropping "
+                    f"{dropped_vectors} stored vectors and {dropped_kb} KB vectors"
+                )
         # WR-02: fold the dimension lock (vec0 DDL + embedding_dim meta) into the
         # same transaction as the writes, so a failure anywhere in this block
         # rolls the lock back — a zero-vector case is never permanently wedged.

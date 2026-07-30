@@ -299,3 +299,98 @@ def test_replace_chunks_round_trips(tmp_path: Path) -> None:
         assert rows == [(1, "t1", "boom", '["e1", "e2"]')]
     finally:
         store.close()
+
+
+# --- DET-01 / D-08: the paired vec0 drop that makes a dimension change
+# recoverable ------------------------------------------------------------
+
+
+def _seed_both_vector_tables(
+    store: CaseStore, dim: int, *, vectors: int, kb_vectors: int
+) -> None:
+    """Populate both vec0 tables at ``dim`` so a drop has something to count."""
+    with store.transaction():
+        store.ensure_vectors_table(dim)
+        store.ensure_kb_vectors_table(dim)
+        store.upsert_vectors([(i, [1.0] * dim) for i in range(vectors)])
+        store.replace_kb_chunks(
+            [(i, "runbook.md", i, f"kb chunk {i}") for i in range(kb_vectors)]
+        )
+        store.upsert_kb_vectors([(i, [1.0] * dim) for i in range(kb_vectors)])
+
+
+def test_drop_vector_tables_clears_dim_and_allows_new_width(tmp_path: Path) -> None:
+    """D-08: both tables and the shared dim go, so a new width can be built."""
+    db = tmp_path / "case.db"
+    store = CaseStore(db)
+    try:
+        _seed_both_vector_tables(store, 8, vectors=3, kb_vectors=2)
+        assert store.get_meta("embedding_dim") == "8"
+        assert {"vectors", "kb_vectors"} <= _tables(db)
+
+        with store.transaction():
+            dropped = store.drop_vector_tables()
+        assert dropped == (3, 2)
+
+        after = _tables(db)
+        assert not [t for t in after if t.startswith(("vectors", "kb_vectors"))]
+        assert store.get_meta("embedding_dim") is None
+        assert store.get_meta("embedding_metric") is None
+        # The orphaned KB chunks went with their vectors (D-08).
+        kb_chunk_rows = store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT count(*) FROM kb_chunks"
+        ).fetchone()[0]
+        assert kb_chunk_rows == 0
+
+        # Both tables rebuild at the NEW width, not silently at the old one
+        # (RESEARCH Pitfall 5) — proven by accepting a 4-wide insert.
+        with store.transaction():
+            store.ensure_vectors_table(4)
+            store.ensure_kb_vectors_table(4)
+            store.upsert_vectors([(1, [1.0, 0.0, 0.0, 0.0])])
+            store.replace_kb_chunks([(1, "runbook.md", 0, "kb")])
+            store.upsert_kb_vectors([(1, [1.0, 0.0, 0.0, 0.0])])
+        assert store.get_meta("embedding_dim") == "4"
+        assert {"vectors", "kb_vectors"} <= _tables(db)
+    finally:
+        store.close()
+
+
+def test_drop_vector_tables_rollback_restores_original_width(tmp_path: Path) -> None:
+    """An interrupted rebuild restores the ORIGINAL table at its ORIGINAL width.
+
+    The discriminating evidence is an insert shaped for the *old* width
+    succeeding afterwards: against a table restored at the new width it would
+    fail, so a successful 8-wide insert proves the undo was genuine.
+    """
+    db = tmp_path / "case.db"
+    store = CaseStore(db)
+    try:
+        _seed_both_vector_tables(store, 8, vectors=3, kb_vectors=2)
+
+        with pytest.raises(RuntimeError, match="simulated"):
+            with store.transaction():
+                store.drop_vector_tables()
+                raise RuntimeError("simulated mid-rebuild failure")
+
+        assert store.get_meta("embedding_dim") == "8"
+        assert {"vectors", "kb_vectors"} <= _tables(db)
+        rows = store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT count(*) FROM vectors"
+        ).fetchone()[0]
+        assert rows == 3
+        with store.transaction():
+            store.upsert_vectors([(99, [0.5] * 8)])
+    finally:
+        store.close()
+
+
+def test_drop_vector_tables_on_empty_case_returns_zeros(tmp_path: Path) -> None:
+    """Nothing stored: returns (0, 0) and raises nothing."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with store.transaction():
+            assert store.drop_vector_tables() == (0, 0)
+        assert store.get_meta("embedding_dim") is None
+    finally:
+        store.close()

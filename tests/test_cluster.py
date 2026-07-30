@@ -583,6 +583,115 @@ def test_re_embed_suppresses_the_unverified_identity_warning(
         store.close()
 
 
+def _width_handler(width: int, calls: list[str] | None = None) -> Handler:
+    """An embed handler returning vectors of an arbitrary width.
+
+    A local variant rather than a parameter on the shared ``_embed_handler``,
+    whose planted 8-dim ``_VECTORS`` every other test in this file depends on.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/embeddings"):
+            inputs = json.loads(request.content)["input"]
+            if calls is not None:
+                calls.append("embeddings")
+            data = [
+                {"index": i, "embedding": [1.0, *([0.0] * (width - 1))]}
+                for i, _ in enumerate(inputs)
+            ]
+            return httpx.Response(200, json={"data": data})
+        if calls is not None:
+            calls.append("chat")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    return handler
+
+
+def test_dimension_change_without_re_embed_still_hard_raises(
+    tmp_path: Path,
+) -> None:
+    """D-03: without --re-embed the shipped STORE-03 hard error is unchanged."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        before = _tables(store)
+
+        # A fresh, unseen message guarantees a miss, so a 4-wide vector really
+        # reaches the splice and the dimension change is genuinely exercised.
+        _seed(store, [*_SYNONYM_CORPUS, "delta fresh unseen message"])
+        with pytest.raises(ValueError, match="embedding dimension mismatch"):
+            cluster.cluster_and_label(
+                store, _client(_width_handler(4)), ClusteringConfig()
+            )
+        assert _tables(store) == before, "a failed run must drop nothing"
+        assert store.get_meta("embedding_dim") == "8"
+    finally:
+        store.close()
+
+
+def test_re_embed_rebuilds_at_new_dimension_and_announces(tmp_path: Path) -> None:
+    """D-08/D-09: --re-embed drops both tables, announces the blast radius."""
+    store = CaseStore(tmp_path / "case.db")
+    announced: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        assert store.get_meta("embedding_dim") == "8"
+
+        result = cluster.cluster_and_label(
+            store,
+            _client(_width_handler(4)),
+            ClusteringConfig(),
+            re_embed=True,
+            announce=announced.append,
+        )
+        assert len(announced) == 1
+        message = announced[0]
+        assert "dimension changed" in message
+        assert "8 -> 4" in message
+        # The real counted totals, not a nominal figure.
+        assert f"{len(_SYNONYM_CORPUS)} stored vectors" in message
+        assert "0 KB vectors" in message
+
+        assert store.get_meta("embedding_dim") == "4"
+        assert result.embedded_count == len(_SYNONYM_CORPUS)
+        assert result.reused_count == 0
+        # The rebuilt table really is 4-wide: a 4-wide reuse read round-trips.
+        widths = {len(v) for v in store.load_vectors_by_text().values()}
+        assert widths == {4}
+    finally:
+        store.close()
+
+
+def test_re_embed_at_unchanged_dimension_announces_nothing(tmp_path: Path) -> None:
+    """The 20-02 behaviour is untouched: no drop, no announcement."""
+    store = CaseStore(tmp_path / "case.db")
+    announced: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        before = _tables(store)
+        cluster.cluster_and_label(
+            store,
+            _client(_embed_handler()),
+            ClusteringConfig(),
+            re_embed=True,
+            announce=announced.append,
+        )
+        assert announced == []
+        assert _tables(store) == before
+        assert store.get_meta("embedding_dim") == "8"
+    finally:
+        store.close()
+
+
 def test_cluster_records_batch_knobs_even_without_model_identity(
     tmp_path: Path,
 ) -> None:
