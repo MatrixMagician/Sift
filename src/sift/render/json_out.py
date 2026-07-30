@@ -50,8 +50,9 @@ def render_json(store: CaseStore) -> str:
     """Serialise an analysed case to a canonical, key-sorted JSON string.
 
     Carries the full hypotheses object (every ``StoredHypothesis`` field),
-    cluster stats, timeline summary, unexplained signals, and a ``run``
-    metadata block. Returns the dump plus a trailing newline.
+    cluster stats, timeline summary, unexplained signals, the full append-only
+    verdict history (every ``Verdict`` field, newest first — R007), and a
+    ``run`` metadata block. Returns the dump plus a trailing newline.
     """
     doc: dict[str, object] = {
         "hypotheses": [dataclasses.asdict(h) for h in store.query_hypotheses()],
@@ -69,6 +70,10 @@ def render_json(store: CaseStore) -> str:
         "unexplained_signals": json.loads(
             store.get_meta("triage_unexplained_signals") or "[]"
         ),
+        # R007: the durable human-validation record. list_verdicts() is already
+        # deterministic (created_at DESC, rowid DESC), so re-rendering the same
+        # case.db stays byte-identical.
+        "verdicts": [dataclasses.asdict(v) for v in store.list_verdicts()],
         "run": {
             "model": store.get_meta("triage_model"),
             "prompt_hash": store.get_meta("triage_prompt_hash"),
