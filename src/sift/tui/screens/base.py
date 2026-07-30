@@ -33,6 +33,8 @@ class CaseScreen(Screen[None]):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("q", "app.quit", "Quit"),
         Binding("escape", "app.back", "Back"),
+        Binding("c", "app.clusters", "Clusters"),
+        Binding("t", "app.timeline", "Timeline"),
         Binding("question_mark", "app.help", "Help", key_display="?"),
     ]
 

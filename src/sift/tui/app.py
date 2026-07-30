@@ -7,8 +7,11 @@ The shell owns exactly three concerns every screen inherits:
   "clear screen, not an error exit"), and a sanitised :class:`ErrorScreen`
   when even that first meta read fails.
 * **Navigation actions** — ``back`` (escape pops to the parent screen, a
-  no-op on the landing screen) and ``help`` ('?' snapshots the current
-  screen's active bindings into a :class:`HelpOverlay`, R013).
+  no-op on the landing screen), ``help`` ('?' snapshots the current
+  screen's active bindings into a :class:`HelpOverlay`, R013), and the
+  roam actions ``clusters``/``timeline`` ('c'/'t' from any case screen,
+  R002) — defined once here so every screen inherits them via the shared
+  ``CaseScreen`` bindings.
 * **Zero egress** — the app talks only to the injected ``CaseStore``; it
   opens no HTTP client and closes nothing on exit (the CLI entry point owns
   the store's lifecycle, so the WAL checkpoint happens exactly once).
@@ -22,9 +25,11 @@ from textual.binding import Binding, BindingType
 
 from sift.render._util import sanitise
 from sift.store import CaseStore
+from sift.tui.screens.clusters import ClustersScreen
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
 from sift.tui.screens.help_overlay import HelpOverlay
 from sift.tui.screens.hypotheses import HypothesesScreen
+from sift.tui.screens.timeline import TimelineScreen
 
 
 class SiftApp(App[None]):
@@ -66,6 +71,18 @@ class SiftApp(App[None]):
         """
         if len(self.screen_stack) > 2:
             self.pop_screen()
+
+    def action_clusters(self) -> None:
+        """'c': open the cluster browser (R002); a no-op if already there."""
+        if isinstance(self.screen, ClustersScreen):
+            return
+        self.push_screen(ClustersScreen(self.store))
+
+    def action_timeline(self) -> None:
+        """'t': open the event timeline (R002); a no-op if already there."""
+        if isinstance(self.screen, TimelineScreen):
+            return
+        self.push_screen(TimelineScreen(self.store))
 
     def action_help(self) -> None:
         """'?': overlay the current screen's active bindings (R013)."""
