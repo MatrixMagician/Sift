@@ -66,7 +66,11 @@ the three eu-stack floors v1.3 added all pass, LLM-free. Diagnosing it exposed t
 made `sift doctor`'s random-seed determinism warning **dead code** on every real llama.cpp build
 (wrong nesting, and a `seed < 0` test against a UINT32_MAX sentinel); both fixed with six
 regression tests, four of which fail against the previous code. A temperature warning was added
-alongside. See `milestones/v1.3-MILESTONE-AUDIT.md`.
+alongside. The archive step surfaced a third defect: three eu-stack vocabulary tests parsed the
+forbidden lock-ownership term out of `.planning/REQUIREMENTS.md` at runtime, so archiving that
+document broke the suite — the D-05 invariant now lives in the product as
+`eustack_vocabulary.PROHIBITED_OWNERSHIP_TERMS`. See
+`milestones/v1.3-MILESTONE-AUDIT.md`.
 
 ## v1.2 DSSPerformanceMonitor Correlation (Shipped: 2026-07-20)
 
