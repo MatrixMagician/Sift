@@ -26,6 +26,7 @@ from sift.pipeline.eustack_progression import (
     ORDERING_UNVERIFIED_MESSAGE,
     PROGRESSION_SCOPE_NOTE,
     EustackBundle,
+    SignatureProgression,
     analyse_eustack_bundle,
     resolve_dump_order,
 )
@@ -170,7 +171,7 @@ def test_single_dump_needs_no_ordering() -> None:
     assert bundle.progression.ordering_flags == ()
 
 
-def _signature(bundle: EustackBundle, label: str) -> object:
+def _signature(bundle: EustackBundle, label: str) -> SignatureProgression:
     """Find the progression row for a fixture signature by its matched
     frame — normalised (``pipeline.eustack.normalise``: tail dropped,
     version suffix dropped) since that is the exact string ``compute_

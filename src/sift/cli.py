@@ -47,6 +47,12 @@ from sift.pipeline.ingest import IngestError, IngestUsageError, run_ingest
 from sift.render._util import PdfExtraMissing
 from sift.render._util import sanitise as _sanitise
 from sift.store import CaseStore, case_db_path, vec_version
+from sift.verdicts import (
+    TargetSpecError,
+    UnknownTargetError,
+    parse_target,
+    record_validation,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -976,6 +982,105 @@ def report(
                 raise typer.Exit(1) from None
         else:
             print(text)
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4).
+        store.close()
+
+
+@app.command()
+def validate(
+    case: str,
+    target: Annotated[
+        str,
+        typer.Argument(
+            help="Verdict target: hypothesis:<index>, cluster:<id> or "
+            "template:<id> (the type prefix is required)"
+        ),
+    ],
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Record the target as confirmed"),
+    ] = False,
+    reject: Annotated[
+        bool,
+        typer.Option("--reject", help="Record the target as rejected"),
+    ] = False,
+    uncertain: Annotated[
+        bool,
+        typer.Option("--uncertain", help="Record the target as uncertain"),
+    ] = False,
+    note: Annotated[
+        str,
+        typer.Option("--note", help="Free-text analyst note stored with the verdict"),
+    ] = "",
+    data_dir: DataDirOption = None,
+) -> None:
+    """Record an analyst verdict on a hypothesis, cluster or template (D003).
+
+    Appends ONE immutable verdict row to case.db via the shared verdict
+    service — the same ``record_validation`` code path the review TUI uses, so
+    headless and interactive capture are byte-equivalent (D004). The row
+    snapshots the judged target's context (hypothesis text + masked evidence
+    templates + sources, or the cluster/template shape) and provenance (run
+    marker, model, prompt hash), so M002 can harvest every case.db directly
+    (D005). Verdicts are history, never state: re-running ``sift analyze``
+    replaces hypotheses but keeps every recorded verdict, and no update or
+    delete path exists.
+
+    Exit-code contract (ADR 0005/0007, scriptable — branch on the code alone):
+
+    \b
+      0  success   verdict appended; stdout prints its verdict_id and target
+      1  failure   missing/corrupt case, unknown target, locked database
+      2  usage     malformed target spec, or zero/multiple verdict flags
+    """
+    # Exactly one verdict flag: zero is as much a usage error as several —
+    # silently defaulting a verdict state would fabricate analyst judgement.
+    chosen = [
+        state
+        for state, given in (
+            ("confirmed", confirm),
+            ("rejected", reject),
+            ("uncertain", uncertain),
+        )
+        if given
+    ]
+    if len(chosen) != 1:
+        print("Error: exactly one of --confirm, --reject or --uncertain is required")
+        raise typer.Exit(2)
+    # A malformed spec is a usage error (exit 2, the _parse_filters precedent):
+    # parse before touching the store so it fails fast; existence in the case
+    # is checked at record time (exit 1). The echoed spec is untrusted input —
+    # sanitise (T-04-01).
+    try:
+        spec = parse_target(target)
+    except TargetSpecError as exc:
+        print(f"Error: {_sanitise(str(exc))}")
+        raise typer.Exit(2) from None
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        try:
+            recorded = record_validation(store, spec, chosen[0], note=note)
+        except UnknownTargetError as exc:
+            print(f"Error: {_sanitise(str(exc))}")
+            raise typer.Exit(1) from None
+        except sqlite3.OperationalError as exc:
+            # The service lets a locked/busy database bubble unswallowed
+            # precisely so this command can map it: a semantic failure (exit
+            # 1) with a sanitised message, never a traceback (WR-02).
+            print(
+                f"Error: cannot record verdict for case {case!r}: "
+                f"{_sanitise(str(exc))}"
+            )
+            raise typer.Exit(1) from None
+        # WR-01: a template target_id is caller-supplied text and the note
+        # echoes nothing — sanitise the COMPLETE line, not per field. One
+        # stdout line, scriptable: automation reads the verdict_id from here.
+        print(_sanitise(
+            f"Recorded verdict {recorded.verdict_id}: "
+            f"{recorded.target_type}:{recorded.target_id} {recorded.verdict}"
+        ))
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4).
         store.close()

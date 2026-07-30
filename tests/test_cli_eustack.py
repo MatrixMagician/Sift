@@ -18,6 +18,7 @@ from typer.testing import CliRunner
 from sift.adapters.eustack import EustackAdapter
 from sift.cli import app
 from sift.config import load_config
+from sift.models import Event
 from sift.store import CaseStore, case_db_path
 
 runner = CliRunner()
@@ -57,7 +58,7 @@ def _build_progression_case(case: str = "eustackmulti") -> Path:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     adapter = EustackAdapter()
     adapter.input_root = PROGRESSION_FIXTURES
-    events = []
+    events: list[Event] = []
     for name in PROGRESSION_DUMPS:
         events.extend(adapter.parse(PROGRESSION_FIXTURES / name, case))
     store = CaseStore(db_path)

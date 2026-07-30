@@ -58,7 +58,9 @@ target-version = "py312"
 src = ["src"]
 # Vendored byte-verbatim reference (the MCM port source, D-01) — kept as-is for
 # provenance, never linted. pyright already excludes it via include=[src,tests].
-extend-exclude = ["docs/reference"]
+# .agents/skills holds vendored third-party agent-skill scripts (committed by
+# the GSD tooling) — not Sift code, never linted.
+extend-exclude = ["docs/reference", ".agents"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "DTZ"]

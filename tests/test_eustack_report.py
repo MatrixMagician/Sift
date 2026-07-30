@@ -29,6 +29,7 @@ from sift.pipeline.eustack_progression import (
     ORDER_BASIS_TIMESTAMP,
     ORDERING_UNVERIFIED_MESSAGE,
     EustackBundle,
+    SignatureProgression,
     analyse_eustack_bundle,
 )
 from sift.pipeline.eustack_vocabulary import PROHIBITED_OWNERSHIP_TERMS
@@ -60,7 +61,7 @@ def _bundle_for(*names: str) -> EustackBundle:
     return analyse_eustack_bundle(events, _RULES, _RULES_HASH, _THRESHOLDS)
 
 
-def _find(bundle: EustackBundle, label: str) -> object:
+def _find(bundle: EustackBundle, label: str) -> SignatureProgression:
     """Find a progression row by its matched frame — mirrors
     ``test_eustack_progression.py``'s own ``_signature`` helper."""
     matched_frame = {
@@ -277,11 +278,11 @@ def test_dumps_table_and_progression_table_preserve_resolved_order(
 def test_identity_projection_omits_full_frames_tuple(tmp_path: Path) -> None:
     bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
     warehouse = _find(bundle, "warehouse")
-    assert len(warehouse.frames) > 2  # type: ignore[attr-defined]
+    assert len(warehouse.frames) > 2
     hidden_frames = [
         f
-        for f in warehouse.frames  # type: ignore[attr-defined]
-        if f != warehouse.matched_frame and f != warehouse.leaf_frame  # type: ignore[attr-defined]
+        for f in warehouse.frames
+        if f != warehouse.matched_frame and f != warehouse.leaf_frame
     ]
     assert hidden_frames, "fixture must carry a frame beyond matched/leaf"
 
