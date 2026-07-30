@@ -50,6 +50,11 @@ from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
 
+# llama.cpp reports "seed a random value each request" as UINT32_MAX in /props
+# rather than as a negative int, so a `seed < 0` test alone can never detect it
+# (T-03-15). Named so the determinism check reads as intent, not as magic.
+_RANDOM_SEED_SENTINEL = 0xFFFFFFFF
+
 
 def _version_string() -> str:
     """Return the installed package version, or the source default off-tree."""
@@ -1586,11 +1591,41 @@ def doctor(
             )
         gen_settings = props.get("default_generation_settings")
         if isinstance(gen_settings, dict):
-            seed = cast("dict[str, object]", gen_settings).get("seed")
-            if isinstance(seed, int) and not isinstance(seed, bool) and seed < 0:
+            settings = cast("dict[str, object]", gen_settings)
+            # llama.cpp nests the sampler knobs under a "params" sub-dict and
+            # reports a random seed as UINT32_MAX (4294967295 == -1 unsigned),
+            # never as a negative int. Read both shapes, and treat either
+            # sentinel as random: the earlier `seed < 0` test against the
+            # un-nested key could not fire on any real llama.cpp build, so this
+            # warning was silently dead and a non-deterministic endpoint went
+            # unreported (measured against llama.cpp b7000-era /props).
+            params = settings.get("params")
+            source = (
+                cast("dict[str, object]", params)
+                if isinstance(params, dict)
+                else settings
+            )
+            seed = source.get("seed")
+            if (
+                isinstance(seed, int)
+                and not isinstance(seed, bool)
+                and (seed < 0 or seed == _RANDOM_SEED_SENTINEL)
+            ):
                 print(
-                    "Warning: server seed is random (< 0); set a fixed seed for "
-                    "reproducible triage",
+                    f"Warning: server seed is random ({seed}); set a fixed seed "
+                    "for reproducible triage",
+                    file=sys.stderr,
+                )
+            temperature = source.get("temperature")
+            if (
+                isinstance(temperature, int | float)
+                and not isinstance(temperature, bool)
+                and temperature > 0
+            ):
+                print(
+                    f"Warning: server temperature is {temperature} (> 0); "
+                    "identical prompts can yield different triage output — load "
+                    "the model at temperature 0 for reproducible triage",
                     file=sys.stderr,
                 )
 
