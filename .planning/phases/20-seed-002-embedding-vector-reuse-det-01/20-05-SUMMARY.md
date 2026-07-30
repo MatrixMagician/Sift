@@ -96,6 +96,9 @@ coverage:
         ref: "tests/test_cli.py::test_analyze_issues_exactly_one_props_request"
         status: pass
       - kind: manual
+        ref: "live Lemonade via counting proxy — proxied-path tally shows /props exactly once per invocation"
+        status: pass
+      - kind: manual
         ref: "ctx_configured removed in-tree — the count becomes 2 and the test fails, proving the assertion is non-vacuous"
         status: pass
     human_judgment: false
@@ -189,7 +192,7 @@ None - no external service configuration required.
 - `src/sift/eval/runner.py` verified unmodified; `tests/test_eval_thresholds.py` green, so the eval harness's `/props` probe still behaves exactly as before
 - Every existing `hypothesise(...)` caller across `tests/test_mcm_analyze.py`, `tests/test_perfmon_analyze.py`, `tests/test_eustack_analyze.py` and `tests/test_hypothesise.py` passes unmodified — the new keyword defaults to `None`
 - The folded todo `.planning/todos/pending/2026-07-21-generation-context-unset.md` is now addressed and can be moved to done at phase completion
-- One manual verification remains open: confirming against a live Lemonade endpoint that the stderr warning appears and the run still completes — no agent has access to one, so it belongs in end-of-phase human UAT
+- The live-Lemonade verification is **done**, not deferred: validated against the operator's running instance on 127.0.0.1:13305, which answers `/props` with HTTP 200 web-UI HTML (the exact reported condition). With `generation.context` pinned no warning appears and the pinned value is used; with it unset the `estimated rather than discovered` warning reaches stderr and the run still exits 0. A counting proxy confirms `/props` is requested exactly once per invocation. See `20-VERIFICATION.md` §Live-Lemonade Validation
 
 ---
 *Phase: 20-seed-002-embedding-vector-reuse-det-01*

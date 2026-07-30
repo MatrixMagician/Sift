@@ -11,6 +11,7 @@ criteria proven.
 | Gate | Command | Result |
 |---|---|---|
 | Full suite | `uv run pytest` | **873 passed**, 8 deselected (835 pre-phase baseline + 38 new) |
+| Live backend | `sift doctor` against Lemonade 127.0.0.1:13305 | all checks passed — real embedding round-trip at dimension 1024, `sqlite-vec v0.1.9` |
 | Quick run | `uv run pytest tests/test_cluster.py tests/test_store_vectors.py tests/test_cli.py` | 147 passed |
 | Lint | `uv run ruff check` | clean |
 | Types | `uv run pyright` | 28 errors — **unchanged** from the pre-phase baseline, all confined to `tests/test_cli_eustack.py`, `tests/test_eustack_progression.py`, `tests/test_eustack_report.py` (no new error, and one pre-existing ruff E501 was fixed in `fdf78e9`) |
@@ -55,6 +56,71 @@ override prefix is single-underscore `SIFT_EMBEDDINGS_BASE_URL`, not double.
 Until the second was fixed the harness was silently exercising the operator's
 **real** llama-server on 127.0.0.1:8080 rather than the stub — which is itself
 incidental evidence that the reuse path works against a live backend.
+
+---
+
+## Live-Lemonade Validation (operator's real backend)
+
+The stub-endpoint harness above proves the process boundary but not real backend
+behaviour. `verify-det01-live-lemonade.py`, kept alongside this file, runs the
+real `sift` console script against the operator's actual **Lemonade instance on
+127.0.0.1:13305** (Qwen3-Embedding-0.6B-GGUF, real dimension **1024**,
+generation `user.Qwen2.5-14B-Instruct`) through a transparent counting proxy, so
+"no embedding work" is proven by **observed HTTP traffic to a genuine backend**
+rather than inferred from printed output.
+
+`sift doctor` against the same instance passes all checks, including a real
+embedding round-trip at dimension 1024 and `sqlite-vec v0.1.9`.
+
+**17/17 checks passed.** Observed:
+
+```
+Lemonade /props -> HTTP 200, starts '<!doctype html><html lang="en"><head><me'
+  (HTTP 200 + HTML, not JSON: the exact D-10 condition)
+
+run 1 (cold)      : exit=0  Embeddings: 2 new, 0 reused   /v1/embeddings observed: 1
+run 2 (unchanged) : exit=0  Embeddings: 0 new, 2 reused   /v1/embeddings observed: 0
+run 3 (--re-embed): exit=0  Embeddings: 2 new, 0 reused   /v1/embeddings observed: 1
+run 4 (ctx pinned): exit=0  Embeddings: 0 new, 2 reused   /v1/embeddings observed: 0
+run 5 (ctx unset) : exit=0  Embeddings: 0 new, 2 reused   /v1/embeddings observed: 0
+    stderr: Warning: the generation prompt budget is estimated rather than
+    discovered — the endpoint served no usable context size, so 8192 tokens
+    is assumed. Set generation.context in config.toml to pin the real window.
+
+case meta: embedding_dim=1024, embedding_model=Qwen3-Embedding-0.6B-GGUF,
+           embedding_new_count=0, embedding_reused_count=2,
+           embedding_context=32768, embedding_batch_size=64
+
+all proxied paths: {'/v1/embeddings': 2, '/tokenize': 5,
+                    '/v1/chat/completions': 13, '/props': 1}
+```
+
+**DET-01 is proven against a real backend:** run 2 on an unchanged case issued
+**zero** `/v1/embeddings` requests while still producing a complete triage, and
+`--re-embed` issued them again. The persisted meta shows the real 1024
+dimension, the real model identity, and the reuse split.
+
+**D-10 is confirmed on the exact reported condition.** Lemonade answers `/props`
+with **HTTP 200 and web-UI HTML**, not JSON — which is why the budget cannot be
+discovered. `InferenceClient.props()` already handles this correctly (the JSON
+parse raises, is caught, and `{}` is returned), and:
+
+- with `generation.context` **pinned**, no warning is emitted and the pinned
+  value is used (the precedence fix);
+- with it **unset**, the `estimated rather than discovered` warning reaches
+  stderr and the run still completes at exit 0.
+
+The proxied-path tally also independently confirms the one-request guarantee:
+`/props` appears **once**, not once per run leg.
+
+Two harness defects were found and fixed during this validation, neither in
+product code. Lemonade's `/api/v1/stats` reports the **last** request's token
+counts rather than cumulative totals, so an initial token-delta approach could
+not measure embedding work (deltas went negative) and was replaced by the
+counting proxy. And the first proxy forwarded `Accept-Encoding` upstream, so it
+relayed a gzip body while advertising identity, producing
+`inference server returned invalid JSON` — a defect in the measuring
+instrument, which the exit code correctly surfaced rather than masked.
 
 ---
 
@@ -129,12 +195,11 @@ explicitly accepted with rationale in the respective plans.
 
 ## Open Items
 
-One manual verification cannot be performed by an agent and is deferred to
-human UAT: confirming against a **live Lemonade** endpoint that the D-10
-estimated-budget stderr warning appears (Lemonade serves web-UI HTML rather
-than a props document, which is the exact condition). The equivalent condition
-was exercised against the stub endpoint in e2e run 4, where the warning did
-appear, so this is a confirmation rather than an untested path.
+**None.** The one item previously deferred to human UAT — confirming the D-10
+estimated-budget warning against a live Lemonade endpoint — was validated
+directly against the operator's running instance (see the Live-Lemonade section
+above) and passed, together with the full DET-01 reuse path measured by
+server-side request counting.
 
 ---
 

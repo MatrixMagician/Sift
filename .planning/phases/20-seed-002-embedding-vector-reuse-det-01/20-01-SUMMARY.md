@@ -197,6 +197,7 @@ None - no external service configuration required.
 - Full gate green: `uv run pytest` 841/841 passed (835 baseline + 6 new), `uv run ruff check` clean, `uv run pyright` unchanged at the pre-existing 28-error baseline confined to `tests/test_cli_eustack.py`, `tests/test_eustack_progression.py`, `tests/test_eustack_report.py`
 - `src/sift/eval/runner.py` verified unmodified (`git diff --quiet` exits 0) — the eval harness's discarding call site keeps working
 - All 8 of the plan's acceptance greps pass, including the corrected `ORDER BY` count
+- Since verified against a live backend too: run 2 on an unchanged case issues zero `/v1/embeddings` requests to the operator's real Lemonade instance at dimension 1024 (`20-VERIFICATION.md` §Live-Lemonade Validation)
 - DET-01 remains OPEN: plan 20-02 (model-identity invalidation + `--re-embed`), 20-03 (dimension rebuild), 20-04 (determinism adjacency) and 20-05 (ctx_configured) build directly on `ClusterResult` and the reuse path proven here
 
 ---

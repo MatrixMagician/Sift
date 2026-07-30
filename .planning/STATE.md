@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 Phase: 20 — SEED-002 Embedding Vector Reuse (DET-01) — COMPLETE
 Plan: 5/5 complete (20-01, 20-02, 20-03, 20-05, 20-04 across 4 waves)
-Status: Phase complete; v1.3 ready for `/gsd-complete-milestone`
+Status: Phase complete and validated against live Lemonade; v1.3 ready for `/gsd-complete-milestone`
 Last activity: 2026-07-30 — Phase 20 complete, DET-01 closed
 
 ## Performance Metrics
