@@ -1086,6 +1086,31 @@ def validate(
         store.close()
 
 
+@app.command()
+def tui(case: str, data_dir: DataDirOption = None) -> None:
+    """Open an analysed case in the interactive terminal browser (SPEC.md §5.7).
+
+    Read-only over case.db and fully local: the TUI never constructs an
+    inference client and adds zero network egress (R020). A missing or
+    corrupt case exits 1 with a message, never a traceback (the shared
+    ``_case_store`` contract); a case that has not been analysed yet opens
+    the TUI on a clear "not analysed" screen instead of erroring (R012).
+    Press '?' inside for the key bindings (R013), q to quit (exit 0).
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        # Lazy import (the report-renderer precedent): textual is a heavy
+        # import no other subcommand should pay for.
+        from sift.tui.app import SiftApp
+
+        SiftApp(store, case).run()
+    finally:
+        # Close so the WAL checkpoints on every path (Pitfall 4) — the app
+        # never closes the store itself, so this runs exactly once.
+        store.close()
+
+
 class McmFormat(StrEnum):
     """Report format for ``sift mcm`` (an unknown value is a Typer usage error,
     exit 2 — mirrors ``ReportFormat``; ADR 0007). The CSV is always written."""

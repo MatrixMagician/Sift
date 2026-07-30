@@ -31,6 +31,7 @@ pdf = ["markdown==3.10.2", "weasyprint==69.0"]
 dev = [
     "pyright>=1.1.411",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "respx>=0.23.1",
     "ruff>=0.15.22",
 ]
@@ -48,6 +49,10 @@ testpaths = ["tests"]
 # integration tests; an explicit `uv run pytest -m perf` (or `-m live`) on the
 # command line overrides this addopts filter.
 addopts = "-m 'not perf and not live and not packaging'"
+# Textual Pilot tests (tests/test_tui_*.py) are async; auto mode runs every
+# `async def` test under asyncio without per-test markers. Sync tests are
+# untouched.
+asyncio_mode = "auto"
 markers = [
     "perf: 100 MB-scale gates, run explicitly via -m perf",
     "live: real-inference-server integration tests, run explicitly via -m live",
