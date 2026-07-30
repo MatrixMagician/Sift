@@ -545,6 +545,37 @@ def _parse_moment(value: str | None, label: str) -> datetime | None:
     return moment.astimezone(UTC)
 
 
+def _resolve_generation_ctx(
+    configured: int | None, client: InferenceClient
+) -> tuple[int, str | None]:
+    """Resolve the generation prompt-budget context window (D-10).
+
+    Returns ``(context_tokens, warning_or_None)`` and is the SINGLE place the
+    generation context is resolved on the ``analyze`` path. Precedence follows
+    the project's documented order (CLI flags > ``SIFT_*`` env > config.toml >
+    defaults): an explicitly configured ``generation.context`` wins outright and
+    is never overridden by a server-reported ``n_ctx``, because a pinned value
+    is a deliberate operator decision rather than a hint.
+
+    The warning is RETURNED rather than printed so the whole decision is
+    unit-testable without a ``CliRunner`` and without depending on how the
+    pinned Click version separates stdout from stderr.
+    """
+    if configured is not None and configured > 0:
+        # A pinned window is a choice, not an estimate — never warned about.
+        return configured, None
+    n = client.props().get("n_ctx")
+    if isinstance(n, int) and n > 0:
+        return n, None
+    return (
+        _TRIAGE_CTX_FALLBACK,
+        "Warning: the generation prompt budget is estimated rather than "
+        "discovered — the endpoint served no usable context size, so "
+        f"{_TRIAGE_CTX_FALLBACK} tokens is assumed. Set generation.context in "
+        "config.toml to pin the real window.",
+    )
+
+
 @app.command()
 def analyze(
     case: str,
@@ -769,6 +800,18 @@ def analyze(
                     print(f"Error: KB indexing/retrieval failed: {_sanitise(str(exc))}")
                     raise typer.Exit(1) from None
 
+            # D-10: resolve the prompt-budget context window ONCE, here, after
+            # the Progress live region has exited so no bar redraw can overwrite
+            # the warning. A configured generation.context wins over anything
+            # /props reports; an estimated budget is disclosed on stderr.
+            # Passing the resolved int as ctx_configured short-circuits
+            # _ctx_tokens' own probe, so analyze issues exactly one /props GET.
+            ctx_tokens, ctx_warning = _resolve_generation_ctx(
+                config.generation.context, client
+            )
+            if ctx_warning is not None:
+                print(ctx_warning, file=sys.stderr)
+
             # RAG-02: salience + citation-gated hypotheses over the fresh
             # clusters, still inside the http lifecycle so the same client is
             # reused. hypothesise NEVER raises on bad model output — it degrades
@@ -785,7 +828,8 @@ def analyze(
                 hint=hint,
                 kb_context=kb_context,
                 analyser_settings=AnalyserSettings.from_config(config),
-                ctx_fallback=config.generation.context or _TRIAGE_CTX_FALLBACK,
+                ctx_fallback=_TRIAGE_CTX_FALLBACK,
+                ctx_configured=ctx_tokens,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
         finally:

@@ -29,6 +29,7 @@ from sift.pipeline import cluster, dedup, hypothesise
 from sift.store import CaseStore
 
 Handler = Callable[[httpx.Request], httpx.Response]
+_PROPS_SUFFIX = "/props"  # the generation server capability document
 _BASE = datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC)
 
 # Three orthogonal planted 8-dim vectors: HDBSCAN finds no density, so every
@@ -510,3 +511,77 @@ def test_successful_reanalyze_clears_stale_raw(tmp_path: Path) -> None:
         assert not store.get_meta("triage_raw")  # stale raw cleared
     finally:
         store.close()
+
+
+# --- D-10: generation context precedence (configured > props > fallback) ---
+
+
+def _ctx_client(handler: Handler) -> InferenceClient:
+    """A bare client for exercising ``_ctx_tokens``' props precedence."""
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=None)
+    return InferenceClient(ep, ep, http, backoff_base=0.0)
+
+
+def _props_handler(paths: list[str], n_ctx: object = 32768) -> Handler:
+    """Serve the props document with ``n_ctx``, recording every path asked for."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path.endswith(_PROPS_SUFFIX):
+            return httpx.Response(200, json={"n_ctx": n_ctx})
+        return httpx.Response(404)
+
+    return handler
+
+
+def _props_requests(paths: list[str]) -> list[str]:
+    return [p for p in paths if p.endswith(_PROPS_SUFFIX)]
+
+
+def test_ctx_configured_wins_over_props_n_ctx() -> None:
+    """D-10: a pinned window beats a discovered one AND costs no request."""
+    paths: list[str] = []
+    client = _ctx_client(_props_handler(paths))
+    got = hypothesise._ctx_tokens(  # pyright: ignore[reportPrivateUsage]
+        client, 8192, configured=4096
+    )
+    assert got == 4096
+    assert _props_requests(paths) == []
+
+
+def test_ctx_falls_back_to_props_n_ctx_when_unconfigured() -> None:
+    """Shipped discovery behaviour is preserved when nothing is configured."""
+    paths: list[str] = []
+    client = _ctx_client(_props_handler(paths))
+    got = hypothesise._ctx_tokens(  # pyright: ignore[reportPrivateUsage]
+        client, 8192, configured=None
+    )
+    assert got == 32768
+    assert _props_requests(paths)
+
+
+def test_ctx_falls_back_to_default_when_props_absent() -> None:
+    """Lemonade serves no props document (LLM-04): degrade to the fallback."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    got = hypothesise._ctx_tokens(  # pyright: ignore[reportPrivateUsage]
+        _ctx_client(handler), 8192
+    )
+    assert got == 8192
+
+
+@pytest.mark.parametrize("configured", [0, -1])
+def test_ctx_non_positive_configured_falls_through_to_probe(
+    configured: int,
+) -> None:
+    """A non-positive configured value is not a usable window."""
+    paths: list[str] = []
+    client = _ctx_client(_props_handler(paths))
+    got = hypothesise._ctx_tokens(  # pyright: ignore[reportPrivateUsage]
+        client, 8192, configured=configured
+    )
+    assert got == 32768
+    assert _props_requests(paths)
