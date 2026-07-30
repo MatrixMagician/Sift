@@ -1168,12 +1168,14 @@ def validate(
 def tui(case: str, data_dir: DataDirOption = None) -> None:
     """Open an analysed case in the interactive terminal browser (SPEC.md §5.7).
 
-    Read-only over case.db and fully local: the TUI never constructs an
-    inference client and adds zero network egress (R020). A missing or
-    corrupt case exits 1 with a message, never a traceback (the shared
-    ``_case_store`` contract); a case that has not been analysed yet opens
-    the TUI on a clear "not analysed" screen instead of erroring (R012).
-    Press '?' inside for the key bindings (R013), q to quit (exit 0).
+    Fully local: the TUI's only network path is the analyse action's
+    inference client against the configured localhost endpoint — the same
+    ``run_analyze`` body (and SSRF guard) the CLI runs, in a background
+    worker (R006/R020). A missing or corrupt case exits 1 with a message,
+    never a traceback (the shared ``_case_store`` contract); a case that
+    has not been analysed yet opens the TUI on a clear "not analysed"
+    screen where `a` analyses it in place (R012). Press '?' inside for the
+    key bindings (R013), q to quit (exit 0).
     """
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
@@ -1182,7 +1184,7 @@ def tui(case: str, data_dir: DataDirOption = None) -> None:
         # import no other subcommand should pay for.
         from sift.tui.app import SiftApp
 
-        SiftApp(store, case).run()
+        SiftApp(store, case, config=config).run()
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4) — the app
         # never closes the store itself, so this runs exactly once.

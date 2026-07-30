@@ -61,10 +61,19 @@ class NotAnalysedScreen(Screen[None]):
     """The case exists but has no triage results yet (R012): say so plainly.
 
     Opening the TUI on this screen (rather than exiting 1) is deliberate —
-    S04 attaches its run-analyse-from-inside actions here.
+    the pipeline actions run from here: `a` dispatches to the app-level
+    analyse action, which runs the shared ``run_analyze`` body in a
+    background thread worker. The screen carries the worker's status as
+    plain assertable attributes (``pipeline_status``/``pipeline_state``
+    plus the ``pipeline_log`` transition history — the S02 observability
+    discipline) mirrored into a ``markup=False`` Static, so tests and
+    operators read the same truth.
     """
 
-    BINDINGS: ClassVar[list[BindingType]] = list(_NAV_BINDINGS)
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("a", "app.analyse", "Analyse"),
+        *_NAV_BINDINGS,
+    ]
 
     DEFAULT_CSS = """
     NotAnalysedScreen {
@@ -79,13 +88,29 @@ class NotAnalysedScreen(Screen[None]):
     def __init__(self, case_name: str) -> None:
         super().__init__()
         self.case_name = sanitise(case_name)
+        # Plain-text pipeline status surface: "idle" | "running" | "failed".
+        self.pipeline_status = ""
+        self.pipeline_state = "idle"
+        self.pipeline_log: list[tuple[str, str]] = []
 
     def compose(self) -> ComposeResult:
         yield Static("Case not analysed", id="not-analysed-title")
         yield Static(
             f"Case {self.case_name!r} has no triage results yet.\n"
-            f"Run: sift analyze {self.case_name}",
+            f"Press a to analyse it now, or run: sift analyze {self.case_name}",
             id="not-analysed-message",
             markup=False,
         )
+        yield Static("", id="pipeline-status", markup=False)
         yield Footer()
+
+    def set_pipeline_status(self, message: str, state: str) -> None:
+        """Record one pipeline status transition and paint it.
+
+        Message text can echo endpoint/db bytes (worker failure detail), so
+        it is sanitised here — the single write path for the status surface.
+        """
+        self.pipeline_status = sanitise(message)
+        self.pipeline_state = state
+        self.pipeline_log.append((self.pipeline_status, state))
+        self.query_one("#pipeline-status", Static).update(self.pipeline_status)
