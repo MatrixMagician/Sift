@@ -21,6 +21,7 @@ _SECTIONS = [
     "Ranked hypotheses",
     "Evidence appendix",
     "Cluster inventory",
+    "Recorded verdicts",
     "Timeline",
     "Unexplained signals",
     "Run metadata",
@@ -312,3 +313,177 @@ def test_appendix_raw_truncation_boundary(monkeypatch: pytest.MonkeyPatch) -> No
     # One byte over: elided, full body never emitted.
     assert "truncated" in md_over
     assert over_cap not in md_over
+
+
+def test_recorded_verdicts_empty_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A case with no verdicts still renders the R007 section, with the same
+    # literal empty placeholder the Timeline/Unexplained sections use.
+    md = _render(monkeypatch)
+    assert "## Recorded verdicts\n\n_None._" in md
+
+
+def test_recorded_verdicts_grouped_by_level_newest_first(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.record_verdict(
+                target_type="hypothesis",
+                target_id="0",
+                verdict="rejected",
+                context={"title": "older hypothesis verdict"},
+                provenance={},
+                created_at="2026-07-17T10:00:00+00:00",
+            )
+            store.record_verdict(
+                target_type="hypothesis",
+                target_id="1",
+                verdict="confirmed",
+                context={"title": "newer hypothesis verdict"},
+                provenance={},
+                created_at="2026-07-17T11:00:00+00:00",
+            )
+            store.record_verdict(
+                target_type="cluster",
+                target_id="2",
+                verdict="uncertain",
+                context={"label": "Memory pressure"},
+                provenance={},
+                created_at="2026-07-17T10:30:00+00:00",
+            )
+            store.record_verdict(
+                target_type="template",
+                target_id="ab" * 8,
+                verdict="confirmed",
+                context={"template": "alpha memory <NUM> warning"},
+                provenance={},
+                created_at="2026-07-17T10:45:00+00:00",
+            )
+        md = render_markdown(store)
+    finally:
+        store.close()
+    # One sub-heading per target level, in the fixed hypothesis→cluster→template
+    # order, each carrying its verdicts.
+    hyp_at = md.index("### Hypothesis verdicts")
+    clu_at = md.index("### Cluster verdicts")
+    tpl_at = md.index("### Template verdicts")
+    assert hyp_at < clu_at < tpl_at
+    # Within a level the append-only history renders newest-first.
+    assert md.index("newer hypothesis verdict") < md.index(
+        "older hypothesis verdict"
+    )
+    # All three verdict states surfaced, with their target specs and stamps.
+    assert "confirmed" in md
+    assert "rejected" in md
+    assert "uncertain" in md
+    assert "hypothesis:0" in md
+    assert "cluster:2" in md
+    assert f"template:{'ab' * 8}" in md
+    assert "2026-07-17T10:00:00+00:00" in md
+    # The empty placeholder is gone once history exists.
+    assert "## Recorded verdicts\n\n_None._" not in md
+
+
+def test_recorded_verdicts_label_falls_back_on_tampered_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-01: the context snapshot is an opaque JSON column from an untrusted
+    # case.db. A missing, non-string or blank label key must degrade to the
+    # bare <type>:<id> spec — never crash, never render a non-string raw.
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.record_verdict(
+                target_type="hypothesis",
+                target_id="0",
+                verdict="confirmed",
+                context={},  # no title at all
+                provenance={},
+                created_at="2026-07-17T10:00:00+00:00",
+            )
+            store.record_verdict(
+                target_type="cluster",
+                target_id="3",
+                verdict="rejected",
+                context={"label": 42, "signature": ["not", "a", "str"]},
+                provenance={},
+                created_at="2026-07-17T10:01:00+00:00",
+            )
+            store.record_verdict(
+                target_type="template",
+                target_id="cd" * 8,
+                verdict="uncertain",
+                context={"template": "   "},  # blank label is no label
+                provenance={},
+                created_at="2026-07-17T10:02:00+00:00",
+            )
+        md = render_markdown(store)
+    finally:
+        store.close()
+    assert "hypothesis:0" in md
+    assert "cluster:3" in md
+    assert f"template:{'cd' * 8}" in md
+    # The non-string label values never leak into the report.
+    assert "42" not in md.split("## Recorded verdicts")[1].split("## Timeline")[0]
+    assert "not, a, str" not in md
+
+
+def test_recorded_verdicts_unknown_target_type_still_rendered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Nothing disappears silently: a tampered case.db (CHECK constraints
+    # stripped) can hold a target_type outside the known vocabulary. The row
+    # must surface under an explicit fallback group, not vanish.
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001 — simulating a tampered row past the CHECK
+                "PRAGMA ignore_check_constraints=ON"
+            )
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+                "INSERT INTO verdicts (verdict_id, target_type, target_id, "
+                "verdict, note, context, provenance, created_at) "
+                "VALUES ('v1', 'weird', 'x', 'confirmed', '', '{}', '{}', "
+                "'2026-07-17T10:00:00+00:00')"
+            )
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+                "PRAGMA ignore_check_constraints=OFF"
+            )
+        md = render_markdown(store)
+    finally:
+        store.close()
+    assert "### Other verdicts" in md
+    assert "weird:x" in md
+
+
+def test_recorded_verdicts_hostile_note_and_label_are_escaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WR-04: the note is operator/DB text and the label is model/DB text; both
+    # must be inert as Markdown and as HTML on the PDF path.
+    case = build_analysed_case(monkeypatch)
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.record_verdict(
+                target_type="hypothesis",
+                target_id="0",
+                verdict="confirmed",
+                context={"title": "Pwned <img src=x> # Heading [evil](http://e)"},
+                provenance={},
+                note="<script>alert(1)</script> [link](http://evil) | # H",
+                created_at="2026-07-17T10:00:00+00:00",
+            )
+        md = render_markdown(store)
+    finally:
+        store.close()
+    assert "<script>" not in md
+    assert "<img" not in md
+    assert "&lt;script" in md
+    assert "&lt;img" in md
+    assert "\\[evil\\]" in md
+    assert "\\[link\\]" in md

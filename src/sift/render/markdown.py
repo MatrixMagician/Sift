@@ -30,7 +30,7 @@ from sift.render._util import sanitise
 
 if TYPE_CHECKING:
     from sift.models import Event
-    from sift.store import CaseStore, Cluster, StoredHypothesis
+    from sift.store import CaseStore, Cluster, StoredHypothesis, Verdict
 
 # event_id is sha256(...)[:16] -> always [0-9a-f]{16}, a valid anchor slug.
 _EVT_RE = re.compile(r"\[evt:([0-9a-f]{16})\]")
@@ -165,6 +165,84 @@ def _cluster_section(clusters: list[Cluster]) -> list[str]:
     return lines
 
 
+# R007: the report is the durable, CLI-visible record of human validation, so
+# verdicts render grouped by target level in a fixed order. A target_type
+# outside this vocabulary (tampered case.db with the CHECK stripped) falls into
+# the trailing "Other" group — nothing disappears silently.
+_VERDICT_LEVELS = (
+    ("hypothesis", "Hypothesis verdicts"),
+    ("cluster", "Cluster verdicts"),
+    ("template", "Template verdicts"),
+)
+
+# Which context-snapshot keys can label each level, in preference order. The
+# snapshot vocabulary is owned by verdicts.py and the column is opaque JSON
+# from an untrusted case.db (WR-01), so these are hints, never a contract.
+_VERDICT_LABEL_KEYS: dict[str, tuple[str, ...]] = {
+    "hypothesis": ("title",),
+    "cluster": ("label", "signature"),
+    "template": ("template",),
+}
+
+
+def _verdict_line(v: Verdict) -> list[str]:
+    """One list entry for a verdict row: state, target, label, stamp, note.
+
+    The label comes from the opaque context snapshot defensively: only a
+    non-blank ``str`` under a known key is used; anything else (missing key,
+    tampered non-string JSON, whitespace) degrades to the bare ``<type>:<id>``
+    spec. Every DB-sourced value goes through ``_field`` (WR-04) — the note is
+    operator free text and the snapshot is model/DB text, both hostile in a
+    shared case.db.
+    """
+    spec = f"{v.target_type}:{v.target_id}"
+    label = ""
+    for key in _VERDICT_LABEL_KEYS.get(v.target_type, ()):
+        value = v.context.get(key)
+        if isinstance(value, str) and value.strip():
+            label = value
+            break
+    target = f"{spec} — {label}" if label else spec
+    lines = [
+        f"- **{_field(v.verdict)}** — {_field(target)} ({_field(v.created_at)})"
+    ]
+    if v.note:
+        lines.append(f"  - Note: {_field(v.note)}")
+    return lines
+
+
+def _verdicts_section(verdicts: list[Verdict]) -> list[str]:
+    """The R007 "Recorded verdicts" section: full history, newest-first.
+
+    ``list_verdicts`` already orders newest-first (created_at DESC, rowid
+    DESC); grouping by level preserves that order within each group. The
+    history is append-only, so every row renders — no dedup, no collapsing.
+    """
+    lines = ["## Recorded verdicts", ""]
+    if not verdicts:
+        lines.append("_None._")
+        lines.append("")
+        return lines
+    known = {level for level, _ in _VERDICT_LEVELS}
+    groups = [
+        *_VERDICT_LEVELS,
+        ("__other__", "Other verdicts"),
+    ]
+    for level, heading in groups:
+        if level == "__other__":
+            rows = [v for v in verdicts if v.target_type not in known]
+        else:
+            rows = [v for v in verdicts if v.target_type == level]
+        if not rows:
+            continue
+        lines.append(f"### {heading}")
+        lines.append("")
+        for v in rows:
+            lines.extend(_verdict_line(v))
+        lines.append("")
+    return lines
+
+
 def render_markdown(store: CaseStore) -> str:
     """Render a self-contained Markdown triage report from ``store`` (REPT-01)."""
     hyps = store.query_hypotheses()
@@ -217,6 +295,7 @@ def render_markdown(store: CaseStore) -> str:
 
     out.extend(_appendix_section(events))
     out.extend(_cluster_section(clusters))
+    out.extend(_verdicts_section(store.list_verdicts()))
 
     # Timeline (D-05). Escape the model summary (WR-04); keep the italic
     # "_None._" placeholder literal when there is no summary.
