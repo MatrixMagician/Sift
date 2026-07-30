@@ -31,6 +31,7 @@ from sift.store import CaseStore, case_db_path
 from sift.tui.app import SiftApp
 from sift.tui.screens.clusters import ClustersScreen
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
+from sift.tui.screens.help_overlay import HelpOverlay
 from sift.tui.screens.hypotheses import HypothesesScreen
 
 
@@ -330,6 +331,34 @@ async def test_report_binding_inherited_on_roam_screens(
         store.close()
 
 
+async def test_busy_guard_blocks_cross_action_while_analysing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All three pipeline actions share ONE worker guard slot: 'i' and 'e'
+    during an in-flight analyse are no-ops — one case.db writer at a time."""
+    _seed_case("tuibusy")
+    _patch_http(monkeypatch, _handler())
+    config = load_config()
+    store = _open_store("tuibusy")
+    try:
+        app = SiftApp(store, "tuibusy", config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.action_analyse()
+            app.action_ingest()  # blocked by the shared guard slot
+            app.action_report()  # blocked by the shared guard slot
+            assert len(app.workers) == 1
+            await _wait_workers(app)
+            await pilot.pause()
+            # Only the analyse ran: hypotheses landing, no report artefact.
+            assert isinstance(app.screen, HypothesesScreen)
+            assert app.last_report_path is None
+            out = case_db_path(config.data_dir, "tuibusy").parent / "report.md"
+            assert not out.exists()
+    finally:
+        store.close()
+
+
 async def test_report_write_failure_shows_sanitised_error_and_survives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -355,5 +384,103 @@ async def test_report_write_failure_shows_sanitised_error_and_survives(
             await pilot.pause()
             assert isinstance(app.screen, HypothesesScreen)
             assert app.is_running
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Negative bindings (T05): pipeline keys are inert off their home screens
+# ---------------------------------------------------------------------------
+
+
+async def test_export_key_inert_on_not_analysed_screen() -> None:
+    """'e' lives on the CaseScreen base only: on the not-analysed landing
+    screen it must start no worker and write nothing — there is no report
+    to export before analyse."""
+    config = load_config()
+    store = _open_store("tuinoexport")  # migrated, zero events, not analysed
+    try:
+        app = SiftApp(store, "tuinoexport", config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, NotAnalysedScreen)
+            await pilot.press("e")
+            await pilot.pause()
+            assert len(app.workers) == 0
+            assert app.last_report_path is None
+            out = (
+                case_db_path(config.data_dir, "tuinoexport").parent
+                / "report.md"
+            )
+            assert not out.exists()
+            assert isinstance(app.screen, NotAnalysedScreen)
+    finally:
+        store.close()
+
+
+async def test_ingest_analyse_keys_inert_on_analysed_screens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'i'/'a' bind only on NotAnalysedScreen: on the hypothesis list they
+    must start no worker. The autouse zero-network guard doubles the proof —
+    an accidental analyse would try to reach the (unpatched-here-after-setup)
+    endpoint through a worker this asserts never exists."""
+    build_analysed_case(monkeypatch, case="tuinoipa")
+    store = _open_store("tuinoipa")
+    try:
+        app = SiftApp(store, "tuinoipa", config=load_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("i")
+            await pilot.press("a")
+            await pilot.pause()
+            assert len(app.workers) == 0
+            assert isinstance(app.screen, HypothesesScreen)
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Help truthfulness (R013): '?' lists exactly the live pipeline bindings
+# ---------------------------------------------------------------------------
+
+
+async def test_help_overlay_lists_pipeline_bindings_on_not_analysed() -> None:
+    store = _open_store("tuihelpna")
+    try:
+        app = SiftApp(store, "tuihelpna")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, NotAnalysedScreen)
+            await pilot.press("question_mark")
+            overlay = app.screen
+            assert isinstance(overlay, HelpOverlay)
+            descriptions = {desc for _, desc in overlay.entries}
+            assert {"Ingest", "Analyse"} <= descriptions
+            # Truthful, not aspirational: 'e' is not bound on this screen.
+            assert "Export report" not in descriptions
+    finally:
+        store.close()
+
+
+async def test_help_overlay_lists_export_binding_on_analysed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build_analysed_case(monkeypatch, case="tuihelpexp")
+    store = _open_store("tuihelpexp")
+    try:
+        app = SiftApp(store, "tuihelpexp")
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("question_mark")
+            overlay = app.screen
+            assert isinstance(overlay, HelpOverlay)
+            descriptions = {desc for _, desc in overlay.entries}
+            assert "Export report" in descriptions
+            # The ingest/analyse pair belongs to the not-analysed state only.
+            assert "Ingest" not in descriptions
+            assert "Analyse" not in descriptions
     finally:
         store.close()
