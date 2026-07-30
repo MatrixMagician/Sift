@@ -22,22 +22,30 @@ What these tests pin down:
   another process" wording inline and writes nothing (Q5);
 * a vanished target (case re-analysed externally) surfaces a sanitised
   inline message without crashing (Q5);
-* the rendered target label is sanitised (WR-01/T-04-01).
+* the rendered target label is sanitised (WR-01/T-04-01);
+* '?' declares "Record verdict" on exactly the four capture screens and
+  never on Timeline/RawSource, whose v key is inert (R013, Q7);
+* no module under ``sift.tui`` names the raw ``record_verdict`` store API
+  — ``verdicts.record_validation`` is the only TUI write path (MEM008).
 """
 
 import sqlite3
 from functools import partial
+from pathlib import Path
 
 import pytest
 from _report_fixtures import TRIAGE_MODEL, build_analysed_case, open_case
 from textual.widgets import Static
 
+import sift.tui
 from sift.config import load_config
-from sift.store import CaseStore, case_db_path
+from sift.store import CaseStore, Cluster, case_db_path
 from sift.tui.app import SiftApp
 from sift.tui.screens.clusters import ClusterDetailScreen, ClustersScreen
-from sift.tui.screens.evidence import EvidenceScreen
+from sift.tui.screens.evidence import EvidenceScreen, RawSourceScreen
+from sift.tui.screens.help_overlay import HelpOverlay
 from sift.tui.screens.hypotheses import HypothesesScreen
+from sift.tui.screens.timeline import TimelineScreen
 from sift.tui.screens.verdict_modal import VerdictModal
 from sift.verdicts import RecordedVerdict, TargetSpec
 
@@ -553,3 +561,179 @@ async def test_v_on_empty_hypotheses_table_is_inert(
         assert store.list_verdicts() == []
     finally:
         store.close()
+
+
+# ---------------------------------------------------------------------------
+# T04 — help-overlay truthfulness (R013): '?' declares "Record verdict" on
+# exactly the screens whose v binding captures, and nowhere else
+# ---------------------------------------------------------------------------
+
+
+def _help_descriptions(app: SiftApp) -> set[str]:
+    """The binding descriptions the open HelpOverlay is showing."""
+    screen = app.screen
+    assert isinstance(screen, HelpOverlay)
+    return {description for _, description in screen.entries}
+
+
+async def test_help_lists_record_verdict_on_all_four_capture_screens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'?' snapshots the active bindings, so every screen that binds v
+    declares "Record verdict" with zero extra work (R013)."""
+    case = build_analysed_case(monkeypatch, case="vhelp4")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert "Record verdict" in _help_descriptions(app)
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("enter")  # drill into hypothesis 0
+            await pilot.pause()
+            assert isinstance(app.screen, EvidenceScreen)
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert "Record verdict" in _help_descriptions(app)
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert "Record verdict" in _help_descriptions(app)
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("enter")  # expand the top cluster's members
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+            await pilot.press("question_mark")
+            await pilot.pause()
+            assert "Record verdict" in _help_descriptions(app)
+        assert store.list_verdicts() == []
+    finally:
+        store.close()
+
+
+async def test_help_omits_record_verdict_on_timeline_and_raw_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Timeline and RawSource bind no v, so '?' must not advertise capture
+    there — the overlay stays truthful per screen (R013)."""
+    case = build_analysed_case(monkeypatch, case="vhelpnot")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("t")
+            await pilot.pause()
+            assert isinstance(app.screen, TimelineScreen)
+            await pilot.press("question_mark")
+            await pilot.pause()
+            descriptions = _help_descriptions(app)
+            assert "Record verdict" not in descriptions
+            assert "Help" in descriptions  # the overlay itself rendered
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.press("escape")  # back to the landing screen
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("enter")  # into the evidence screen
+            await pilot.pause()
+            await pilot.press("enter")  # open the first citation's raw
+            await pilot.pause()
+            assert isinstance(app.screen, RawSourceScreen)
+            await pilot.press("question_mark")
+            await pilot.pause()
+            descriptions = _help_descriptions(app)
+            assert "Record verdict" not in descriptions
+            assert "Help" in descriptions
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# T04 — Q7 negative paths: verdict-inert surfaces open nothing, write nothing
+# ---------------------------------------------------------------------------
+
+
+async def test_v_on_timeline_is_inert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """v on the timeline is a no-op: no modal opens and nothing is written
+    — events are not a verdict level (Q7)."""
+    case = build_analysed_case(monkeypatch, case="vinertt")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("t")
+            await pilot.pause()
+            assert isinstance(app.screen, TimelineScreen)
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, TimelineScreen)  # no modal
+        assert store.list_verdicts() == []
+    finally:
+        store.close()
+
+
+async def test_v_on_missing_template_row_is_inert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A member row whose template_id the store does not hold is
+    verdict-inert: there is nothing in this case to rule on (Q7)."""
+    case = build_analysed_case(monkeypatch, case="vinertm")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_clusters(
+                [
+                    Cluster(
+                        cluster_id=7,
+                        label=None,
+                        signature="tampered signature",
+                        severity_max="error",
+                        count=1,
+                        template_ids=["f" * 16],
+                    )
+                ]
+            )
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)  # no modal
+        assert store.list_verdicts() == []
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# T04 — MEM008 structural proof: record_validation is the only write path
+# ---------------------------------------------------------------------------
+
+
+def test_tui_never_names_the_raw_store_write_api() -> None:
+    """No module under sift.tui may even name ``record_verdict``: every TUI
+    verdict write goes through verdicts.record_validation, which owns the
+    context snapshot and provenance the report layer relies on (MEM008)."""
+    tui_file = sift.tui.__file__
+    assert tui_file is not None
+    offenders = [
+        path.name
+        for path in sorted(Path(tui_file).parent.rglob("*.py"))
+        if "record_verdict" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
