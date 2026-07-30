@@ -140,7 +140,16 @@ expected: |
   cites eu-stack event ids.
 result: pass
 manual_only: true
-why_human: Requires a live local inference endpoint no agent in this environment can reach. Sole item in 19-VALIDATION.md's Manual-Only table.
+why_human: Requires a live local inference endpoint. Executed 2026-07-30 against the operator's live Lemonade instance rather than left deferred.
+evidence: |
+  Case p19uat, real capture ingested (7807 events, 2 dumps, 100% coverage,
+  template groups 0 -> exclusion confirmed). `sift analyze p19uat` exit 0,
+  printed "Clusters: 0 (0 labelled)" + "Hypotheses: 2", and did NOT print
+  "Nothing to cluster; run sift ingest first". Both hypotheses narrate eu-stack
+  findings; all 14 cited ids resolve, all source='eustack', both
+  citations_valid=True. Narrated claims match `sift eustack` COMPUTED figures
+  (http 97/97 busy occupancy 1.0, warehouse 94/94 busy occupancy 1.0, 3652
+  idle-parked) -- model narrates, does not author.
 
 ## Summary
 

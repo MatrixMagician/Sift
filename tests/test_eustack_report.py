@@ -31,6 +31,7 @@ from sift.pipeline.eustack_progression import (
     EustackBundle,
     analyse_eustack_bundle,
 )
+from sift.pipeline.eustack_vocabulary import PROHIBITED_OWNERSHIP_TERMS
 from sift.render import eustack_report
 from sift.render._util import csv_safe as _perfmon_csv_safe
 from sift.render.eustack_report import (
@@ -40,7 +41,6 @@ from sift.render.eustack_report import (
 )
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "eustack" / "progression"
-_REQUIREMENTS_MD = Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
 _RULES, _RULES_HASH = load_rules()
 _THRESHOLDS = load_config().eustack.thresholds
 
@@ -372,11 +372,7 @@ def test_ownership_blind_vocabulary_absent_from_rendered_bundle(
     (tests/test_eustack_rules.py) does, are absent from the rendered
     Markdown, JSON and written CSV of a genuine multi-dump bundle carrying a
     real lock-convergence finding."""
-    requirements_text = _REQUIREMENTS_MD.read_text(encoding="utf-8")
-    match = re.search(r'the word "(\w+)"', requirements_text)
-    assert match is not None, "REQUIREMENTS.md must name the forbidden term"
-    forbidden_term = match.group(1)
-    prohibited_terms = (forbidden_term, "owner", "holder")
+    prohibited_terms = PROHIBITED_OWNERSHIP_TERMS
 
     events = _synthetic_dump(
         "dumpA.txt", _LOCK_FRAMES, count=5, thread_prefix="a"
