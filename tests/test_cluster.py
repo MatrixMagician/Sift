@@ -352,6 +352,237 @@ def test_reuse_partial_cache_embeds_only_misses(tmp_path: Path) -> None:
         store.close()
 
 
+def _client_with_model(handler: Handler, model: str) -> InferenceClient:
+    """A client whose CONFIGURED embeddings model is known (D-03's client side).
+
+    A variant rather than a parameter on ``_client``: ``_client``'s
+    ``model=None`` is itself the unknown-client-side case D-04 covers, and
+    every shipped test depends on it.
+    """
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=model)
+    return InferenceClient(ep, ep, http, backoff_base=0.0)
+
+
+def _tables(store: CaseStore) -> set[str]:
+    """The case's table set, for proving --re-embed performs no DDL (D-07)."""
+    return {
+        row[0]
+        for row in store._conn.execute(  # pyright: ignore[reportPrivateUsage]
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+
+
+def test_reuse_invalidated_on_model_change(tmp_path: Path) -> None:
+    """D-03: a PROVEN model change discards the whole cache."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client_with_model(_embed_handler(), "model-a"), ClusteringConfig()
+        )
+        assert store.get_meta("embedding_model") == "model-a"
+
+        calls: list[str] = []
+        result = cluster.cluster_and_label(
+            store,
+            _client_with_model(_embed_handler(calls), "model-b"),
+            ClusteringConfig(),
+        )
+        assert result.embedded_count == len(_SYNONYM_CORPUS)
+        assert result.reused_count == 0
+        assert calls.count("embeddings") == 1
+        assert store.get_meta("embedding_model") == "model-b"
+    finally:
+        store.close()
+
+
+def test_reuse_proceeds_silently_when_model_unchanged(tmp_path: Path) -> None:
+    """D-03: both sides known and equal reuses with no disclosure."""
+    store = CaseStore(tmp_path / "case.db")
+    announced: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client_with_model(_embed_handler(), "model-a"), ClusteringConfig()
+        )
+        result = cluster.cluster_and_label(
+            store,
+            _client_with_model(_embed_handler(), "model-a"),
+            ClusteringConfig(),
+            announce=announced.append,
+        )
+        assert result.reused_count == len(_SYNONYM_CORPUS)
+        assert announced == []
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("stored_model", [None, "model-a"])
+def test_reuse_proceeds_with_warning_on_unknown_identity(
+    tmp_path: Path, stored_model: str | None
+) -> None:
+    """D-04: unverifiable identity reuses AND discloses, never silently.
+
+    Parametrised over both unknown sides: no ``meta.embedding_model`` (the
+    endpoint named no model on the first run) and a known stored model against
+    a client that names none.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    announced: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        first_client = (
+            _client(_embed_handler())
+            if stored_model is None
+            else _client_with_model(_embed_handler(), stored_model)
+        )
+        cluster.cluster_and_label(store, first_client, ClusteringConfig())
+        assert store.get_meta("embedding_model") == stored_model
+
+        # _client's Endpoint carries model=None — the unknown client side.
+        result = cluster.cluster_and_label(
+            store,
+            _client(_embed_handler()),
+            ClusteringConfig(),
+            announce=announced.append,
+        )
+        assert result.reused_count == len(_SYNONYM_CORPUS)
+        assert result.embedded_count == 0
+        assert len(announced) == 1
+        assert "without a verifiable model identity" in announced[0]
+    finally:
+        store.close()
+
+
+def test_reuse_no_warning_on_first_run_with_unknown_identity(
+    tmp_path: Path,
+) -> None:
+    """A first run has nothing reused, so there is nothing to disclose."""
+    store = CaseStore(tmp_path / "case.db")
+    announced: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store,
+            _client(_embed_handler()),
+            ClusteringConfig(),
+            announce=announced.append,
+        )
+        assert announced == []
+    finally:
+        store.close()
+
+
+def test_reuse_discarded_when_stored_vector_width_differs(tmp_path: Path) -> None:
+    """T-20-08: a changed width discards the cache and surfaces STORE-03.
+
+    The operator must keep receiving the ``embedding dimension mismatch``
+    error naming both dimensions, never an opaque numpy ragged-array failure —
+    that error is what points them at ``--re-embed``.
+    """
+    store = CaseStore(tmp_path / "case.db")
+
+    def _narrow_handler(request: httpx.Request) -> httpx.Response:
+        """Same shape as _embed_handler, but 4-wide instead of 8-wide."""
+        if request.url.path.endswith("/embeddings"):
+            inputs = json.loads(request.content)["input"]
+            data = [
+                {"index": i, "embedding": [1.0, 0.0, 0.0, 0.0]}
+                for i, _ in enumerate(inputs)
+            ]
+            return httpx.Response(200, json={"data": data})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "{}"}}]})
+
+    try:
+        # Seed the cache at 8 dimensions, then add one new message so the
+        # second run has a miss to embed (that fresh 4-wide vector is what
+        # exposes the width change).
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        assert store.get_meta("embedding_dim") == "8"
+        _seed(store, [*_SYNONYM_CORPUS, "delta fresh unseen message"])
+
+        with pytest.raises(ValueError, match="embedding dimension mismatch"):
+            cluster.cluster_and_label(
+                store, _client(_narrow_handler), ClusteringConfig()
+            )
+        # The failed run left the shipped 8-dim lock intact.
+        assert store.get_meta("embedding_dim") == "8"
+    finally:
+        store.close()
+
+
+def test_re_embed_bypasses_cache_without_ddl(tmp_path: Path) -> None:
+    """D-07: --re-embed re-embeds everything and touches no table definition."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        before = _tables(store)
+        assert "vectors" in before, "cache not populated — assertion would be vacuous"
+
+        calls: list[str] = []
+        result = cluster.cluster_and_label(
+            store,
+            _client(_embed_handler(calls)),
+            ClusteringConfig(),
+            re_embed=True,
+        )
+        assert calls.count("embeddings") == 1
+        assert result.embedded_count == len(_SYNONYM_CORPUS)
+        assert result.reused_count == 0
+        assert _tables(store) == before
+    finally:
+        store.close()
+
+
+def test_re_embed_on_empty_cache_embeds_everything(tmp_path: Path) -> None:
+    """--re-embed on a case with nothing stored is a graceful full embed."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        result = cluster.cluster_and_label(
+            store,
+            _client(_embed_handler()),
+            ClusteringConfig(),
+            re_embed=True,
+        )
+        assert result.embedded_count == len(_SYNONYM_CORPUS)
+        assert result.reused_count == 0
+        assert result.cluster_count == 3
+    finally:
+        store.close()
+
+
+def test_re_embed_suppresses_the_unverified_identity_warning(
+    tmp_path: Path,
+) -> None:
+    """Nothing is reused under --re-embed, so there is nothing to disclose."""
+    store = CaseStore(tmp_path / "case.db")
+    announced: list[str] = []
+    try:
+        _seed(store, _SYNONYM_CORPUS)
+        cluster.cluster_and_label(
+            store, _client(_embed_handler()), ClusteringConfig()
+        )
+        cluster.cluster_and_label(
+            store,
+            _client(_embed_handler()),
+            ClusteringConfig(),
+            re_embed=True,
+            announce=announced.append,
+        )
+        assert announced == []
+    finally:
+        store.close()
+
+
 def test_cluster_records_batch_knobs_even_without_model_identity(
     tmp_path: Path,
 ) -> None:

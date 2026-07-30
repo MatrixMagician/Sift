@@ -1065,6 +1065,24 @@ def test_analyze_second_run_reports_reuse(
     assert f"{len(messages)} reused" in _embedding_line(second.output)
 
 
+def test_analyze_accepts_re_embed_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-07: --re-embed bypasses the cache at the CLI boundary."""
+    messages = ["solo memory pressure warning", "smtp queue backing up"]
+    _seed_analyzable("demo", messages)
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+
+    first = runner.invoke(app, ["analyze", "demo"])
+    assert first.exit_code == 0, first.output
+
+    forced = runner.invoke(app, ["analyze", "demo", "--re-embed"])
+    assert forced.exit_code == 0, forced.output
+    assert f"Embeddings: {len(messages)} new, 0 reused" in _embedding_line(
+        forced.output
+    )
+
+
 def test_analyze_exit_3_on_malformed_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

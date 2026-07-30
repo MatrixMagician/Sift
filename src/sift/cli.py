@@ -562,6 +562,15 @@ def analyze(
             help="Skip LLM cluster labels; clusters keep their signature (D-01)",
         ),
     ] = False,
+    re_embed: Annotated[
+        bool,
+        typer.Option(
+            "--re-embed",
+            help="Discard stored embedding vectors and re-embed every "
+            "exemplar; the explicit escape hatch for applying a changed "
+            "embedding model or batch knob (DET-01, D-07)",
+        ),
+    ] = False,
     model: Annotated[
         str | None,
         typer.Option("--model", help="Override the generation+embeddings model id"),
@@ -618,6 +627,9 @@ def analyze(
     case end); ``--top-clusters`` caps how many clusters feed the prompt.
     ``--kb <dir>`` indexes a directory of runbooks/RCAs and threads the nearest
     chunks into the prompt as NON-citable reference material (RAG-07, D-01).
+    Stored embedding vectors are reused across runs, so a re-analyse of an
+    unchanged case makes no embedding calls (DET-01); ``--re-embed`` discards
+    them and embeds every exemplar afresh.
     ``sift show clusters`` / ``sift show hypotheses`` render the result.
 
     Exit-code contract (CLI-04, scriptable — see ADR 0005):
@@ -713,7 +725,24 @@ def analyze(
                     # rolls back to zero clusters/vectors — the embed call is the
                     # first step and precedes every write, so nothing survives.
                     cluster_result = cluster_and_label(
-                        store, client, config.clustering, label=not no_label
+                        store,
+                        client,
+                        config.clustering,
+                        label=not no_label,
+                        re_embed=re_embed,
+                        # D-04: the pipeline's only operator-facing seam. Bound
+                        # to the SAME Console that owns the transient Progress
+                        # live region, so rich moves the bar below the printed
+                        # line instead of letting a redraw erase it. soft_wrap
+                        # keeps the message on one line regardless of terminal
+                        # width; markup/highlight off keep the text literal
+                        # (the T-03-23 discipline, applied uniformly).
+                        announce=lambda message: err_console.print(
+                            message,
+                            highlight=False,
+                            markup=False,
+                            soft_wrap=True,
+                        ),
                     )
                 except (httpx.HTTPError, ValueError) as exc:
                     print(f"Error: embedding/clustering failed: {_sanitise(str(exc))}")
