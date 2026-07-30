@@ -1,6 +1,6 @@
 """Shared behaviour every case-browsing screen inherits.
 
-Two contracts live here and nowhere else:
+Three contracts live here and nowhere else:
 
 * **Navigation bindings** — q quits, escape goes back, '?' opens the help
   overlay. All three dispatch to app-level actions (``app.quit``,
@@ -14,6 +14,11 @@ Two contracts live here and nowhere else:
   instead of an exception Textual's event loop would swallow. MEM014: wrap
   the *pull* (e.g. ``EventPager.page``), never just construction — the
   store's deferred generator errors fire on the first row, not at build.
+
+* **The commit gate** — :meth:`CaseScreen.capture_verdict` is how every
+  screen opens the verdict modal, and its dismissal filter is the ONLY
+  place a screen's paint callback fires: with the ``RecordedVerdict`` the
+  modal's committed INSERT returned, never on cancel or failure (R012).
 """
 
 import sqlite3
@@ -24,7 +29,10 @@ from textual.app import App
 from textual.binding import Binding, BindingType
 from textual.screen import Screen
 
+from sift.store import CaseStore
 from sift.tui.screens.error import ErrorScreen
+from sift.tui.screens.verdict_modal import VerdictModal
+from sift.verdicts import RecordedVerdict, TargetSpec
 
 
 class CaseScreen(Screen[None]):
@@ -49,6 +57,32 @@ class CaseScreen(Screen[None]):
             self.app,  # pyright: ignore[reportUnknownMemberType]
         )
         app.push_screen(screen)
+
+    def capture_verdict(
+        self,
+        store: CaseStore,
+        target: TargetSpec,
+        label: str,
+        on_recorded: Callable[[RecordedVerdict], None],
+    ) -> None:
+        """Open the verdict capture modal for one target (R003).
+
+        ``on_recorded`` is the R012 commit gate: it fires only when the
+        modal dismissed with the :class:`RecordedVerdict` its committed
+        INSERT returned. Cancel and every failure path dismiss with
+        ``None``, so the caller's badge/progress paint never runs for a
+        verdict that did not land.
+        """
+
+        def gate(recorded: RecordedVerdict | None) -> None:
+            if recorded is not None:
+                on_recorded(recorded)
+
+        app = cast(
+            "App[object]",
+            self.app,  # pyright: ignore[reportUnknownMemberType]
+        )
+        app.push_screen(VerdictModal(store, target, label), gate)
 
     def guarded[T](self, read: Callable[[], T]) -> T | None:
         """Run a store read; a sqlite failure becomes a sanitised ErrorScreen.

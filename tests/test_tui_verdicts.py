@@ -1,10 +1,12 @@
-"""Pilot tests for the S03 verdict capture modal (R003/R012/Q5/Q7).
+"""Pilot tests for S03 verdict capture (R003/R012/R014/Q5/Q7).
 
-The modal is proven standalone here — screens gain their ``v`` bindings in a
-later task — by pushing :class:`VerdictModal` directly onto a real analysed
-case (``tests/_report_fixtures.build_analysed_case``, zero sockets) and
-driving the documented key flow: c/r/u chooses a state, tab reaches the
-note field, enter commits, escape cancels.
+The modal is proven standalone first — by pushing :class:`VerdictModal`
+directly onto a real analysed case
+(``tests/_report_fixtures.build_analysed_case``, zero sockets) and driving
+the documented key flow: c/r/u chooses a state, tab reaches the note
+field, enter commits, escape cancels. The screen-wiring section then
+proves the per-screen ``v`` bindings, the commit-gated Verdict badges, and
+the landing screen's review-progress line.
 
 What these tests pin down:
 
@@ -33,6 +35,8 @@ from textual.widgets import Static
 from sift.config import load_config
 from sift.store import CaseStore, case_db_path
 from sift.tui.app import SiftApp
+from sift.tui.screens.clusters import ClusterDetailScreen, ClustersScreen
+from sift.tui.screens.evidence import EvidenceScreen
 from sift.tui.screens.hypotheses import HypothesesScreen
 from sift.tui.screens.verdict_modal import VerdictModal
 from sift.verdicts import RecordedVerdict, TargetSpec
@@ -52,6 +56,10 @@ def _push_modal(
 
 def _message(app: SiftApp) -> str:
     return str(app.screen.query_one("#verdict-message", Static).content)
+
+
+def _static(app: SiftApp, widget_id: str) -> str:
+    return str(app.screen.query_one(f"#{widget_id}", Static).content)
 
 
 # ---------------------------------------------------------------------------
@@ -329,5 +337,219 @@ async def test_target_label_is_sanitised(monkeypatch: pytest.MonkeyPatch) -> Non
             assert "bad[2Jlabeldone" in shown
             await pilot.press("escape")
             await pilot.pause()
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Screen wiring (T03): v bindings, commit-gated badges, progress counts
+# ---------------------------------------------------------------------------
+
+
+async def test_v_on_hypotheses_row_commits_and_gates_badge_on_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v on the landing screen's highlighted row captures a hypothesis
+    verdict; the Verdict badge and the R014 progress line repaint only
+    after the dismissal callback receives the RecordedVerdict."""
+    case = build_analysed_case(monkeypatch, case="vwirehyp")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            # build_analysed_case plants 2 hypotheses; nothing ruled yet.
+            assert _static(app, "hypotheses-progress").startswith(
+                "Reviewed 0/2 hypotheses"
+            )
+            assert [c.plain for c in app.screen.table.get_row_at(0)][4] == ""
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, VerdictModal)
+            await pilot.press("c")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            row = [c.plain for c in app.screen.table.get_row_at(0)]
+            assert row[4] == "confirmed"
+            assert _static(app, "hypotheses-progress").startswith(
+                "Reviewed 1/2 hypotheses"
+            )
+        rows = store.list_verdicts()
+        assert len(rows) == 1
+        assert rows[0].target_type == "hypothesis"
+        assert rows[0].target_id == "0"
+        assert rows[0].verdict == "confirmed"
+        # The context snapshot proves the write went through
+        # record_validation, not a raw store call (MEM008).
+        assert rows[0].context["hyp_index"] == 0
+    finally:
+        store.close()
+
+
+async def test_v_cancel_on_hypotheses_paints_no_badge_or_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancel dismisses with None: zero rows, blank badge, 0/2 progress —
+    the commit gate never fires (R012, Q7)."""
+    case = build_analysed_case(monkeypatch, case="vwirecan")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, VerdictModal)
+            await pilot.press("r")  # even with a state chosen...
+            await pilot.press("escape")  # ...cancel paints nothing
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            assert [c.plain for c in app.screen.table.get_row_at(0)][4] == ""
+            assert _static(app, "hypotheses-progress").startswith(
+                "Reviewed 0/2 hypotheses"
+            )
+        assert store.list_verdicts() == []
+    finally:
+        store.close()
+
+
+async def test_v_on_evidence_screen_rules_its_own_hypothesis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v on the evidence screen targets the hypothesis being viewed; its
+    verdict line paints from the callback, and returning to the landing
+    screen repaints badge + progress from the DB re-read on resume."""
+    case = build_analysed_case(monkeypatch, case="vwireevi")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("enter")  # drill into hypothesis 0
+            await pilot.pause()
+            assert isinstance(app.screen, EvidenceScreen)
+            assert _static(app, "evidence-verdict") == ""
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, VerdictModal)
+            await pilot.press("r")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, EvidenceScreen)
+            assert _static(app, "evidence-verdict") == "Verdict: rejected"
+            await pilot.press("escape")  # back to the landing screen
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            assert (
+                [c.plain for c in app.screen.table.get_row_at(0)][4]
+                == "rejected"
+            )
+            assert _static(app, "hypotheses-progress").startswith(
+                "Reviewed 1/2 hypotheses"
+            )
+        rows = store.list_verdicts()
+        assert len(rows) == 1
+        assert rows[0].target_type == "hypothesis"
+        assert rows[0].target_id == "0"
+        assert rows[0].verdict == "rejected"
+    finally:
+        store.close()
+
+
+async def test_v_on_clusters_row_commits_cluster_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = build_analysed_case(monkeypatch, case="vwireclu")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            assert [c.plain for c in app.screen.table.get_row_at(0)][5] == ""
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, VerdictModal)
+            await pilot.press("c")  # inside the modal: confirmed, not roam
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            assert (
+                [c.plain for c in app.screen.table.get_row_at(0)][5]
+                == "confirmed"
+            )
+        rows = store.list_verdicts()
+        assert len(rows) == 1
+        assert rows[0].target_type == "cluster"
+        assert rows[0].target_id == "0"
+        assert rows[0].context["cluster_id"] == 0
+    finally:
+        store.close()
+
+
+async def test_v_on_cluster_detail_member_commits_template_verdict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = build_analysed_case(monkeypatch, case="vwiretpl")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            await pilot.press("enter")  # expand the top cluster's members
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+            first = [c.plain for c in app.screen.table.get_row_at(0)]
+            template_id = first[0]
+            assert first[6] == ""
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, VerdictModal)
+            await pilot.press("u")
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+            assert (
+                [c.plain for c in app.screen.table.get_row_at(0)][6]
+                == "uncertain"
+            )
+        rows = store.list_verdicts()
+        assert len(rows) == 1
+        assert rows[0].target_type == "template"
+        assert rows[0].target_id == template_id
+        assert rows[0].context["template_id"] == template_id
+    finally:
+        store.close()
+
+
+async def test_v_on_empty_hypotheses_table_is_inert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hard-degraded case (zero hypotheses): v opens nothing and writes
+    nothing — there is no row to rule on (Q7)."""
+    case = build_analysed_case(monkeypatch, case="vwirenone")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_hypotheses([])
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)  # no modal
+            # The progress line still reports the other levels (R014).
+            assert _static(app, "hypotheses-progress").startswith(
+                "Reviewed 0/0 hypotheses"
+            )
+        assert store.list_verdicts() == []
     finally:
         store.close()

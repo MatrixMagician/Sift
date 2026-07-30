@@ -20,15 +20,20 @@ markup parser — table cells are ``rich.text.Text`` (never markup-parsed
 str) and Statics set ``markup=False``.
 """
 
+from typing import ClassVar
+
 from rich.text import Text
 from textual.app import ComposeResult
+from textual.binding import Binding, BindingType
 from textual.containers import VerticalScroll
 from textual.widgets import DataTable, Footer, Header, Static
 
 from sift.models import Event
 from sift.render._util import sanitise
 from sift.store import CaseStore, StoredHypothesis
+from sift.tui.review_state import latest_verdicts
 from sift.tui.screens.base import CaseScreen
+from sift.verdicts import RecordedVerdict, TargetSpec
 
 # What the cited-events table shows for an id the store does not hold.
 MISSING_EVENT_LABEL = "not in case store"
@@ -46,6 +51,10 @@ def _first_line(text: str) -> str:
 
 class EvidenceScreen(CaseScreen):
     """One hypothesis in full, above the table of events it cites."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("v", "verdict", "Record verdict"),
+    ]
 
     DEFAULT_CSS = """
     EvidenceScreen #evidence-detail {
@@ -65,6 +74,8 @@ class EvidenceScreen(CaseScreen):
         self._store = store
         self._hyp = hypothesis
         self._events: dict[str, Event] = {}
+        # False until the mount-time read succeeds (see HypothesesScreen).
+        self._ready = False
 
     def compose(self) -> ComposeResult:
         hyp = self._hyp
@@ -86,6 +97,7 @@ class EvidenceScreen(CaseScreen):
             yield Static(
                 sanitise(confidence), id="evidence-confidence", markup=False
             )
+            yield Static("", id="evidence-verdict", markup=False)
             yield Static(
                 sanitise(hyp.narrative), id="evidence-narrative", markup=False
             )
@@ -116,6 +128,7 @@ class EvidenceScreen(CaseScreen):
         events = self.guarded(lambda: self._store.get_events_by_ids(cited))
         if events is None:
             return
+        self._ready = True
         self._events = events
         self.table.add_columns("Event", "Timestamp", "Severity", "Where", "Message")
         for eid in cited:
@@ -139,6 +152,40 @@ class EvidenceScreen(CaseScreen):
                 key=eid,
             )
         self.table.focus()
+
+    def on_screen_resume(self) -> None:
+        """DB re-read of this hypothesis's latest ruling on surface/return."""
+        if not self._ready:
+            return
+        badges = self.guarded(
+            lambda: latest_verdicts(self._store, "hypothesis")
+        )
+        if badges is None:
+            return
+        self._show_verdict(
+            badges.get(("hypothesis", str(self._hyp.hyp_index)))
+        )
+
+    def _show_verdict(self, verdict: str | None) -> None:
+        # Verdict states come from the store's allowlisted vocabulary, so
+        # the line is safe text; empty means not yet ruled on.
+        self.query_one("#evidence-verdict", Static).update(
+            f"Verdict: {verdict}" if verdict else ""
+        )
+
+    def action_verdict(self) -> None:
+        """v: capture a verdict for THIS hypothesis (R003) — the screen is
+        one hypothesis in full, so the target is unambiguous."""
+        self.capture_verdict(
+            self._store,
+            TargetSpec("hypothesis", str(self._hyp.hyp_index)),
+            self._hyp.title,
+            self._paint_recorded,
+        )
+
+    def _paint_recorded(self, recorded: RecordedVerdict) -> None:
+        """The R012 commit gate: show exactly what the INSERT returned."""
+        self._show_verdict(recorded.verdict)
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         key = event.row_key.value
