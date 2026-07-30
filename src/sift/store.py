@@ -10,6 +10,7 @@ import json
 import re
 import sqlite3
 import sys
+import uuid
 from collections.abc import (
     Callable,
     Generator,
@@ -20,7 +21,7 @@ from collections.abc import (
 )
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -290,13 +291,51 @@ def _migration_5(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_6(conn: sqlite3.Connection) -> None:
+    """Add the append-only verdicts table — the M002 learning contract (D003).
+
+    Three states at three target levels, CHECK-enforced as defence in depth
+    behind the Python allowlists in :meth:`CaseStore.record_verdict`. The
+    ``context`` and ``provenance`` columns are JSON snapshots so M002 can
+    harvest every case.db directly without this milestone's runtime (D005).
+    Append-only is an API invariant, not a trigger: no UPDATE/DELETE path for
+    verdicts exists anywhere in this module — re-analysis keeps prior verdicts
+    as visible history.
+    """
+    conn.execute(
+        """
+        CREATE TABLE verdicts (
+            verdict_id  TEXT PRIMARY KEY,      -- uuid4 hex
+            target_type TEXT NOT NULL
+                CHECK (target_type IN ('hypothesis','cluster','template')),
+            target_id   TEXT NOT NULL,
+            verdict     TEXT NOT NULL
+                CHECK (verdict IN ('confirmed','rejected','uncertain')),
+            note        TEXT NOT NULL DEFAULT '',
+            context     TEXT NOT NULL,         -- JSON snapshot of the target
+            provenance  TEXT NOT NULL,         -- JSON: run marker, model, prompt hash
+            created_at  TEXT NOT NULL          -- ISO 8601, UTC
+        )
+        """
+    )
+    conn.execute("CREATE INDEX idx_verdicts_target ON verdicts(target_type, target_id)")
+    conn.execute("CREATE INDEX idx_verdicts_created ON verdicts(created_at)")
+
+
 _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     1: _migration_1,
     2: _migration_2,
     3: _migration_3,  # chunks + clusters tables (NOT vectors — that is lazy)
     4: _migration_4,  # hypotheses table (citation-gated triage output)
     5: _migration_5,  # kb_chunks table (separate non-citable KB namespace, D-01)
+    6: _migration_6,  # verdicts table (append-only M002 learning contract, D003)
 }
+
+# The single spelling of the verdict vocabulary (D003). The CLI, TUI and the
+# CHECK constraints in migration 6 must all agree — export these rather than
+# re-typing the literals anywhere else (S01 research Pitfall 4).
+VERDICT_STATES: frozenset[str] = frozenset({"confirmed", "rejected", "uncertain"})
+VERDICT_TARGET_TYPES: frozenset[str] = frozenset({"hypothesis", "cluster", "template"})
 
 _EVENT_COLUMNS = (
     "event_id, case_id, ts, ts_confidence, source, source_file, "
@@ -322,6 +361,11 @@ _HYP_COLUMNS = (
     "hyp_index, title, narrative, confidence, confidence_reasoning, "
     "supporting_event_ids, contradicting_evidence, suggested_next_steps, "
     "citations_valid"
+)
+
+_VERDICT_COLUMNS = (
+    "verdict_id, target_type, target_id, verdict, note, context, "
+    "provenance, created_at"
 )
 
 # Sources held out of every ranking stage (PERF-03, EUS-11). Perfmon samples
@@ -363,6 +407,14 @@ _CLUSTERS_TABLE_FILTER_SQL: dict[str, str] = {
     "severity": "severity_max = ?",
     "min-count": "count >= ?",
     "contains": "instr(signature, ?) > 0",
+}
+
+# Allowlist for the verdicts table (list_verdicts). Exact-match keys only —
+# verdict browsing narrows by level, target and state (D003).
+_VERDICT_FILTER_SQL: dict[str, str] = {
+    "target-type": "target_type = ?",
+    "target-id": "target_id = ?",
+    "verdict": "verdict = ?",
 }
 
 
@@ -415,6 +467,24 @@ def _coerce_str_list(value: str) -> list[str]:
     return [str(x) for x in items]
 
 
+def _coerce_json_dict(value: str) -> dict[str, object]:
+    """WR-01: decode a JSON object column from an UNTRUSTED case.db to a dict.
+
+    Verdict ``context``/``provenance`` snapshots are harvested cross-case by
+    M002 (D005), so this read path is extra defensive: invalid JSON or a
+    non-object payload is wrapped under a fixed ``"value"`` key rather than
+    crashing — tampering stays visible, the type contract holds.
+    """
+    try:
+        loaded: object = json.loads(value)
+    except json.JSONDecodeError:
+        return {"value": value}
+    if not isinstance(loaded, dict):
+        return {"value": loaded}
+    items = cast("dict[object, object]", loaded)
+    return {str(k): v for k, v in items.items()}
+
+
 @dataclass(frozen=True)
 class TemplateGroup:
     """One template dedup group (CLUS-01), persisted in template_groups."""
@@ -453,6 +523,25 @@ class StoredHypothesis:
     contradicting_evidence: str | None
     suggested_next_steps: list[str]
     citations_valid: bool  # the per-hypothesis citation-gate verdict (T-04-02)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """One append-only human verdict row (D003) — the M002 learning contract.
+
+    ``context`` and ``provenance`` are the parsed JSON snapshot columns; their
+    field vocabulary is owned by the shared verdict service (verdicts.py), not
+    the store — the store persists and returns them opaquely.
+    """
+
+    verdict_id: str  # uuid4 hex
+    target_type: str  # 'hypothesis' | 'cluster' | 'template' (CHECK-enforced)
+    target_id: str
+    verdict: str  # 'confirmed' | 'rejected' | 'uncertain' (CHECK-enforced)
+    note: str  # free text, '' when the operator gave none
+    context: dict[str, object]  # snapshot of the judged target
+    provenance: dict[str, object]  # run marker, model, prompt hash
+    created_at: str  # ISO 8601, UTC
 
 
 class CaseStore:
@@ -1189,6 +1278,95 @@ class CaseStore:
                 )
             )
         return hyps
+
+    def record_verdict(
+        self,
+        *,
+        target_type: str,
+        target_id: str,
+        verdict: str,
+        context: Mapping[str, object],
+        provenance: Mapping[str, object],
+        note: str = "",
+        created_at: str | None = None,
+    ) -> str:
+        """Append ONE verdict row; returns its new verdict_id (D003, D004).
+
+        The SINGLE verdict write path — the CLI and the TUI both land here.
+        INSERT-only: no update or delete method for verdicts exists anywhere
+        in this module, so re-analysis keeps prior verdicts as history.
+        Vocabulary is validated in Python first (helpful ValueError naming the
+        valid values, mirroring _build_filter_clauses) with the migration-6
+        CHECK constraints as defence in depth.
+
+        A single INSERT statement: atomic on its own in autocommit mode, and
+        it joins a caller-owned :meth:`transaction` when one is open — the TUI
+        batches multiple verdicts that way. ``created_at`` defaults to now in
+        UTC; callers may pin it (tests, replayed imports) but never rewrite it.
+        """
+        if target_type not in VERDICT_TARGET_TYPES:
+            valid = ", ".join(sorted(VERDICT_TARGET_TYPES))
+            raise ValueError(
+                f"unknown verdict target type {target_type!r}; valid: {valid}"
+            )
+        if verdict not in VERDICT_STATES:
+            valid = ", ".join(sorted(VERDICT_STATES))
+            raise ValueError(f"unknown verdict state {verdict!r}; valid: {valid}")
+        verdict_id = uuid.uuid4().hex
+        stamp = (
+            created_at
+            if created_at is not None
+            else datetime.now(UTC).isoformat()
+        )
+        self._conn.execute(
+            f"INSERT INTO verdicts ({_VERDICT_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                verdict_id,
+                target_type,
+                target_id,
+                verdict,
+                note,
+                json.dumps(dict(context), sort_keys=True),
+                json.dumps(dict(provenance), sort_keys=True),
+                stamp,
+            ),
+        )
+        return verdict_id
+
+    def list_verdicts(
+        self, filters: Mapping[str, str | int] | None = None
+    ) -> list[Verdict]:
+        """Verdicts ordered newest first: created_at DESC, then rowid DESC.
+
+        The rowid tiebreak makes equal timestamps deterministic (latest
+        insertion first), never unspecified SQLite row order. Filters use the
+        allowlisted _VERDICT_FILTER_SQL snippets with ?-bound values
+        (T-02-08); an unknown key raises ValueError. The JSON snapshot columns
+        are coerced defensively — a tampered case.db can hold ANY JSON there
+        (WR-01), and M002 reads these cross-case.
+        """
+        where_sql, limit_sql, params = _build_filter_clauses(
+            filters, _VERDICT_FILTER_SQL
+        )
+        rows = self._conn.execute(
+            f"SELECT {_VERDICT_COLUMNS} FROM verdicts"  # noqa: S608 — column list and WHERE snippets are module constants; values are all ?
+            f"{where_sql} ORDER BY created_at DESC, rowid DESC{limit_sql}",
+            params,
+        ).fetchall()
+        return [
+            Verdict(
+                verdict_id=r[0],
+                target_type=r[1],
+                target_id=r[2],
+                verdict=r[3],
+                note=r[4],
+                context=_coerce_json_dict(r[5]),
+                provenance=_coerce_json_dict(r[6]),
+                created_at=r[7],
+            )
+            for r in rows
+        ]
 
     def get_meta(self, key: str) -> str | None:
         row = self._conn.execute(

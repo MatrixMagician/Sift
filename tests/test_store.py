@@ -172,8 +172,8 @@ def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
     CaseStore(db).close()
     conn = sqlite3.connect(db)
     try:
-        # Plan 06-03 migration 5 adds the KB namespace, head schema is v5.
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        # Plan 01-01 migration 6 adds the verdicts table, head schema is v6.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         tables = {
             row[0]
             for row in conn.execute(
@@ -187,7 +187,7 @@ def test_fresh_store_reaches_latest_user_version(tmp_path: Path) -> None:
 
 def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
     """Pitfall 7: a Phase-1 case.db reopened with later code migrates through
-    to the latest schema (v5) with oversized raw compressed in place and still
+    to the latest schema (v6) with oversized raw compressed in place and still
     readable — migration 2's zstd-in-place upgrade still runs on the way up."""
     db = tmp_path / "case.db"
     conn = sqlite3.connect(db)
@@ -226,7 +226,7 @@ def test_v1_to_v2_upgrade(tmp_path: Path) -> None:
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         assert conn.execute("SELECT typeof(raw) FROM events").fetchone()[0] == "blob"
     finally:
         conn.close()
@@ -275,7 +275,7 @@ def test_zstd_threshold_measured_in_encoded_bytes(tmp_path: Path) -> None:
 
 def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
     """Migration idempotency: reopening a fully-migrated store leaves
-    user_version at the latest schema (5) and stored row bytes unchanged."""
+    user_version at the latest schema (6) and stored row bytes unchanged."""
     db = tmp_path / "case.db"
     store = CaseStore(db)
     store.insert_events([_ev(offset=0, raw="z" * 5000), _ev(offset=1, raw="small")])
@@ -293,7 +293,7 @@ def test_reopen_migrated_store_is_noop(tmp_path: Path) -> None:
         return ver, rows
 
     first = snapshot()
-    assert first[0] == 5
+    assert first[0] == 6
     CaseStore(db).close()
     assert snapshot() == first
 
@@ -529,11 +529,11 @@ def test_v3_to_v4_migration_adds_hypotheses_table(tmp_path: Path) -> None:
     conn.commit()
     conn.close()
 
-    CaseStore(db).close()  # applies migrations 4 and 5
+    CaseStore(db).close()  # applies migrations 4, 5 and 6
 
     conn = sqlite3.connect(db)
     try:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         tables = {
             row[0]
             for row in conn.execute(
@@ -755,3 +755,230 @@ def test_triage_run_meta_roundtrip(tmp_path: Path) -> None:
     assert store.get_meta("triage_degraded") == "0"
     assert store.get_meta("triage_model") == "qwen2.5-coder"
     store.close()
+
+
+# --- plan 01-01 T01: migration 6 — append-only verdicts table (D003) --------
+
+
+def _record_verdict(store: CaseStore, **overrides: Any) -> str:
+    """Record one verdict with representative defaults; returns its verdict_id."""
+    kwargs: dict[str, Any] = {
+        "target_type": "hypothesis",
+        "target_id": "0",
+        "verdict": "confirmed",
+        "note": "root cause confirmed",
+        "context": {"hypothesis_text": "pool exhausted"},
+        "provenance": {"model": "qwen2.5-coder", "prompt_hash": "abc123"},
+    }
+    kwargs.update(overrides)
+    return store.record_verdict(**kwargs)
+
+
+def test_migration_6_adds_verdicts_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A fresh store reaches v6 with the verdicts table, and the migration
+    announces itself on stderr (WR-02, slice verification note)."""
+    db = tmp_path / "case.db"
+    CaseStore(db).close()
+    assert "migrating case.db to schema v6" in capsys.readouterr().err
+    conn = sqlite3.connect(db)
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        conn.close()
+    assert "verdicts" in tables
+
+
+def test_record_and_list_verdicts_roundtrip(tmp_path: Path) -> None:
+    """All three states x all three target levels round-trip, ordered newest
+    first by created_at (D003: three states, three levels)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        combos = [
+            ("hypothesis", "0", "confirmed", "2026-07-30T10:00:00+00:00"),
+            ("cluster", "3", "rejected", "2026-07-30T10:00:01+00:00"),
+            ("template", "ab12cd34ef56ab78", "uncertain", "2026-07-30T10:00:02+00:00"),
+        ]
+        ids = [
+            _record_verdict(
+                store,
+                target_type=tt,
+                target_id=tid,
+                verdict=v,
+                created_at=ts,
+            )
+            for tt, tid, v, ts in combos
+        ]
+        got = store.list_verdicts()
+        assert [x.verdict_id for x in got] == list(reversed(ids))  # newest first
+        newest = got[0]
+        assert newest.target_type == "template"
+        assert newest.target_id == "ab12cd34ef56ab78"
+        assert newest.verdict == "uncertain"
+        assert newest.note == "root cause confirmed"
+        assert newest.context == {"hypothesis_text": "pool exhausted"}
+        assert newest.provenance == {
+            "model": "qwen2.5-coder",
+            "prompt_hash": "abc123",
+        }
+        assert newest.created_at == "2026-07-30T10:00:02+00:00"
+    finally:
+        store.close()
+
+
+def test_record_verdict_defaults(tmp_path: Path) -> None:
+    """created_at defaults to a tz-aware UTC ISO stamp; note defaults empty;
+    verdict_id is 32 hex chars."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        vid = store.record_verdict(
+            target_type="hypothesis",
+            target_id="1",
+            verdict="confirmed",
+            context={},
+            provenance={},
+        )
+        assert len(vid) == 32
+        int(vid, 16)  # raises if not hex
+        (v,) = store.list_verdicts()
+        assert v.note == ""
+        stamped = datetime.fromisoformat(v.created_at)
+        assert stamped.utcoffset() is not None  # tz-aware
+    finally:
+        store.close()
+
+
+def test_record_verdict_rejects_unknown_vocabulary(tmp_path: Path) -> None:
+    """Unknown verdict state or target level raises ValueError naming the
+    valid vocabulary before any SQL runs (Pitfall 4: single spelling)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with pytest.raises(ValueError, match="confirmed"):
+            _record_verdict(store, verdict="approved")
+        with pytest.raises(ValueError, match="hypothesis"):
+            _record_verdict(store, target_type="report")
+        assert store.list_verdicts() == []
+    finally:
+        store.close()
+
+
+def test_verdict_check_constraints_at_sql_level(tmp_path: Path) -> None:
+    """Defence in depth behind the Python allowlist: the CHECK constraints
+    reject bad vocabulary even on a direct INSERT."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with pytest.raises(sqlite3.IntegrityError):
+            store._conn.execute(  # pyright: ignore[reportPrivateUsage] — constraint fixture
+                "INSERT INTO verdicts (verdict_id, target_type, target_id, "
+                "verdict, note, context, provenance, created_at) "
+                "VALUES ('x', 'hypothesis', '0', 'approved', '', '{}', '{}', 't')"
+            )
+    finally:
+        store.close()
+
+
+def test_verdicts_append_only_history(tmp_path: Path) -> None:
+    """Identical calls append distinct rows (append-only, never upsert), and
+    verdicts survive replace_hypotheses — re-analysis keeps them as history."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        first = _record_verdict(store)
+        second = _record_verdict(store)
+        assert first != second
+        assert len(store.list_verdicts()) == 2
+
+        with store.transaction():
+            store.replace_hypotheses([_hyp(0)])
+        assert len(store.list_verdicts()) == 2
+    finally:
+        store.close()
+
+
+def test_record_verdict_joins_caller_transaction(tmp_path: Path) -> None:
+    """Inside a caller-owned transaction (TUI batching) a failure rolls the
+    batch back — record_verdict never commits behind the caller's back."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        with pytest.raises(RuntimeError):
+            with store.transaction():
+                _record_verdict(store)
+                raise RuntimeError("interrupted batch")
+        assert store.list_verdicts() == []
+    finally:
+        store.close()
+
+
+def test_list_verdicts_filters(tmp_path: Path) -> None:
+    """Allowlisted filters (target-type, target-id, verdict, limit) narrow the
+    result; an unknown key raises ValueError (T-02-08 precedent)."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _record_verdict(store, created_at="2026-07-30T10:00:00+00:00")
+        _record_verdict(
+            store,
+            target_type="cluster",
+            target_id="3",
+            verdict="rejected",
+            created_at="2026-07-30T10:00:01+00:00",
+        )
+        _record_verdict(
+            store,
+            target_id="1",
+            verdict="uncertain",
+            created_at="2026-07-30T10:00:02+00:00",
+        )
+        assert [
+            v.target_type for v in store.list_verdicts({"target-type": "cluster"})
+        ] == ["cluster"]
+        assert [v.verdict for v in store.list_verdicts({"verdict": "confirmed"})] == [
+            "confirmed"
+        ]
+        assert [
+            v.target_id
+            for v in store.list_verdicts(
+                {"target-type": "hypothesis", "target-id": "1"}
+            )
+        ] == ["1"]
+        assert [v.verdict for v in store.list_verdicts({"limit": 1})] == ["uncertain"]
+        with pytest.raises(ValueError, match="target-type"):
+            store.list_verdicts({"bogus": "1"})
+    finally:
+        store.close()
+
+
+def test_list_verdicts_ties_break_by_insertion_order(tmp_path: Path) -> None:
+    """Equal created_at stamps order latest-inserted first — deterministic,
+    never unspecified SQLite row order."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        ts = "2026-07-30T10:00:00+00:00"
+        first = _record_verdict(store, created_at=ts)
+        second = _record_verdict(store, verdict="rejected", created_at=ts)
+        assert [v.verdict_id for v in store.list_verdicts()] == [second, first]
+    finally:
+        store.close()
+
+
+def test_list_verdicts_tampered_json_coerced(tmp_path: Path) -> None:
+    """WR-01: tampered context/provenance JSON (non-object or invalid) is
+    wrapped visibly instead of crashing the read path — M002 harvests these
+    columns cross-case."""
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _record_verdict(store)
+        store._conn.execute(  # pyright: ignore[reportPrivateUsage] — tampering fixture
+            "UPDATE verdicts SET context = ?, provenance = ?", ("[1, 2]", "not json")
+        )
+        (v,) = store.list_verdicts()
+        assert isinstance(v.context, dict)
+        assert isinstance(v.provenance, dict)
+        assert v.context == {"value": [1, 2]}
+        assert v.provenance == {"value": "not json"}
+    finally:
+        store.close()

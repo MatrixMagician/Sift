@@ -42,9 +42,9 @@ def test_migration_3_creates_chunks_and_clusters(tmp_path: Path) -> None:
     assert {"chunks", "clusters"} <= _tables(db)
     conn = sqlite3.connect(db)
     try:
-        # CaseStore always migrates to the head schema (v5 since plan 06-03
-        # added the KB namespace migration).
-        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 5
+        # CaseStore always migrates to the head schema (v6 since plan 01-01
+        # added the verdicts table migration).
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 6
     finally:
         conn.close()
 
