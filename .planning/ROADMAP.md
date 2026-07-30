@@ -21,7 +21,7 @@ and `vX.Y-phases/` the archived phase directories.
 - [x] **Phase 17: Multi-Dump Progression & `sift eustack` Report + CSV** - One command produces the full deterministic report from one dump or many, with no DSSErrors log required (completed 2026-07-26)
 - [x] **Phase 18: Eu-Stack Facts into `sift analyze`** - Computed eu-stack figures reach the model as cited-not-authored evidence; no-eu-stack prompt stays byte-identical (completed 2026-07-27)
 - [x] **Phase 19: Ranking Exclusion & Regression-Gated Golden Eval** - Thread events leave dedup/embed/cluster/salience once the replacement ships, then the whole path is regression-gated (completed 2026-07-28)
-- [ ] **Phase 20: SEED-002 Embedding Vector Reuse (DET-01)** - Re-analysing an unchanged case reuses stored vectors instead of re-embedding, closing the ADR 0014 exposure
+- [x] **Phase 20: SEED-002 Embedding Vector Reuse (DET-01)** - Re-analysing an unchanged case reuses stored vectors instead of re-embedding, closing the ADR 0014 exposure
 
 <details>
 <summary>✅ v1.0 — Core Triage Engine (Phases 1–8, M1–M8) — SHIPPED 2026-07-19</summary>
@@ -219,20 +219,20 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 20-01-PLAN.md — Tracer: end-to-end vector reuse, read to printed `Embeddings: N new, M reused` split (wave 1)
+- [x] 20-01-PLAN.md — Tracer: end-to-end vector reuse, read to printed `Embeddings: N new, M reused` split (wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 20-02-PLAN.md — Model-identity invalidation, unknown-identity warning, `--re-embed` cache bypass (wave 2)
+- [x] 20-02-PLAN.md — Model-identity invalidation, unknown-identity warning, `--re-embed` cache bypass (wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 20-03-PLAN.md — Dimension-change rebuild: paired `vectors` + `kb_vectors` drop with blast-radius announcement (wave 3)
-- [ ] 20-05-PLAN.md — D-10: generation prompt-budget context window via `/props`, with precedence fix and estimated-budget warning (wave 3)
+- [x] 20-03-PLAN.md — Dimension-change rebuild: paired `vectors` + `kb_vectors` drop with blast-radius announcement (wave 3)
+- [x] 20-05-PLAN.md — D-10: generation prompt-budget context window via `/props`, with precedence fix and estimated-budget warning (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 20-04-PLAN.md — Determinism guarantees (dedup, exact-text key, mixed-run byte identity, batch-knob non-invalidation) + ADR 0018 (wave 4)
+- [x] 20-04-PLAN.md — Determinism guarantees (dedup, exact-text key, mixed-run byte identity, batch-knob non-invalidation) + ADR 0018 (wave 4)
 
 **ADR flag**: The batch-knob decision is **already settled** — a knob change does not invalidate reuse; model or dimension change does; `--re-embed` is the escape hatch. The plan-time task is to **record** it as an ADR in `docs/decisions/`, not to re-decide it. Rationale: not invalidating is precisely what makes a re-run reproducible; invalidating would re-embed under a new batch layout on the first run after any knob change, reopening the hysteresis SEED-002 exists to eliminate.
 **Drop candidate**: If v1.3 runs hot, this is the natural phase to defer — it is a determinism and cost fix, not a milestone capability, and no EUS requirement depends on it. Deferring it leaves ADR 0014's exposure documented but not closed.
@@ -253,7 +253,7 @@ Plans:
 | 17. Multi-Dump Progression & `sift eustack` | v1.3 | 0/3 | Complete    | 2026-07-26 |
 | 18. Eu-Stack Facts into `sift analyze` | v1.3 | 0/? | Complete    | 2026-07-27 |
 | 19. Ranking Exclusion & Golden Eval | v1.3 | 0/? | Complete    | 2026-07-28 |
-| 20. SEED-002 Embedding Vector Reuse | v1.3 | 0/5 | Planned | - |
+| 20. SEED-002 Embedding Vector Reuse | v1.3 | 5/5 | Complete | 2026-07-30 |
 
 ## Backlog
 

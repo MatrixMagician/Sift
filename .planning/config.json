@@ -99,5 +99,17 @@
     "enabled": true,
     "auto_update": true
   },
-  "context_window": 1000000
+  "context_window": 1000000,
+  "model_profile_overrides": {
+    "claude": {
+      "opus": "claude-opus-5"
+    }
+  },
+  "model_policy": {
+    "provider": "anthropic",
+    "budget": "medium",
+    "high": "claude-opus-5",
+    "medium": "claude-sonnet-5",
+    "low": "claude-haiku-4-5"
+  }
 }

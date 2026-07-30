@@ -3,9 +3,9 @@ phase: 20
 slug: seed-002-embedding-vector-reuse-det-01
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
 # audit-milestone §5.5 distinguishes NOT-VALIDATED (draft) from PARTIAL (validated + nyquist_compliant: false) (#2117)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-28
 ---
 
@@ -25,7 +25,7 @@ created: 2026-07-28
 | **Config file** | `pyproject.toml` `[tool.pytest.ini_options]` — `testpaths = ["tests"]`; default `addopts` excludes the `perf` / `live` / `packaging` markers |
 | **Quick run command** | `uv run pytest tests/test_cluster.py tests/test_store_vectors.py tests/test_cli.py -x` |
 | **Full suite command** | `uv run pytest` |
-| **Estimated runtime** | quick ~15 s · full suite ~3–5 min (measure and correct at Wave 0) |
+| **Estimated runtime** | quick ~2.3 s · full suite ~6.4 s (measured 2026-07-30; the 3–5 min estimate was wrong by two orders of magnitude) |
 
 ---
 

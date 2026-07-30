@@ -62,7 +62,7 @@ requirement below is analysis *above* ingestion. Full measured evidence in
 
 ### Determinism
 
-- [ ] **DET-01**: User re-running `sift analyze` on an unchanged case reuses persisted embedding
+- [x] **DET-01**: User re-running `sift analyze` on an unchanged case reuses persisted embedding
   vectors instead of re-embedding, with the reuse/embed split reported
 
 ---
@@ -141,7 +141,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EUS-10 | Phase 18 | Complete |
 | EUS-11 | Phase 19 | Complete |
 | EUS-12 | Phase 19 | Complete |
-| DET-01 | Phase 20 | Pending |
+| DET-01 | Phase 20 | Complete |
 
 **Coverage: 13/13 requirements mapped to exactly one phase each.** No orphans, no duplicates.
 

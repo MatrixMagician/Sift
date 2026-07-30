@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 20
 current_phase_name: DET-01
-status: executing
-stopped_at: Phase 20 context gathered
-last_updated: "2026-07-28T11:07:35.942Z"
-last_activity: 2026-07-28
-last_activity_desc: Phase 19 complete, transitioned to Phase 20
+status: phase-complete
+stopped_at: Phase 20 complete (5/5 plans) — v1.3 ready for milestone completion
+last_updated: "2026-07-30T09:20:00.000Z"
+last_activity: 2026-07-30
+last_activity_desc: Phase 20 complete — DET-01 closed, all 6 v1.3 phases done
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 25
-  completed_plans: 20
-  percent: 83
+  completed_plans: 25
+  percent: 100
 ---
 
 # Project State
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 19 — Ranking Exclusion & Regression-Gated Golden Eval
+**Current focus:** v1.3 complete — all 6 phases and 13 requirements delivered
 
 ## Current Position
 
-Phase: 20 — SEED-002 Embedding Vector Reuse (DET-01)
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-28 — Phase 19 complete, transitioned to Phase 20
+Phase: 20 — SEED-002 Embedding Vector Reuse (DET-01) — COMPLETE
+Plan: 5/5 complete (20-01, 20-02, 20-03, 20-05, 20-04 across 4 waves)
+Status: Phase complete; v1.3 ready for `/gsd-complete-milestone`
+Last activity: 2026-07-30 — Phase 20 complete, DET-01 closed
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Last activity: 2026-07-28 — Phase 19 complete, transitioned to Phase 20
 |-------|-------|-------|----------|
 | 18 | 3 | - | - |
 | 19 | 4 | - | - |
+| 20 | 5 | - | - |
 
 **Recent Trend:**
 
@@ -139,6 +140,11 @@ Last activity: 2026-07-28 — Phase 19 complete, transitioned to Phase 20
 | Phase 19 P02 | ~30min | 3 tasks | 5 files |
 | Phase 19 P03 | ~45min | 3 tasks | 10 files |
 | Phase 19 P04 | ~55min | 3 tasks | 9 files |
+| Phase 20 P01 | ~18min | 2 tasks | 5 files |
+| Phase 20 P02 | ~14min | 2 tasks | 4 files |
+| Phase 20 P03 | ~12min | 2 tasks | 4 files |
+| Phase 20 P05 | ~10min | 2 tasks | 4 files |
+| Phase 20 P04 | ~9min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
