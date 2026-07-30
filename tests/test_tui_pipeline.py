@@ -11,6 +11,8 @@ stays active). Assertions follow the S02 discipline: plain attributes
 on top, never rendered pixels.
 """
 
+from pathlib import Path
+
 import httpx
 import pytest
 
@@ -21,11 +23,13 @@ from _report_fixtures import (
     _handler,  # pyright: ignore[reportPrivateUsage]
     _patch_http,  # pyright: ignore[reportPrivateUsage]
     _seed_case,  # pyright: ignore[reportPrivateUsage]
+    build_analysed_case,
 )
 
 from sift.config import load_config
 from sift.store import CaseStore, case_db_path
 from sift.tui.app import SiftApp
+from sift.tui.screens.clusters import ClustersScreen
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
 from sift.tui.screens.hypotheses import HypothesesScreen
 
@@ -187,6 +191,169 @@ async def test_analyse_worker_crash_is_routed_not_fatal(
             error = app.screen
             assert isinstance(error, ErrorScreen)
             assert "unexpected pipeline explosion" in error.message
+            assert app.is_running
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Ingest (T04): i → run_ingest worker → events committed, status surfaced
+# ---------------------------------------------------------------------------
+
+
+def _seed_ingest_case(case: str, input_dir: Path) -> None:
+    """Create a migrated case.db whose input_dir meta points at ``input_dir``
+    — the state ``sift new`` leaves behind, without invoking the CLI."""
+    store = _open_store(case)
+    try:
+        with store.transaction():
+            store.set_meta("input_dir", str(input_dir))
+    finally:
+        store.close()
+
+
+async def test_ingest_key_runs_worker_and_commits_events(
+    tmp_path: Path,
+) -> None:
+    inputs = tmp_path / "bundle"
+    inputs.mkdir()
+    (inputs / "case.log").write_text(
+        "2026-07-17 09:00:00 ERROR alpha memory pressure warning\n"
+        "2026-07-17 09:01:00 ERROR beta smtp delivery retries\n",
+        encoding="utf-8",
+    )
+    _seed_ingest_case("tuiingest", inputs)
+    store = _open_store("tuiingest")
+    try:
+        app = SiftApp(store, "tuiingest", config=load_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            landing = app.screen
+            assert isinstance(landing, NotAnalysedScreen)
+            await pilot.press("i")
+            await _wait_workers(app)
+            await pilot.pause()
+            # Still not analysed: ingest leaves the landing screen in place,
+            # with the run visible on the plain status surface.
+            assert isinstance(app.screen, NotAnalysedScreen)
+            assert ("Ingesting…", "running") in landing.pipeline_log
+            assert ("Ingest complete", "idle") in landing.pipeline_log
+            # The worker's own store committed real events into case.db.
+            assert len(store.query_events()) > 0
+    finally:
+        store.close()
+
+
+async def test_ingest_failure_shows_sanitised_error_and_survives(
+    tmp_path: Path,
+) -> None:
+    """A vanished input directory is an IngestError: sanitised ErrorScreen,
+    failed status on the landing screen, app alive (R012)."""
+    _seed_ingest_case("tuiingestfail", tmp_path / "vanished")
+    store = _open_store("tuiingestfail")
+    try:
+        app = SiftApp(store, "tuiingestfail", config=load_config())
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("i")
+            await _wait_workers(app)
+            await pilot.pause()
+            error = app.screen
+            assert isinstance(error, ErrorScreen)
+            assert "input directory no longer exists" in error.message
+            assert "Traceback" not in error.message
+            await pilot.press("escape")
+            await pilot.pause()
+            landing = app.screen
+            assert isinstance(landing, NotAnalysedScreen)
+            assert landing.pipeline_state == "failed"
+            assert "input directory no longer exists" in landing.pipeline_status
+            assert app.is_running
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Report export (T04): e → run_report worker → report.md next to case.db
+# ---------------------------------------------------------------------------
+
+
+async def test_report_key_writes_markdown_and_records_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build_analysed_case(monkeypatch, case="tuireport")
+    config = load_config()
+    store = _open_store("tuireport")
+    try:
+        app = SiftApp(store, "tuireport", config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            assert app.last_report_path is None
+            await pilot.press("e")
+            await _wait_workers(app)
+            await pilot.pause()
+            out = case_db_path(config.data_dir, "tuireport").parent / "report.md"
+            assert app.last_report_path == out
+            text = out.read_text(encoding="utf-8")
+            assert "Memory pressure exhausted the worker" in text
+            # No screen change: the export surfaces a path, not a viewer.
+            assert isinstance(app.screen, HypothesesScreen)
+    finally:
+        store.close()
+
+
+async def test_report_binding_inherited_on_roam_screens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """'e' lives on the CaseScreen base, so the roam screens inherit it."""
+    build_analysed_case(monkeypatch, case="tuireportroam")
+    config = load_config()
+    store = _open_store("tuireportroam")
+    try:
+        app = SiftApp(store, "tuireportroam", config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            await pilot.press("e")
+            await _wait_workers(app)
+            await pilot.pause()
+            out = (
+                case_db_path(config.data_dir, "tuireportroam").parent
+                / "report.md"
+            )
+            assert app.last_report_path == out
+            assert out.is_file()
+    finally:
+        store.close()
+
+
+async def test_report_write_failure_shows_sanitised_error_and_survives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unwritable report target (a directory squatting on report.md) is
+    run_report's OSError exit-1 path: sanitised ErrorScreen, app alive."""
+    build_analysed_case(monkeypatch, case="tuireportfail")
+    config = load_config()
+    out = case_db_path(config.data_dir, "tuireportfail").parent / "report.md"
+    out.mkdir()  # forces the write itself to fail — a real OSError, no stub
+    store = _open_store("tuireportfail")
+    try:
+        app = SiftApp(store, "tuireportfail", config=config)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("e")
+            await _wait_workers(app)
+            await pilot.pause()
+            error = app.screen
+            assert isinstance(error, ErrorScreen)
+            assert "cannot write report" in error.message
+            assert app.last_report_path is None
+            await pilot.press("escape")
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
             assert app.is_running
     finally:
         store.close()

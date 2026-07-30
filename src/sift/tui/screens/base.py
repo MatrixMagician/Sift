@@ -43,6 +43,7 @@ class CaseScreen(Screen[None]):
         Binding("escape", "app.back", "Back"),
         Binding("c", "app.clusters", "Clusters"),
         Binding("t", "app.timeline", "Timeline"),
+        Binding("e", "app.report", "Export report"),
         Binding("question_mark", "app.help", "Help", key_display="?"),
     ]
 

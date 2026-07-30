@@ -21,7 +21,9 @@ The shell owns exactly three concerns every screen inherits:
 """
 
 import sqlite3
+from collections.abc import Callable
 from functools import partial
+from pathlib import Path
 from typing import ClassVar, cast
 
 from textual.app import App
@@ -62,7 +64,14 @@ class SiftApp(App[None]):
         # workers can derive the endpoint and db path; ``None`` (read-only
         # embedding contexts, older tests) resolves lazily on first use.
         self.config = config
-        self._pipeline_worker: Worker[tuple[int, list[str]]] | None = None
+        # One guard slot for all pipeline workers (ingest/analyse/report):
+        # one case.db writer at a time, matching the CLI's one-process-per-run
+        # discipline. Result shapes differ per worker, so the slot is typed
+        # to the common supertype and the completion handler casts by name.
+        self._pipeline_worker: Worker[object] | None = None
+        # Where the last successful 'e' export landed — the plain assertable
+        # surface behind the toast (S02 discipline).
+        self.last_report_path: Path | None = None
 
     def on_mount(self) -> None:
         # The analysed-or-not probe is the app's first store read, so it gets
@@ -134,27 +143,61 @@ class SiftApp(App[None]):
     # Pipeline actions (S04): the shared cli.py bodies in thread workers
     # ------------------------------------------------------------------
 
-    def action_analyse(self) -> None:
-        """'a': run the analyse pipeline in a background thread worker (R006).
-
-        Re-entrancy guard: a second press while a pipeline worker is still
-        in flight is a no-op — one case.db writer at a time, matching the
-        CLI's one-process-per-run discipline.
-        """
-        if self._pipeline_worker is not None and (
+    def _pipeline_busy(self) -> bool:
+        """Re-entrancy guard shared by every pipeline action: a key press
+        while any pipeline worker is still in flight is a no-op."""
+        return self._pipeline_worker is not None and (
             not self._pipeline_worker.is_finished
-        ):
-            return
+        )
+
+    def _resolve_config(self) -> SiftConfig:
+        """The threaded-in SiftConfig, or a lazy load_config on first use."""
         if self.config is None:
             self.config = load_config()
-        self._show_pipeline_status("Analysing…", "running")
+        return self.config
+
+    def _start_pipeline_worker(
+        self, work: Callable[[], object], name: str
+    ) -> None:
         self._pipeline_worker = self.run_worker(
-            partial(self._run_analyse, self.config),
-            name="analyse",
+            work,
+            name=name,
             group="pipeline",
             thread=True,
             exit_on_error=False,
         )
+
+    def action_analyse(self) -> None:
+        """'a': run the analyse pipeline in a background thread worker (R006)."""
+        if self._pipeline_busy():
+            return
+        config = self._resolve_config()
+        self._show_pipeline_status("Analysing…", "running")
+        self._start_pipeline_worker(partial(self._run_analyse, config), "analyse")
+
+    def action_ingest(self) -> None:
+        """'i': run ingest in a background thread worker (R006).
+
+        Reuses the CLI's ``run_ingest`` body against the case's recorded
+        ``input_dir`` — re-ingesting the same snapshot adds zero events.
+        """
+        if self._pipeline_busy():
+            return
+        config = self._resolve_config()
+        self._show_pipeline_status("Ingesting…", "running")
+        self._start_pipeline_worker(partial(self._run_ingest, config), "ingest")
+
+    def action_report(self) -> None:
+        """'e': export the Markdown report next to case.db in a worker (R006).
+
+        Per the S04 planning decision there is no in-TUI viewer: the shared
+        ``run_report`` body writes ``report.md`` into the case directory and
+        the completion handler surfaces the written path.
+        """
+        if self._pipeline_busy():
+            return
+        config = self._resolve_config()
+        self._start_pipeline_worker(partial(self._run_report, config), "report")
 
     def _run_analyse(self, config: SiftConfig) -> tuple[int, list[str]]:
         """Thread-worker body: the CLI's ``run_analyze`` on a fresh store.
@@ -189,13 +232,50 @@ class SiftApp(App[None]):
             store.close()
         return code, lines
 
+    def _run_ingest(self, config: SiftConfig) -> None:
+        """Thread-worker body: the CLI's ``run_ingest`` on a fresh store.
+
+        Same per-worker store discipline as :meth:`_run_analyse`. IngestError
+        and IngestUsageError bubble deliberately — the ERROR routing in
+        :meth:`on_worker_state_changed` is the sanitised failure surface.
+        ``run_ingest`` resolves late off the cli module so tests can patch
+        the same ``sift.cli`` seam family the analyse worker uses.
+        """
+        from sift import cli  # deferred: cli imports this module's package
+
+        store = CaseStore(case_db_path(config.data_dir, self.case_name))
+        try:
+            cli.run_ingest(self.case_name, config, store)
+        finally:
+            store.close()
+
+    def _run_report(self, config: SiftConfig) -> tuple[int, list[str], Path]:
+        """Thread-worker body: the CLI's ``run_report`` on a fresh store.
+
+        Writes Markdown to ``report.md`` next to case.db (the S04 planning
+        decision: export to the case directory, no in-TUI viewer). Returns
+        the ADR 0007 exit code, every echoed line and the target path for
+        the main-thread completion handler to route.
+        """
+        from sift import cli  # deferred: cli imports this module's package
+
+        lines: list[str] = []
+        db_path = case_db_path(config.data_dir, self.case_name)
+        out = db_path.parent / "report.md"
+        store = CaseStore(db_path)
+        try:
+            code = cli.run_report(store, out=out, echo=lines.append)
+        finally:
+            store.close()
+        return code, lines, out
+
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
         """Route pipeline worker completion on the main thread (R012).
 
-        Success (or degraded-but-persisted) with triage meta present
-        switches the landing screen to the hypothesis list; every failure
-        surfaces on the sanitised ErrorScreen with the app still navigable
-        — never a crash (``exit_on_error=False`` on the worker).
+        The ERROR leg is shared: any pipeline worker exception surfaces on
+        the sanitised ErrorScreen with the app still navigable — never a
+        crash (``exit_on_error=False`` on the worker). SUCCESS routes by
+        worker name, since each body returns its own result shape.
         """
         worker = cast(
             "Worker[object]",
@@ -210,7 +290,32 @@ class SiftApp(App[None]):
             return
         if event.state != WorkerState.SUCCESS:
             return
-        code, lines = cast("tuple[int, list[str]]", worker.result)
+        if worker.name == "ingest":
+            self._show_pipeline_status("Ingest complete", "idle")
+            return
+        if worker.name == "report":
+            self._route_report(
+                cast("tuple[int, list[str], Path]", worker.result)
+            )
+            return
+        self._route_analyse(cast("tuple[int, list[str]]", worker.result))
+
+    def _route_report(self, result: tuple[int, list[str], Path]) -> None:
+        """Surface one report export: the written path, or a sanitised error."""
+        code, lines, out = result
+        if code:
+            self.push_screen(ErrorScreen(lines[-1] if lines else "Report failed"))
+            return
+        self.last_report_path = out
+        # markup=False for the same reason every Static is markup=False:
+        # the path embeds the user-supplied case name (T-04-01).
+        self.notify(f"Report written to {sanitise(str(out))}", markup=False)
+
+    def _route_analyse(self, result: tuple[int, list[str]]) -> None:
+        """Route one analyse completion: success (or degraded-but-persisted)
+        with triage meta present switches the landing screen to the
+        hypothesis list; failure exit codes surface on the ErrorScreen."""
+        code, lines = result
         detail = lines[-1] if lines else ""
         if code not in (0, 3):
             self._show_pipeline_status(detail or "Analyse failed", "failed")

@@ -61,16 +61,17 @@ class NotAnalysedScreen(Screen[None]):
     """The case exists but has no triage results yet (R012): say so plainly.
 
     Opening the TUI on this screen (rather than exiting 1) is deliberate —
-    the pipeline actions run from here: `a` dispatches to the app-level
-    analyse action, which runs the shared ``run_analyze`` body in a
-    background thread worker. The screen carries the worker's status as
-    plain assertable attributes (``pipeline_status``/``pipeline_state``
-    plus the ``pipeline_log`` transition history — the S02 observability
-    discipline) mirrored into a ``markup=False`` Static, so tests and
-    operators read the same truth.
+    the pipeline actions run from here: `i` and `a` dispatch to the
+    app-level ingest/analyse actions, which run the shared ``run_ingest``
+    and ``run_analyze`` bodies in background thread workers. The screen
+    carries the worker's status as plain assertable attributes
+    (``pipeline_status``/``pipeline_state`` plus the ``pipeline_log``
+    transition history — the S02 observability discipline) mirrored into a
+    ``markup=False`` Static, so tests and operators read the same truth.
     """
 
     BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("i", "app.ingest", "Ingest"),
         Binding("a", "app.analyse", "Analyse"),
         *_NAV_BINDINGS,
     ]
@@ -97,7 +98,8 @@ class NotAnalysedScreen(Screen[None]):
         yield Static("Case not analysed", id="not-analysed-title")
         yield Static(
             f"Case {self.case_name!r} has no triage results yet.\n"
-            f"Press a to analyse it now, or run: sift analyze {self.case_name}",
+            f"Press i to ingest inputs, a to analyse now, or run: "
+            f"sift analyze {self.case_name}",
             id="not-analysed-message",
             markup=False,
         )
