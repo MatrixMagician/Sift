@@ -44,6 +44,9 @@ from sift.pipeline.eustack_progression import (
     ProgressionAnalysis,
     analyse_eustack_bundle,
 )
+from sift.pipeline.eustack_vocabulary import (
+    PROHIBITED_OWNERSHIP_TERMS,
+)
 from sift.pipeline.mcm import analyse_mcm
 from sift.pipeline.mcm_facts import render_mcm_facts
 from sift.pipeline.perfmon import analyse_perfmon
@@ -53,7 +56,6 @@ from sift.store import CaseStore
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures" / "eustack"
 _PROGRESSION_FIXTURES_DIR = _FIXTURES_DIR / "progression"
-_REQUIREMENTS_MD = Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
 _EVT_TOKEN_RE = re.compile(r"\[evt:([0-9a-f]{16})\]")
 _SAMPLING_RE = re.compile(r"\((\d+) of (\d+) thread events cited as exemplars\)")
 
@@ -406,12 +408,9 @@ def test_lock_site_lines_carry_no_ownership_language() -> None:
     """D-05: the lock-site convergence lines report only that threads were
     observed converging at a site — never lock possession or a wait-for
     graph. Mirrors ``test_eustack_report.py``'s ownership-blind vocabulary
-    gate, reading the forbidden term from REQUIREMENTS.md at runtime."""
-    requirements_text = _REQUIREMENTS_MD.read_text(encoding="utf-8")
-    match = re.search(r'the word "(\w+)"', requirements_text)
-    assert match is not None, "REQUIREMENTS.md must name the forbidden term"
-    forbidden_term = match.group(1)
-    prohibited_terms = (forbidden_term, "owner", "holder")
+    gate, reading the prohibited terms from the product constant that declares
+    them (D-05) rather than from a planning document."""
+    prohibited_terms = PROHIBITED_OWNERSHIP_TERMS
 
     lock_frames = (
         "__lll_lock_wait",

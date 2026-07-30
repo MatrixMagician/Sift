@@ -32,6 +32,9 @@ from sift.pipeline.eustack import (
     normalise,
     signature_of,
 )
+from sift.pipeline.eustack_vocabulary import (
+    PROHIBITED_OWNERSHIP_TERMS,
+)
 
 # Shared, not copied (D-08): _grade is imported here ONLY to independently
 # recompute expected severity in test_every_flag_family_prints_value_beside_
@@ -39,9 +42,6 @@ from sift.pipeline.eustack import (
 from sift.pipeline.mcm import _grade  # pyright: ignore[reportPrivateUsage]
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eustack"
-_REQUIREMENTS_MD = (
-    Path(__file__).parent.parent / ".planning" / "REQUIREMENTS.md"
-)
 
 # TID 4242: pthread_cond_timedwait@@GLIBC_2.3.2 (idle wait) ->
 # Semaphore::SmartLock::WaitForResource -> MSIQTask::WaitForWork ->
@@ -587,10 +587,12 @@ def test_ownership_blind_vocabulary_absent_from_source_and_emitted_output() -> N
     test_no_ownership_attributed_lock_language_in_shipped_surface so the
     -k ownership_blind selector (16-VALIDATION.md) matches it.
     """
-    requirements_text = _REQUIREMENTS_MD.read_text(encoding="utf-8")
-    match = re.search(r'the word "(\w+)"', requirements_text)
-    assert match is not None, "REQUIREMENTS.md must name the forbidden term"
-    forbidden_term = match.group(1)
+    # The prohibition is a PRODUCT invariant, so it is read from the product
+    # (D-05). This previously parsed the term out of .planning/REQUIREMENTS.md
+    # at runtime, which coupled the suite to a planning document and broke when
+    # that document was archived at v1.3 milestone close.
+    forbidden_term = PROHIBITED_OWNERSHIP_TERMS[0]
+    assert forbidden_term, "the product must name the forbidden term"
 
     rules_toml = (
         Path(__file__).parent.parent
@@ -613,7 +615,7 @@ def test_ownership_blind_vocabulary_absent_from_source_and_emitted_output() -> N
     # stays scoped to the single REQUIREMENTS.md-named term while the
     # three-term prohibition below is enforced over strings the code
     # actually emits.
-    prohibited_terms = (forbidden_term, "owner", "holder")
+    prohibited_terms = PROHIBITED_OWNERSHIP_TERMS
 
     rules, rules_hash = load_rules()
 

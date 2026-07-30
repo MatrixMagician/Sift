@@ -1,5 +1,5 @@
 ---
-status: testing
+status: complete
 phase: 04-salience-rag-citation-gated-hypotheses
 source: [04-VERIFICATION.md]
 started: 2026-07-17T00:00:00Z

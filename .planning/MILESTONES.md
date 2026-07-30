@@ -1,5 +1,77 @@
 # Milestones
 
+## v1.3 EU-Stack Hang & Slowdown Diagnosis (Shipped: 2026-07-30)
+
+**Phases completed:** 6 phases (15–20), 25 plans
+
+**Delivered:** a third evidence source — native `eu-stack` thread dumps — turned into a
+deterministic hang/slowdown diagnosis, plus the embedding-reuse fix that closes ADR 0014's
+determinism exposure for every re-analysis. The intuitive mechanism was killed **before**
+scoping: "identical stack after 60 s = stuck" flags 98.9% of threads (3,849 of 3,893 common
+TIDs) on a *healthy* server, so composition — not motion — is the signal (3,902 threads
+collapse to 93 signatures). Any future phase reintroducing a motion-based check reopens a
+falsified mechanism. The deterministic-core-vs-LLM boundary is preserved verbatim from v1.1/v1.2:
+every figure is COMPUTED before generation and only then handed to the model as citable
+evidence — confirmed end to end on the real 7,807-event capture against a live model.
+
+**Key accomplishments:**
+
+- **Phase 15** — the load-bearing foundation: a 24-rule, operator-editable thread-role taxonomy
+  in a versioned TOML rules file, rule-major first-match-wins, with 98.67% thread / 56.99%
+  signature coverage measured on the real 3,902-thread capture. Unresolvable frames are
+  *reported*, never guessed, and the unclassified residual splits into matched-no-rule vs
+  no-resolvable-frame. Lock **ownership** is a permanent non-goal, asserted by a test that bans
+  the vocabulary (EUS-01, EUS-02; ADR 0015).
+
+- **Phase 16** — per-pool occupancy, ownership-blind lock convergence, external-dependency wait
+  concentration and signature ranking, all computed model-free. One `SaturationFlag` record
+  carries value/warn/critical together so a threshold can never travel apart from the figure it
+  grades (EUS-03…EUS-06; ADR 0016).
+
+- **Phase 17** — multi-dump progression and the standalone `sift eustack` report + CSV, working
+  from one dump or many with no DSSErrors log at all. Thread-identity continuity across dumps is
+  explicitly *not* claimed (TID reuse makes it unsound), and the scope note says so in the
+  output (EUS-07, EUS-08, EUS-09; ADR 0017).
+
+- **Phase 18** — computed eu-stack figures spliced into `sift analyze` as cited-not-authored
+  evidence, with the no-eu-stack prompt proven byte-identical by a frozen hash (EUS-10).
+
+- **Phase 19** — eu-stack events join `EXCLUDED_FROM_RANKING` now that the deterministic
+  replacement ships, and `sift analyze` stops dead-ending on eu-stack-only cases. Sequenced
+  deliberately *after* the replacement existed, so no regression window opened. Gated by a fifth
+  eval floor, `eustack_detection_rate = 1.00`, scored entirely LLM-free (EUS-11, EUS-12).
+
+- **Phase 20** — embedding vector reuse: a second `sift analyze` on an unchanged case makes
+  **zero** embedding HTTP calls, verified against a live Lemonade endpoint by server-side request
+  counting. Model or dimension changes invalidate; batch-knob changes deliberately do not
+  (invalidating would re-embed under a *new* batch layout on the first run after any
+  reconfiguration, reopening the exact hysteresis the phase exists to eliminate). A dimension
+  change is now recoverable via `--re-embed` instead of wedging the case. Also fixes a
+  precedence inversion where a server-reported `n_ctx` silently overrode a configured
+  `generation.context` (DET-01; ADR 0018).
+
+**Verification:** 879 tests pass, ruff clean, pyright at its pre-existing baseline. Both
+previously-deferred human-verification items were **executed** against the operator's live
+Lemonade instance rather than carried forward, including Phase 19's real-capture narration check
+(7,807 events, 0 template groups, 2 hypotheses, all 14 cited ids resolving to `eustack` events,
+narrated figures matching `sift eustack` exactly).
+
+**Known deferred items at close:** 2 (see STATE.md Deferred Items) — one new-scope todo filed
+during the audit, one `audit-open` false positive over already-shipped work. Neither is a v1.3
+defect.
+
+**Audit finding:** `sift eval` fails live on three of five floors, traced to the endpoint's
+sampling configuration (`seed=4294967295` random, `temperature=0.8`), not to any v1.3 change —
+the three eu-stack floors v1.3 added all pass, LLM-free. Diagnosing it exposed two real bugs that
+made `sift doctor`'s random-seed determinism warning **dead code** on every real llama.cpp build
+(wrong nesting, and a `seed < 0` test against a UINT32_MAX sentinel); both fixed with six
+regression tests, four of which fail against the previous code. A temperature warning was added
+alongside. The archive step surfaced a third defect: three eu-stack vocabulary tests parsed the
+forbidden lock-ownership term out of `.planning/REQUIREMENTS.md` at runtime, so archiving that
+document broke the suite — the D-05 invariant now lives in the product as
+`eustack_vocabulary.PROHIBITED_OWNERSHIP_TERMS`. See
+`milestones/v1.3-MILESTONE-AUDIT.md`.
+
 ## v1.2 DSSPerformanceMonitor Correlation (Shipped: 2026-07-20)
 
 **Phases completed:** 3 phases (12–14), 15 plans

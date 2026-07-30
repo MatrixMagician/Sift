@@ -153,12 +153,22 @@ def _prompt_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-def _ctx_tokens(client: InferenceClient, fallback: int) -> int:
-    """The generation context window: ``/props`` ``n_ctx`` else the fallback.
+def _ctx_tokens(
+    client: InferenceClient, fallback: int, *, configured: int | None = None
+) -> int:
+    """The generation context window, by precedence (D-10).
 
+    Configured value, then a discovered ``/props`` ``n_ctx``, then the fallback.
+
+    A positive ``configured`` is authoritative and short-circuits the probe
+    entirely: an explicitly pinned window is a deliberate operator decision, is
+    never overridden by whatever the endpoint reports, and must not cost an HTTP
+    request. A non-positive one is not a usable window, so it falls through.
     Lemonade may lack ``/props`` (LLM-04); an absent endpoint or key degrades to
-    the configured fallback rather than erroring.
+    the fallback rather than erroring.
     """
+    if configured is not None and configured > 0:
+        return configured
     n = client.props().get("n_ctx")
     return n if isinstance(n, int) and n > 0 else fallback
 
@@ -332,6 +342,7 @@ def hypothesise(
     kb_context: list[str] | None = None,
     analyser_settings: AnalyserSettings | None = None,
     ctx_fallback: int = 8192,
+    ctx_configured: int | None = None,
     reserve_out: int = 1024,
 ) -> Outcome:
     """Produce citation-gated triage hypotheses for the case (SPEC §5.5).
@@ -371,7 +382,7 @@ def hypothesise(
     events = store.query_events(sources=ANALYSER_SOURCES)
     fact_blocks = build_fact_blocks(events, analyser_settings or AnalyserSettings())
 
-    ctx = _ctx_tokens(client, ctx_fallback)
+    ctx = _ctx_tokens(client, ctx_fallback, configured=ctx_configured)
     # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
     # has_tokenize is a read-only property vs the protocol's plain attribute,
     # which pyright flags as a false mismatch (same as cluster.py).

@@ -107,6 +107,11 @@ change, however good the rest of it is.
   guarantee to the report renderer given an identical `case.db`; ADR
   [0014](docs/decisions/0014-embedding-determinism-scope.md) scopes the
   embedding stage upstream of it, where the conditionality actually lives.
+  From v1.3 a re-analysis reuses the persisted embedding vectors, so run 2
+  onward performs no second embedding pass and cannot be perturbed by one; the
+  **first** run of a case remains subject to ADR 0014's exposure, and ADR
+  [0018](docs/decisions/0018-batch-knob-does-not-invalidate-vector-reuse.md)
+  records which changes invalidate the reuse cache and which do not.
 - **Nothing disappears silently.** Unparseable regions become events with
   `severity="unknown"`; adapters emit per-file parse-coverage metrics. A
   multi-line record (a stack trace, an MCM block) is one event, not many.

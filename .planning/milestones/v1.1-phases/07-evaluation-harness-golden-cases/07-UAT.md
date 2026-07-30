@@ -1,5 +1,5 @@
 ---
-status: passed
+status: complete
 phase: 07-evaluation-harness-golden-cases
 source: [07-VERIFICATION.md]
 started: "2026-07-19T10:25:35Z"

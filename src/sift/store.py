@@ -106,7 +106,7 @@ def _vec_to_blob(vec: list[float]) -> bytes:
     return np.asarray(vec, dtype="<f4").tobytes()
 
 
-def _blob_to_vec(  # pyright: ignore[reportUnusedFunction] — read half of the confined pair; KNN retrieval (Phase 4/6) + tests use it
+def _blob_to_vec(
     blob: bytes,
 ) -> list[float]:
     """SINGLE vector read path — the inverse of ``_vec_to_blob``."""
@@ -859,6 +859,27 @@ class CaseStore:
         self.set_meta("embedding_batch_size", str(batch_size))
         self.set_meta("embedding_max_input_chars", str(max_input_chars))
 
+    def load_vectors_by_text(self) -> dict[str, list[float]]:
+        """Read every stored (chunks.text, vector) pair, keyed by exact text (D-01).
+
+        The DET-01 reuse read: joining ``chunks`` to ``vectors`` on
+        ``chunk_id`` recovers the text-to-embedding map with no schema
+        migration. The ``ORDER BY`` on ``chunks.chunk_id`` makes the winner
+        deterministic if two rows ever hold byte-identical text — the highest
+        ``chunk_id`` wins, never unspecified SQLite row order. A case with no
+        ``vectors`` table yet (vec0 tables are created lazily) degrades to an
+        empty map so a first run simply embeds everything.
+        """
+        self._ensure_vec_loaded()
+        try:
+            rows = self._conn.execute(
+                "SELECT chunks.text, vectors.embedding FROM chunks "
+                "JOIN vectors USING (chunk_id) ORDER BY chunks.chunk_id"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        return {str(text): _blob_to_vec(blob) for text, blob in rows}
+
     def upsert_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
         """Write (chunk_id, embedding) pairs, replacing any prior vector.
 
@@ -922,6 +943,66 @@ class CaseStore:
         if existing is None:
             self.set_meta("embedding_dim", str(dim))
             self.set_meta("embedding_metric", "cosine")
+
+    def drop_vector_tables(self) -> tuple[int, int]:
+        """Drop BOTH vec0 tables and clear the shared dimension meta (D-08).
+
+        Returns ``(dropped_vectors, dropped_kb_vectors)`` — the real counted row
+        totals, so the caller's operator-facing announcement cannot disagree
+        with what was actually discarded.
+
+        The CALLER owns the transaction (mirrors :meth:`upsert_vectors`):
+        pipeline/cluster.py calls this as the first statement of the one
+        ``store.transaction()`` that owns every write in a run, so an
+        interrupted rebuild rolls back to the ORIGINAL tables at their ORIGINAL
+        declared widths.
+
+        Both tables are dropped together and unconditionally. ``vectors`` and
+        ``kb_vectors`` share ``meta.embedding_dim``, so dropping one alone would
+        leave the other at a stale declared width that
+        ``CREATE VIRTUAL TABLE IF NOT EXISTS`` silently no-ops against — the
+        latent corruption D-08 exists to prevent. Pairing them in one method
+        makes that mistake structurally impossible rather than merely tested.
+
+        ``kb_chunks`` is cleared alongside, so the KB namespace never retains
+        chunks whose vectors were just discarded; ``index_kb`` replaces the
+        whole table on every ``--kb`` run anyway, so nothing is lost that would
+        not have been replaced.
+
+        Recreation is deliberately NOT done here: ``vectors`` is recreated by
+        the ``ensure_vectors_table(dim)`` call the caller already makes, and
+        ``kb_vectors`` lazily on the next ``--kb`` run at the new width. That
+        keeps this phase free of any new dimension-interpolating DDL — the only
+        such sites in this file remain the two reviewed ``ensure_*_table``
+        statements (T-20-04).
+        """
+        self._ensure_vec_loaded()
+
+        def _count(sql: str) -> int:
+            try:
+                row = self._conn.execute(sql).fetchone()
+            except sqlite3.OperationalError:
+                return 0  # table absent — nothing stored to discard
+            return int(row[0])
+
+        # Fully literal SQL: no table name is ever interpolated here, so this
+        # method adds no S608-suppressed site (T-20-04).
+        dropped_vectors = _count("SELECT count(*) FROM vectors")
+        dropped_kb = _count("SELECT count(*) FROM kb_vectors")
+        # Dropping the primary vec0 name drops all four shadow tables with it
+        # (verified against the pinned sqlite-vec==0.1.9) — no manual cleanup.
+        self._conn.execute("DROP TABLE IF EXISTS vectors")
+        self._conn.execute("DROP TABLE IF EXISTS kb_vectors")
+        self._conn.execute("DELETE FROM kb_chunks")
+        # Clearing the shared dim is what lets the very next
+        # ensure_vectors_table(new_dim) take its create-and-record branch. The
+        # STORE-03 guard is never weakened or given a bypass: the rebuild works
+        # by clearing state BEFORE the guard runs (RESEARCH Pitfall 4).
+        self._conn.executemany(
+            "DELETE FROM meta WHERE key = ?",
+            [("embedding_dim",), ("embedding_metric",)],
+        )
+        return dropped_vectors, dropped_kb
 
     def replace_kb_chunks(
         self, chunks: Iterable[tuple[int, str, int, str]]

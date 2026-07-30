@@ -4,17 +4,17 @@ milestone: v1.3
 milestone_name: EU-Stack Hang & Slowdown Diagnosis
 current_phase: 20
 current_phase_name: DET-01
-status: executing
-stopped_at: Phase 20 context gathered
-last_updated: "2026-07-28T11:07:35.942Z"
-last_activity: 2026-07-28
-last_activity_desc: Phase 19 complete, transitioned to Phase 20
+status: milestone-complete
+stopped_at: v1.3 shipped 2026-07-30 — audit PASS, artifacts archived; awaiting next milestone
+last_updated: "2026-07-30T11:17:00.000Z"
+last_activity: 2026-07-30
+last_activity_desc: v1.3 milestone closed — 6 phases, 25 plans, 13/13 requirements, artifacts archived
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 25
-  completed_plans: 20
-  percent: 83
+  completed_plans: 25
+  percent: 100
 ---
 
 # Project State
@@ -24,14 +24,17 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-20 after v1.2)
 
 **Core value:** Turn a directory of raw diagnostics into a structured, evidence-cited triage report — entirely offline, with every claim citing verifiable event IDs.
-**Current focus:** Phase 19 — Ranking Exclusion & Regression-Gated Golden Eval
+**Current focus:** v1.3 SHIPPED (2026-07-30). No active milestone — run `/gsd-new-milestone` to scope v1.4.
 
 ## Current Position
 
-Phase: 20 — SEED-002 Embedding Vector Reuse (DET-01)
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-07-28 — Phase 19 complete, transitioned to Phase 20
+Milestone: v1.3 EU-Stack Hang & Slowdown Diagnosis — **SHIPPED 2026-07-30**
+Phases: 6/6 complete (15–20), 25 plans, 13/13 requirements
+Status: Closed. Audit PASS (`milestones/v1.3-MILESTONE-AUDIT.md`); ROADMAP,
+REQUIREMENTS and all six phase directories archived under `milestones/v1.3-*`.
+Next: no active milestone — run `/gsd-new-milestone` to scope v1.4.
+Last activity: 2026-07-30 — v1.3 closed after live-Lemonade validation of both
+previously-deferred human-verification items
 
 ## Performance Metrics
 
@@ -47,6 +50,7 @@ Last activity: 2026-07-28 — Phase 19 complete, transitioned to Phase 20
 |-------|-------|-------|----------|
 | 18 | 3 | - | - |
 | 19 | 4 | - | - |
+| 20 | 5 | - | - |
 
 **Recent Trend:**
 
@@ -139,6 +143,11 @@ Last activity: 2026-07-28 — Phase 19 complete, transitioned to Phase 20
 | Phase 19 P02 | ~30min | 3 tasks | 5 files |
 | Phase 19 P03 | ~45min | 3 tasks | 10 files |
 | Phase 19 P04 | ~55min | 3 tasks | 9 files |
+| Phase 20 P01 | ~18min | 2 tasks | 5 files |
+| Phase 20 P02 | ~14min | 2 tasks | 4 files |
+| Phase 20 P03 | ~12min | 2 tasks | 4 files |
+| Phase 20 P05 | ~10min | 2 tasks | 4 files |
+| Phase 20 P04 | ~9min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -359,6 +368,14 @@ passed audit:
 |----------|------|--------|
 | code-review | dssperfmon: three deferred review warnings WR-02/WR-03/WR-05 (2026-07-20-dssperfmon-review-warnings) | Closed 2026-07-21 — all three verified landed in v1.2 |
 | correctness | perfmon: unplaceable samples on the episodes-present branch (2026-07-20-perfmon-unplaceable-samples-episode-scope) | Closed 2026-07-21 — `_unattributed_group`, landed in 14-02 |
+
+Acknowledged and deferred at v1.3 milestone close (2026-07-30) — both reviewed
+individually rather than blanket-acknowledged; neither blocks the milestone:
+
+| Category | Item | Status | Disposition |
+|----------|------|--------|-------------|
+| todo | generation sampling is never controlled (2026-07-30-generation-sampling-not-controlled) | Pending — candidate SEED-003 | **New scope, not a v1.3 defect.** Sift promises byte-identical output "given identical case + config + model + seed" but cannot set a seed or temperature: `InferenceClient.chat` sends neither, and `GenerationConfig` (`extra="forbid"`) has no such field. Filed with measured evidence and a proposed design — see `milestones/v1.3-MILESTONE-AUDIT.md` §5b. |
+| quick_task | 260725-cxs-record-embedding-batch-knobs-in-case-met | Reported `missing` by `audit-open` | **False positive — work is complete.** Its SUMMARY frontmatter reads `status: complete`; `record_embedding_batch_knobs` ships in `store.py` + `cluster.py`, the three `embedding_*` client properties exist, ADR 0014 is present, commit `9ec3343` is in history, and its 61 tests pass. The installed gsd-tools build mis-resolves this task's `${quick_id}-SUMMARY.md` name against its longer directory name. Nothing outstanding. |
 | code-review | Phase-11 code-review INFO follow-ups (2026-07-20-phase11-code-review-info) | Closed 2026-07-21 (`66324e9`) — IN-01 + IN-03 |
 
 ## Session Continuity

@@ -50,6 +50,11 @@ from sift.store import CaseStore, case_db_path, vec_version
 
 app = typer.Typer(no_args_is_help=True)
 
+# llama.cpp reports "seed a random value each request" as UINT32_MAX in /props
+# rather than as a negative int, so a `seed < 0` test alone can never detect it
+# (T-03-15). Named so the determinism check reads as intent, not as magic.
+_RANDOM_SEED_SENTINEL = 0xFFFFFFFF
+
 
 def _version_string() -> str:
     """Return the installed package version, or the source default off-tree."""
@@ -545,6 +550,37 @@ def _parse_moment(value: str | None, label: str) -> datetime | None:
     return moment.astimezone(UTC)
 
 
+def _resolve_generation_ctx(
+    configured: int | None, client: InferenceClient
+) -> tuple[int, str | None]:
+    """Resolve the generation prompt-budget context window (D-10).
+
+    Returns ``(context_tokens, warning_or_None)`` and is the SINGLE place the
+    generation context is resolved on the ``analyze`` path. Precedence follows
+    the project's documented order (CLI flags > ``SIFT_*`` env > config.toml >
+    defaults): an explicitly configured ``generation.context`` wins outright and
+    is never overridden by a server-reported ``n_ctx``, because a pinned value
+    is a deliberate operator decision rather than a hint.
+
+    The warning is RETURNED rather than printed so the whole decision is
+    unit-testable without a ``CliRunner`` and without depending on how the
+    pinned Click version separates stdout from stderr.
+    """
+    if configured is not None and configured > 0:
+        # A pinned window is a choice, not an estimate — never warned about.
+        return configured, None
+    n = client.props().get("n_ctx")
+    if isinstance(n, int) and n > 0:
+        return n, None
+    return (
+        _TRIAGE_CTX_FALLBACK,
+        "Warning: the generation prompt budget is estimated rather than "
+        "discovered — the endpoint served no usable context size, so "
+        f"{_TRIAGE_CTX_FALLBACK} tokens is assumed. Set generation.context in "
+        "config.toml to pin the real window.",
+    )
+
+
 @app.command()
 def analyze(
     case: str,
@@ -560,6 +596,15 @@ def analyze(
         typer.Option(
             "--no-label",
             help="Skip LLM cluster labels; clusters keep their signature (D-01)",
+        ),
+    ] = False,
+    re_embed: Annotated[
+        bool,
+        typer.Option(
+            "--re-embed",
+            help="Discard stored embedding vectors and re-embed every "
+            "exemplar; the explicit escape hatch for applying a changed "
+            "embedding model or batch knob (DET-01, D-07)",
         ),
     ] = False,
     model: Annotated[
@@ -618,6 +663,9 @@ def analyze(
     case end); ``--top-clusters`` caps how many clusters feed the prompt.
     ``--kb <dir>`` indexes a directory of runbooks/RCAs and threads the nearest
     chunks into the prompt as NON-citable reference material (RAG-07, D-01).
+    Stored embedding vectors are reused across runs, so a re-analyse of an
+    unchanged case makes no embedding calls (DET-01); ``--re-embed`` discards
+    them and embeds every exemplar afresh.
     ``sift show clusters`` / ``sift show hypotheses`` render the result.
 
     Exit-code contract (CLI-04, scriptable — see ADR 0005):
@@ -712,8 +760,25 @@ def analyze(
                     # store.transaction(); an interrupted embed (client raises)
                     # rolls back to zero clusters/vectors — the embed call is the
                     # first step and precedes every write, so nothing survives.
-                    n_clusters = cluster_and_label(
-                        store, client, config.clustering, label=not no_label
+                    cluster_result = cluster_and_label(
+                        store,
+                        client,
+                        config.clustering,
+                        label=not no_label,
+                        re_embed=re_embed,
+                        # D-04: the pipeline's only operator-facing seam. Bound
+                        # to the SAME Console that owns the transient Progress
+                        # live region, so rich moves the bar below the printed
+                        # line instead of letting a redraw erase it. soft_wrap
+                        # keeps the message on one line regardless of terminal
+                        # width; markup/highlight off keep the text literal
+                        # (the T-03-23 discipline, applied uniformly).
+                        announce=lambda message: err_console.print(
+                            message,
+                            highlight=False,
+                            markup=False,
+                            soft_wrap=True,
+                        ),
                     )
                 except (httpx.HTTPError, ValueError) as exc:
                     print(f"Error: embedding/clustering failed: {_sanitise(str(exc))}")
@@ -740,6 +805,18 @@ def analyze(
                     print(f"Error: KB indexing/retrieval failed: {_sanitise(str(exc))}")
                     raise typer.Exit(1) from None
 
+            # D-10: resolve the prompt-budget context window ONCE, here, after
+            # the Progress live region has exited so no bar redraw can overwrite
+            # the warning. A configured generation.context wins over anything
+            # /props reports; an estimated budget is disclosed on stderr.
+            # Passing the resolved int as ctx_configured short-circuits
+            # _ctx_tokens' own probe, so analyze issues exactly one /props GET.
+            ctx_tokens, ctx_warning = _resolve_generation_ctx(
+                config.generation.context, client
+            )
+            if ctx_warning is not None:
+                print(ctx_warning, file=sys.stderr)
+
             # RAG-02: salience + citation-gated hypotheses over the fresh
             # clusters, still inside the http lifecycle so the same client is
             # reused. hypothesise NEVER raises on bad model output — it degrades
@@ -756,7 +833,8 @@ def analyze(
                 hint=hint,
                 kb_context=kb_context,
                 analyser_settings=AnalyserSettings.from_config(config),
-                ctx_fallback=config.generation.context or _TRIAGE_CTX_FALLBACK,
+                ctx_fallback=_TRIAGE_CTX_FALLBACK,
+                ctx_configured=ctx_tokens,
                 reserve_out=_TRIAGE_RESERVE_OUT,
             )
         finally:
@@ -765,7 +843,13 @@ def analyze(
         # Counts are ints — no untrusted text. The labels themselves are only
         # rendered by `show clusters`, where the whole line is _sanitise'd.
         labelled = sum(1 for c in store.query_clusters() if c.label)
-        print(f"Clusters: {n_clusters} ({labelled} labelled)")
+        # D-06: always printed, including a first run where reused is 0 — a
+        # stable shape is what tests assert, and zero reuse is itself a signal.
+        print(
+            f"Embeddings: {cluster_result.embedded_count} new, "
+            f"{cluster_result.reused_count} reused"
+        )
+        print(f"Clusters: {cluster_result.cluster_count} ({labelled} labelled)")
 
         # CLI-04 exit-code contract: failed -> 1, degraded -> 3, success -> 0.
         # (Typer/Click usage errors stay 2; never reused here.)
@@ -1507,11 +1591,41 @@ def doctor(
             )
         gen_settings = props.get("default_generation_settings")
         if isinstance(gen_settings, dict):
-            seed = cast("dict[str, object]", gen_settings).get("seed")
-            if isinstance(seed, int) and not isinstance(seed, bool) and seed < 0:
+            settings = cast("dict[str, object]", gen_settings)
+            # llama.cpp nests the sampler knobs under a "params" sub-dict and
+            # reports a random seed as UINT32_MAX (4294967295 == -1 unsigned),
+            # never as a negative int. Read both shapes, and treat either
+            # sentinel as random: the earlier `seed < 0` test against the
+            # un-nested key could not fire on any real llama.cpp build, so this
+            # warning was silently dead and a non-deterministic endpoint went
+            # unreported (measured against llama.cpp b7000-era /props).
+            params = settings.get("params")
+            source = (
+                cast("dict[str, object]", params)
+                if isinstance(params, dict)
+                else settings
+            )
+            seed = source.get("seed")
+            if (
+                isinstance(seed, int)
+                and not isinstance(seed, bool)
+                and (seed < 0 or seed == _RANDOM_SEED_SENTINEL)
+            ):
                 print(
-                    "Warning: server seed is random (< 0); set a fixed seed for "
-                    "reproducible triage",
+                    f"Warning: server seed is random ({seed}); set a fixed seed "
+                    "for reproducible triage",
+                    file=sys.stderr,
+                )
+            temperature = source.get("temperature")
+            if (
+                isinstance(temperature, int | float)
+                and not isinstance(temperature, bool)
+                and temperature > 0
+            ):
+                print(
+                    f"Warning: server temperature is {temperature} (> 0); "
+                    "identical prompts can yield different triage output — load "
+                    "the model at temperature 0 for reproducible triage",
                     file=sys.stderr,
                 )
 

@@ -20,7 +20,8 @@ from __future__ import annotations
 import hashlib
 import importlib.resources
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -307,30 +308,147 @@ def _label_clusters(
     return labels
 
 
+@dataclass(frozen=True)
+class ClusterResult:
+    """DET-01/D-05: cluster count plus the true embed/reuse split.
+
+    Frozen so a caller cannot restate the split after the fact — the printed
+    and persisted counts are the real number of texts embedded and the real
+    number of vectors reused, never a nominal figure.
+    """
+
+    cluster_count: int
+    embedded_count: int
+    reused_count: int
+
+
+# D-04: reuse under an unverifiable model identity is disclosed, never silent.
+# Emitted from the SINGLE decision site below through the injected callback, so
+# the message can never drift from the decision that produced it. The exact
+# fragment "without a verifiable model identity" is pinned by a test.
+_UNVERIFIED_IDENTITY_WARNING = (
+    "Warning: reused stored embedding vectors without a verifiable model "
+    "identity, so a change of embedding model cannot be detected. Run "
+    "sift analyze --re-embed to force a full re-embed."
+)
+
+
+def _embed_with_reuse(
+    store: CaseStore,
+    client: InferenceClient,
+    texts: list[str],
+    *,
+    re_embed: bool,
+    announce: Callable[[str], None] | None,
+) -> tuple[list[list[float]], int, int]:
+    """Resolve one vector per text, reusing stored vectors where sound (DET-01).
+
+    Returns ``(vectors, embedded_count, reused_count)``. ``vectors`` is in the
+    same order as ``texts`` (D-12) and the two counts sum to ``len(texts)``.
+
+    Every read and embed here precedes the caller's ``store.transaction()``, so
+    the shipped embed-precedes-every-write contract (T-03-22) holds and the
+    reuse read still sees the previous run's ``chunks`` rows.
+    """
+    # DET-01: read the previous run's vectors back BEFORE any write — the
+    # chunks rows the JOIN needs are deleted by replace_chunks later inside
+    # the transaction. --re-embed (D-07) overrides every reuse decision.
+    reuse_map: dict[str, list[float]] = (
+        {} if re_embed else store.load_vectors_by_text()
+    )
+
+    # D-03/D-04 identity gate, decided BEFORE the embed call. The client
+    # property is read here deliberately: pre-embed it resolves to the
+    # CONFIGURED embeddings model with no network call, which is the value the
+    # comparison needs. Read after the embed it would prefer the
+    # server-reported name instead (RESEARCH Pitfall 1).
+    stored_model = store.get_meta("embedding_model")
+    client_model = client.embedding_model
+    if stored_model is not None and client_model is not None:
+        if stored_model != client_model:
+            # A PROVEN model change: discard everything. No message — D-03
+            # needs no operator action, and the `N new, 0 reused` line already
+            # makes the full re-embed visible.
+            reuse_map = {}
+    elif reuse_map and announce is not None:
+        # Identity is unverifiable on at least one side. Reuse PROCEEDS:
+        # treating unknown as changed would permanently disable the feature
+        # against any endpoint that does not name its embedding model. The
+        # disclosure is the only thing standing between the operator and a
+        # stale vector, which is why it must be un-swallowable.
+        announce(_UNVERIFIED_IDENTITY_WARNING)
+
+    def _embed_misses(
+        cache: dict[str, list[float]],
+    ) -> tuple[dict[str, list[float]], list[str]]:
+        # D-02: deduplicate misses, preserving first-appearance order.
+        misses = list(dict.fromkeys(t for t in texts if t not in cache))
+        if not misses:
+            # An all-hit run makes ZERO embedding HTTP calls — DET-01's
+            # headline. An empty-list embed would defeat it.
+            return {}, misses
+        return dict(zip(misses, client.embed(misses), strict=True)), misses
+
+    fresh, miss_texts = _embed_misses(reuse_map)
+
+    # T-20-08: a stored vector whose width no longer matches the endpoint must
+    # never be spliced in. A ragged list fails inside normalize() with an
+    # opaque numpy error BEFORE ensure_vectors_table can raise its clean
+    # STORE-03 "embedding dimension mismatch" — and that error is what tells
+    # the operator to reach for --re-embed. Residual D-04 consequence, left
+    # open deliberately: on an all-hit run there is no fresh vector to compare
+    # against, so a changed width goes undetected. That is the risk D-04
+    # accepts in exchange for the feature working against an endpoint that
+    # names no model, and the warning above is its only mitigation.
+    if reuse_map and fresh:
+        fresh_dim = len(next(iter(fresh.values())))
+        if any(len(vec) != fresh_dim for vec in reuse_map.values()):
+            reuse_map = {}
+            fresh, miss_texts = _embed_misses(reuse_map)
+
+    # D-12: splice hits and misses back in original group order — never a
+    # hits-list + misses-list concatenation. vector_rows, rep_excerpt and
+    # HDBSCAN's row order all index positionally against groups/texts, so a
+    # reordered list corrupts clustering silently (RESEARCH Pitfall 2).
+    vectors = [reuse_map[t] if t in reuse_map else fresh[t] for t in texts]
+    embedded_count = len(miss_texts)
+    return vectors, embedded_count, len(texts) - embedded_count
+
+
 def cluster_and_label(
     store: CaseStore,
     client: InferenceClient,
     cfg: ClusteringConfig,
     *,
     label: bool = True,
-) -> int:
+    re_embed: bool = False,
+    announce: Callable[[str], None] | None = None,
+) -> ClusterResult:
     """Embed exemplars, cluster template groups, label them, and persist.
 
-    Returns the number of clusters written. Zero template groups short-circuit
-    to 0 with no embedding call and no writes. When ``label`` is ``True`` a
-    single batched chat call labels every cluster eagerly (D-01); ``label=False``
-    is the ``--no-label`` / no-endpoint path (clusters keep their signature).
-    Persistence (vectors, chunks, clusters, labels, prompt hash) happens inside
-    one ``store.transaction()`` — the caller-owns-transaction idiom mirrored
-    from ``rebuild_template_groups``.
+    Returns a :class:`ClusterResult` carrying the number of clusters written
+    plus the DET-01 embed/reuse split. Zero template groups short-circuit to
+    ``ClusterResult(0, 0, 0)`` with no reuse read, no embedding call and no
+    writes. When ``label`` is ``True`` a single batched chat call labels every
+    cluster eagerly (D-01); ``label=False`` is the ``--no-label`` /
+    no-endpoint path (clusters keep their signature). ``re_embed`` discards
+    every stored vector and re-embeds from scratch (D-07). ``announce`` is this
+    module's ONLY operator-facing output seam — it keeps the typer-free,
+    print-free pipeline contract (``retrieve.py:6``) while still letting the
+    D-04 disclosure reach stderr from the single site that decides it.
+    Persistence (vectors, chunks, clusters, labels, prompt hash, embed/reuse
+    meta counts) happens inside one ``store.transaction()`` — the
+    caller-owns-transaction idiom mirrored from ``rebuild_template_groups``.
     """
     groups = store.query_template_groups()
     if not groups:
-        return 0
+        return ClusterResult(0, 0, 0)
 
     messages = _exemplar_messages(store, groups)
     texts = [exemplar_text(group, messages) for group in groups]
-    vectors = client.embed(texts)
+    vectors, embedded_count, reused_count = _embed_with_reuse(
+        store, client, texts, re_embed=re_embed, announce=announce
+    )
     dim = len(vectors[0])
 
     # np.asarray re-types normalize's partially-typed sklearn output as a
@@ -370,7 +488,33 @@ def cluster_and_label(
     ]
     vector_rows = list(enumerate(vectors))
 
+    # D-03 (dimension half): a dimension change is recoverable ONLY when the
+    # operator explicitly asked for it. Without --re-embed the run falls through
+    # to ensure_vectors_table below and raises the shipped STORE-03 mismatch
+    # error naming both dimensions — that error is what tells the operator what
+    # disagrees and therefore what to recover from, so it is never pre-empted.
+    stored_dim = store.get_meta("embedding_dim")
+    rebuild_dim = (
+        re_embed and stored_dim is not None and int(stored_dim) != dim
+    )
+
     with store.transaction():
+        if rebuild_dim:
+            # D-08/T-20-03: both vec0 tables, the orphaned KB chunks and the
+            # shared dim meta go together, as the FIRST statements of the one
+            # transaction that owns every write — so an interrupted rebuild
+            # rolls back to the original tables at their original widths and a
+            # partial drop can never commit.
+            dropped_vectors, dropped_kb = store.drop_vector_tables()
+            if announce is not None:
+                # D-09: the blast radius, announced after the in-transaction
+                # drop but BEFORE the commit — nothing is actually lost yet.
+                # The counts come from the drop's own return value, so the
+                # numbers and the deletion are provably the same event.
+                announce(
+                    f"dimension changed {stored_dim} -> {dim}; dropping "
+                    f"{dropped_vectors} stored vectors and {dropped_kb} KB vectors"
+                )
         # WR-02: fold the dimension lock (vec0 DDL + embedding_dim meta) into the
         # same transaction as the writes, so a failure anywhere in this block
         # rolls the lock back — a zero-vector case is never permanently wedged.
@@ -397,4 +541,13 @@ def cluster_and_label(
             store.set_cluster_labels(label_map)
         if label:
             store.set_meta("cluster_label_prompt_hash", _template_hash(template))
-    return len(clusters)
+        # D-05: persist the true split in the SAME transaction as the vectors
+        # and chunks it describes, so a rolled-back run cannot leave counts
+        # claiming work that was never committed (T-20-07).
+        store.set_meta("embedding_new_count", str(embedded_count))
+        store.set_meta("embedding_reused_count", str(reused_count))
+    return ClusterResult(
+        cluster_count=len(clusters),
+        embedded_count=embedded_count,
+        reused_count=reused_count,
+    )

@@ -22,8 +22,9 @@ from typer.testing import CliRunner
 
 from sift.adapters import REGISTRY
 from sift.adapters.genericlog import GenericLogAdapter
-from sift.cli import app
+from sift.cli import _resolve_generation_ctx, app  # pyright: ignore[reportPrivateUsage]
 from sift.config import load_config
+from sift.llm.client import Endpoint, InferenceClient
 from sift.models import Event, event_id
 from sift.pipeline import dedup
 from sift.store import CaseStore, case_db_path
@@ -909,6 +910,7 @@ def test_show_clusters_warns_when_template_groups_stale(tmp_path: Path) -> None:
 # the generation call (body carries response_format) is answered per test.
 
 _Handler = Callable[[httpx.Request], httpx.Response]
+_CTX_PROPS_SUFFIX = "/props"  # generation server capability document
 _VALID_EMPTY_HYPSET = json.dumps(
     {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
 )
@@ -987,6 +989,17 @@ def _seed_analyzable(case: str, messages: list[str]) -> list[str]:
     return ids
 
 
+def _embedding_line(output: str) -> str:
+    """The single ``Embeddings:`` summary line (D-06), for a scoped assertion.
+
+    Asserting on the whole output would let an unrelated ``0 new`` elsewhere
+    satisfy a reuse assertion, so the line is isolated first.
+    """
+    lines = [ln for ln in output.splitlines() if ln.startswith("Embeddings: ")]
+    assert len(lines) == 1, f"expected exactly one Embeddings line, got {lines!r}"
+    return lines[0]
+
+
 def test_analyze_exit_0_with_valid_cited_hypotheses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1022,6 +1035,54 @@ def test_analyze_exit_0_with_valid_cited_hypotheses(
         assert store.get_meta("triage_degraded") == "0"
     finally:
         store.close()
+
+
+def test_analyze_prints_embedding_split(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DET-01/D-06: the split is always printed, first run included."""
+    messages = ["solo memory pressure warning", "smtp queue backing up"]
+    _seed_analyzable("demo", messages)
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 0, result.output
+    assert f"Embeddings: {len(messages)} new, 0 reused" in result.output
+
+
+def test_analyze_second_run_reports_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DET-01: a second analyze with no re-ingest reports full reuse."""
+    messages = ["solo memory pressure warning", "smtp queue backing up"]
+    _seed_analyzable("demo", messages)
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+
+    first = runner.invoke(app, ["analyze", "demo"])
+    assert first.exit_code == 0, first.output
+    assert "0 new" not in _embedding_line(first.output)
+
+    second = runner.invoke(app, ["analyze", "demo"])
+    assert second.exit_code == 0, second.output
+    assert "0 new" in _embedding_line(second.output)
+    assert f"{len(messages)} reused" in _embedding_line(second.output)
+
+
+def test_analyze_accepts_re_embed_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-07: --re-embed bypasses the cache at the CLI boundary."""
+    messages = ["solo memory pressure warning", "smtp queue backing up"]
+    _seed_analyzable("demo", messages)
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+
+    first = runner.invoke(app, ["analyze", "demo"])
+    assert first.exit_code == 0, first.output
+
+    forced = runner.invoke(app, ["analyze", "demo", "--re-embed"])
+    assert forced.exit_code == 0, forced.output
+    assert f"Embeddings: {len(messages)} new, 0 reused" in _embedding_line(
+        forced.output
+    )
 
 
 def test_analyze_exit_3_on_malformed_output(
@@ -1699,3 +1760,101 @@ def test_list_does_not_migrate_the_cases_it_lists(tmp_path: Path) -> None:
         conn.close()
     assert version == 0, "listing migrated the case it was only meant to display"
     assert stale.stat().st_size == 0, "listing wrote to case.db"
+
+
+# --- D-10: the single generation-context resolution point -----------------
+
+
+def _ctx_probe_client(handler: _Handler) -> InferenceClient:
+    """A bare client for exercising `_resolve_generation_ctx`."""
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=None)
+    return InferenceClient(ep, ep, http, backoff_base=0.0)
+
+
+def _ctx_props_handler(n_ctx: object) -> _Handler:
+    """Serve the generation server capability document carrying ``n_ctx``."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(_CTX_PROPS_SUFFIX):
+            body = {} if n_ctx is None else {"n_ctx": n_ctx}
+            return httpx.Response(200, json=body)
+        return httpx.Response(404)
+
+    return handler
+
+
+def _ctx_absent_handler(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(404)
+
+
+def test_resolve_generation_ctx_prefers_configured() -> None:
+    """A pinned generation.context is never overridden by the server."""
+    client = _ctx_probe_client(_ctx_props_handler(32768))
+    assert _resolve_generation_ctx(4096, client) == (4096, None)
+
+
+def test_resolve_generation_ctx_discovers_n_ctx() -> None:
+    """Unconfigured: a positive discovered window is used, with no warning."""
+    client = _ctx_probe_client(_ctx_props_handler(32768))
+    assert _resolve_generation_ctx(None, client) == (32768, None)
+
+
+def test_resolve_generation_ctx_warns_when_props_absent() -> None:
+    """The Lemonade case (LLM-04): estimated budget, disclosed."""
+    client = _ctx_probe_client(_ctx_absent_handler)
+    ctx, warning = _resolve_generation_ctx(None, client)
+    assert ctx == 8192
+    assert warning is not None
+    assert "estimated rather than discovered" in warning
+
+
+def test_resolve_generation_ctx_warns_when_n_ctx_unusable() -> None:
+    """A present document carrying no usable n_ctx is still an estimate."""
+    for unusable in (None, 0, -1, "big"):
+        client = _ctx_probe_client(_ctx_props_handler(unusable))
+        ctx, warning = _resolve_generation_ctx(None, client)
+        assert ctx == 8192, unusable
+        assert warning is not None, unusable
+        assert "estimated rather than discovered" in warning
+
+
+def test_analyze_exits_normally_without_props(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Emitting the estimated-budget warning breaks nothing on the analyze path.
+
+    The warning's content is pinned by the helper unit tests above; this only
+    guards that the shipped exit code is unchanged. `_analyze_handler` already
+    404s every unrecognised path, the capability document included.
+    """
+    _seed_analyzable("demo", ["solo memory pressure warning"])
+    _patch_analyze_http(monkeypatch, _analyze_handler())
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 0, result.output
+
+
+def test_analyze_issues_exactly_one_props_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-10: one resolution point means one capability-document GET per run.
+
+    Stronger than a grep for `props()` call sites: `sift doctor` legitimately
+    has its own, so only counting real requests on the analyze path proves the
+    pipeline's own probe is genuinely short-circuited by `ctx_configured`.
+    """
+    seen: list[str] = []
+    inner = _analyze_handler()
+
+    def counting(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        if request.url.path.endswith(_CTX_PROPS_SUFFIX):
+            return httpx.Response(200, json={"n_ctx": 32768})
+        return inner(request)
+
+    _seed_analyzable("demo", ["solo memory pressure warning"])
+    _patch_analyze_http(monkeypatch, counting)
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 0, result.output
+    props_hits = [p for p in seen if p.endswith(_CTX_PROPS_SUFFIX)]
+    assert len(props_hits) == 1, props_hits
