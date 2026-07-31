@@ -653,7 +653,7 @@ def test_eustack_gate_is_analyser_sensitive(
             transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
         )
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
     runner = CliRunner()
 
     # INTACT: exit 0, and the recorded request log is observably empty — the

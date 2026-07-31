@@ -1,7 +1,7 @@
 """Shared offline fixtures for the eval-harness tests (EVAL-05).
 
 Zero sockets: every inference call is served by an ``httpx.MockTransport`` bound
-through the ``cli._make_http_client`` seam, mirroring ``tests/test_analyze.py``
+through the ``llm.bringup.make_http_client`` seam, mirroring ``tests/test_analyze.py``
 so the autouse ``_no_network`` conftest guard stays active. The good handler
 serves ``/v1/embeddings`` (a deterministic per-text vector) plus the two chat
 calls analyze/eval make: the plain cluster-label call and the
@@ -155,4 +155,4 @@ def patch_http(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
             transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
         )
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)

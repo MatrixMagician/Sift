@@ -1,8 +1,9 @@
 """`sift analyze` + `sift show clusters` full-flow tests (CLUS-03, EVAL-05).
 
-Zero sockets: every inference call is served by an ``httpx.MockTransport`` injected
-through the ``cli._make_http_client`` seam, so the autouse ``_no_network`` conftest
-fixture stays active and untouched (EVAL-05). Vectors are planted deterministically
+Zero sockets: every inference call is served by an ``httpx.MockTransport``
+injected through the ``llm.bringup.make_http_client`` seam, so the autouse
+``_no_network`` conftest fixture stays active and untouched (EVAL-05).
+Vectors are planted deterministically
 (the ``test_cluster`` plant): two ``alpha`` synonyms on one axis, two ``beta``
 synonyms on a second, a lone ``gamma`` noise point orthogonal to both — HDBSCAN
 merges the synonyms and leaves the noise a singleton, giving three clusters.
@@ -151,7 +152,7 @@ def _patch_http(
             transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
         )
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
 # --- analyze: cluster + label happy path ---------------------------------

@@ -293,7 +293,7 @@ def _patch_http(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
             transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
         )
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
 def _seed_cli_case(case: str) -> str:

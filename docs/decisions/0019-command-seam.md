@@ -1,6 +1,6 @@
 # ADR 0019: Case commands live behind a typer-free `run_x` seam in `sift/commands/`
 
-**Status:** Accepted (implementation pending)
+**Status:** Accepted (pass 1 implemented; pass 2 — the test migration — pending)
 **Date:** 2026-07-31
 **Answers:** SPEC.md §5.8 (CLI) / §7 (repository layout) — where does a case
 command's implementation live, given that Sift now has three callers for it
@@ -77,9 +77,16 @@ sink and returns a code; nothing raises across the seam. `cli.py` translates
 the code to `typer.Exit`, the TUI reads it directly.
 
 **Exit codes become a vocabulary.** `ExitCode(IntEnum)` in `commands/_exit.py`
-with the four ADR meanings, plus `is_failure(code)` shared by both adapters.
-`run_x` returns `ExitCode`, so pyright rejects a command inventing a fifth
-code.
+with the four ADR meanings. `run_x` returns `ExitCode`, so pyright rejects a
+command inventing a fifth code.
+
+`is_failure(code)` serves the adapters that keep running and must decide what
+to show — in practice the TUI, replacing its hand-rolled `(0, 3)` tuple. The
+CLI deliberately does not use it: a process exit status must carry every
+non-zero code to the shell, `DEGRADED` included, so `cli.py` branches on
+`if code:`. The two rules differ because the questions differ — "is there
+something to show?" versus "what status did this run finish with?" — and an
+earlier draft of this ADR wrongly called it one shared rule.
 
 **Parsing is pure and public.** `parse_filters` and `parse_moment` move to
 `commands/parse.py`, returning typed values or raising `ValueError`. Adapters
@@ -101,6 +108,13 @@ three callers one canonical bring-up.
 untouched; a green suite is the proof behaviour was preserved. Pass 2 migrates
 logic tests to direct calls, leaving `CliRunner` for what is genuinely CLI:
 flag wiring, exit-code propagation, help text, non-TTY stdout, sanitisation.
+
+"Untouched" means no assertion changes. Pass 1 did edit eleven test lines,
+all forced by the seam moving rather than by behaviour changing: ten
+`monkeypatch.setattr` string paths, and one import. New code that is not moved
+code — `ExitCode`, `is_failure`, `open_case` — carries its own direct tests in
+`tests/test_commands_seam.py`, since the moved-bodies argument does not cover
+it.
 
 ## Consequences
 

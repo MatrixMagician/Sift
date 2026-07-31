@@ -30,6 +30,7 @@ import sqlite_vec  # pyright: ignore[reportMissingTypeStubs] — pre-v1, no stub
 import zstandard
 
 from sift.models import Event
+from sift.render._util import sanitise
 
 _RAW_ZSTD_THRESHOLD = 4096  # UTF-8 encoded bytes (STORE-02)
 _MAX_RAW_BYTES = 128 * 2**20  # zstd-bomb cap for tampered case files (T-02-01)
@@ -139,6 +140,49 @@ def case_db_path(data_dir: Path, name: str) -> Path:
     if not path.resolve().is_relative_to(cases.resolve()):
         raise ValueError(f"case path escapes {cases}: {name!r}")
     return path
+
+
+class CaseNotFound(Exception):
+    """A case name is invalid, or names a case that does not exist (ADR 0019).
+
+    Carries the operator-facing message body; callers print it under their own
+    prefix (the CLI as ``Error: <message>``, the TUI on its ErrorScreen).
+    """
+
+
+class CaseUnreadable(Exception):
+    """An existing case.db cannot be opened — corrupt or read-only media.
+
+    The message is ALREADY sanitised: exception text from sqlite3 can echo
+    attacker-controlled db bytes (T-04-01), and every caller prints it.
+    """
+
+
+def open_case(data_dir: Path, name: str) -> "CaseStore":
+    """Open an existing case, or raise a typed, message-carrying failure.
+
+    The single "resolve a case name to a validated, open store" path (ADR
+    0019): name validation, containment-checked path resolution, existence
+    check and sanitised open failure. Both adapters route through it — the CLI
+    mapping the failures to exit 1, the TUI to its ErrorScreen — so a corrupt
+    or missing case reads identically whichever surface the operator is on.
+
+    Raises ``CaseNotFound`` (invalid name or no such case) or
+    ``CaseUnreadable`` (WR-02: corrupt or read-only evidence media fails
+    loudly with a message, never a Python traceback).
+    """
+    try:
+        db_path = case_db_path(data_dir, name)
+    except ValueError as exc:
+        raise CaseNotFound(str(exc)) from None
+    if not db_path.exists():
+        raise CaseNotFound(f"case {name!r} does not exist; create it with 'sift new'")
+    try:
+        return CaseStore(db_path)
+    except sqlite3.Error as exc:
+        raise CaseUnreadable(
+            f"cannot open case {name!r}: {sanitise(str(exc))}"
+        ) from None
 
 
 def _migration_1(conn: sqlite3.Connection) -> None:

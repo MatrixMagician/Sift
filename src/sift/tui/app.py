@@ -30,9 +30,13 @@ from textual.app import App
 from textual.binding import Binding, BindingType
 from textual.worker import Worker, WorkerState
 
+from sift.commands import ExitCode, is_failure
+from sift.commands import analyze as analyze_cmd
+from sift.commands import report as report_cmd
 from sift.config import SiftConfig, load_config
+from sift.pipeline import ingest as ingest_mod
 from sift.render._util import sanitise
-from sift.store import CaseStore, case_db_path
+from sift.store import CaseStore, case_db_path, open_case
 from sift.tui.screens.clusters import ClustersScreen
 from sift.tui.screens.error import ErrorScreen, NotAnalysedScreen
 from sift.tui.screens.help_overlay import HelpOverlay
@@ -197,19 +201,27 @@ class SiftApp(App[None]):
         config = self._resolve_config()
         self._start_pipeline_worker(partial(self._run_report, config), "report")
 
-    def _run_analyse(self, config: SiftConfig) -> tuple[int, list[str]]:
-        """Thread-worker body: the CLI's ``run_analyze`` on a fresh store.
+    def _worker_store(self, config: SiftConfig) -> CaseStore:
+        """Open this worker's own store, mapping failures like the CLI does.
 
         The app's main-thread ``CaseStore`` cannot cross threads (sqlite's
-        default ``check_same_thread``), so the worker opens its OWN store
+        default ``check_same_thread``), so each worker opens its OWN store
         against the same case.db (WAL: one writer + readers; migrations are
-        idempotent) and closes it on every path. Returns the CLI-04 exit
-        code plus every echoed line, for the main-thread completion handler
-        to route. ``run_analyze`` is resolved late off the module so the
-        test seams (``sift.cli._make_http_client``) keep working.
+        idempotent). Routing through ``open_case`` rather than constructing
+        ``CaseStore`` directly means a missing or corrupt case raises the same
+        typed, sanitised failure the CLI reports (ADR 0019) — it surfaces here
+        on the ErrorScreen via the worker ERROR leg.
         """
-        from sift import cli  # deferred: cli imports this module's package
+        return open_case(config.data_dir, self.case_name)
 
+    def _run_analyse(self, config: SiftConfig) -> tuple[ExitCode, list[str]]:
+        """Thread-worker body: ``commands.run_analyze`` on a fresh store.
+
+        Returns the CLI-04 exit code plus every echoed line, for the
+        main-thread completion handler to route. ``run_analyze`` is resolved
+        late off the module so the test seam
+        (``sift.commands.analyze.run_analyze``) keeps working.
+        """
         lines: list[str] = []
 
         def announce(message: str) -> None:
@@ -217,9 +229,9 @@ class SiftApp(App[None]):
                 self._show_pipeline_status, message, "running"
             )
 
-        store = CaseStore(case_db_path(config.data_dir, self.case_name))
+        store = self._worker_store(config)
         try:
-            code = cli.run_analyze(
+            code = analyze_cmd.run_analyze(
                 store,
                 config,
                 echo=lines.append,
@@ -231,38 +243,33 @@ class SiftApp(App[None]):
         return code, lines
 
     def _run_ingest(self, config: SiftConfig) -> None:
-        """Thread-worker body: the CLI's ``run_ingest`` on a fresh store.
+        """Thread-worker body: the pipeline's ``run_ingest`` on a fresh store.
 
         Same per-worker store discipline as :meth:`_run_analyse`. IngestError
         and IngestUsageError bubble deliberately — the ERROR routing in
         :meth:`on_worker_state_changed` is the sanitised failure surface.
-        ``run_ingest`` resolves late off the cli module so tests can patch
-        the same ``sift.cli`` seam family the analyse worker uses.
+        ``run_ingest`` resolves late off the module so tests can patch the
+        same seam family the analyse worker uses.
         """
-        from sift import cli  # deferred: cli imports this module's package
-
-        store = CaseStore(case_db_path(config.data_dir, self.case_name))
+        store = self._worker_store(config)
         try:
-            cli.run_ingest(self.case_name, config, store)
+            ingest_mod.run_ingest(self.case_name, config, store)
         finally:
             store.close()
 
-    def _run_report(self, config: SiftConfig) -> tuple[int, list[str], Path]:
-        """Thread-worker body: the CLI's ``run_report`` on a fresh store.
+    def _run_report(self, config: SiftConfig) -> tuple[ExitCode, list[str], Path]:
+        """Thread-worker body: ``commands.run_report`` on a fresh store.
 
         Writes Markdown to ``report.md`` next to case.db (the S04 planning
         decision: export to the case directory, no in-TUI viewer). Returns
         the ADR 0007 exit code, every echoed line and the target path for
         the main-thread completion handler to route.
         """
-        from sift import cli  # deferred: cli imports this module's package
-
         lines: list[str] = []
-        db_path = case_db_path(config.data_dir, self.case_name)
-        out = db_path.parent / "report.md"
-        store = CaseStore(db_path)
+        out = case_db_path(config.data_dir, self.case_name).parent / "report.md"
+        store = self._worker_store(config)
         try:
-            code = cli.run_report(store, out=out, echo=lines.append)
+            code = report_cmd.run_report(store, out=out, echo=lines.append)
         finally:
             store.close()
         return code, lines, out
@@ -293,15 +300,15 @@ class SiftApp(App[None]):
             return
         if worker.name == "report":
             self._route_report(
-                cast("tuple[int, list[str], Path]", worker.result)
+                cast("tuple[ExitCode, list[str], Path]", worker.result)
             )
             return
-        self._route_analyse(cast("tuple[int, list[str]]", worker.result))
+        self._route_analyse(cast("tuple[ExitCode, list[str]]", worker.result))
 
-    def _route_report(self, result: tuple[int, list[str], Path]) -> None:
+    def _route_report(self, result: tuple[ExitCode, list[str], Path]) -> None:
         """Surface one report export: the written path, or a sanitised error."""
         code, lines, out = result
-        if code:
+        if is_failure(code):
             self.push_screen(ErrorScreen(lines[-1] if lines else "Report failed"))
             return
         self.last_report_path = out
@@ -309,13 +316,17 @@ class SiftApp(App[None]):
         # the path embeds the user-supplied case name (T-04-01).
         self.notify(f"Report written to {sanitise(str(out))}", markup=False)
 
-    def _route_analyse(self, result: tuple[int, list[str]]) -> None:
+    def _route_analyse(self, result: tuple[ExitCode, list[str]]) -> None:
         """Route one analyse completion: success (or degraded-but-persisted)
         with triage meta present switches the landing screen to the
-        hypothesis list; failure exit codes surface on the ErrorScreen."""
+        hypothesis list; failure exit codes surface on the ErrorScreen.
+
+        ``is_failure`` is the shared rule (ADR 0019) — DEGRADED persisted its
+        output, so it lands on the hypothesis list like a clean success.
+        """
         code, lines = result
         detail = lines[-1] if lines else ""
-        if code not in (0, 3):
+        if is_failure(code):
             self._show_pipeline_status(detail or "Analyse failed", "failed")
             self.push_screen(ErrorScreen(detail or "Analyse failed"))
             return

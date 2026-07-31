@@ -1,8 +1,9 @@
 """`sift doctor` fail-fast checks against a fake OpenAI-compatible server (LLM-03).
 
-Zero sockets: every inference call is served by an ``httpx.MockTransport`` injected
-through the ``cli._make_http_client`` seam, so the autouse ``_no_network`` conftest
-fixture stays active and untouched (EVAL-05). The checks are asserted in dependency
+Zero sockets: every inference call is served by an ``httpx.MockTransport``
+injected through the ``llm.bringup.make_http_client`` seam, so the autouse
+``_no_network`` conftest fixture stays active and untouched (EVAL-05).
+The checks are asserted in dependency
 order — an unreachable generation endpoint must stop *before* the embeddings probe.
 A live-server variant is ``@pytest.mark.live`` and excluded from the default suite
 (``addopts = -m 'not perf and not live'``).
@@ -87,7 +88,7 @@ def _patch_http(
     def _factory(timeout: float) -> httpx.Client:
         return httpx.Client(transport=transport, timeout=httpx.Timeout(timeout))
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
 def _seed_case(case: str, *, embedding_dim: int) -> None:

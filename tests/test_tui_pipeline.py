@@ -1,11 +1,11 @@
 """Pilot tests for the S04 in-TUI pipeline actions (R006/R012).
 
-The analyse action runs the shared ``sift.cli.run_analyze`` body in a
+The analyse action runs the shared ``sift.commands.analyze.run_analyze`` body in a
 Textual thread worker against a fresh per-worker ``CaseStore``; these tests
 drive it headlessly through the same fake-server kit the CLI suites use
 (``tests/_report_fixtures.py``: ``_seed_case`` builds an ingested,
 not-analysed case; ``_patch_http`` injects an ``httpx.MockTransport`` at
-the ``sift.cli._make_http_client`` seam, so the autouse zero-network guard
+the ``sift.llm.bringup.make_http_client`` seam, so the autouse zero-network guard
 stays active). Assertions follow the S02 discipline: plain attributes
 (``pipeline_status``/``pipeline_state``/``pipeline_log``), which screen is
 on top, never rendered pixels.
@@ -181,7 +181,7 @@ async def test_analyse_worker_crash_is_routed_not_fatal(
     def boom(*args: object, **kwargs: object) -> int:
         raise RuntimeError("unexpected pipeline explosion")
 
-    monkeypatch.setattr("sift.cli.run_analyze", boom)
+    monkeypatch.setattr("sift.commands.analyze.run_analyze", boom)
     try:
         app = SiftApp(store, "tuicrash", config=config)
         async with app.run_test() as pilot:

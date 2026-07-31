@@ -88,17 +88,23 @@ Do not start work on the next milestone while the current one's tests are red.
 
 ```
 src/sift/
-  cli.py            Typer app — the nine subcommands (new, ingest, show, analyze,
-                    report, mcm, perfmon, eval, doctor) and the ingest orchestrator
+  cli.py            Typer app — flag parsing, case opening, exit. One of the two
+                    adapters at the case-command seam (ADR 0019); the other is
+                    the TUI. Still holds the doctor/eval/new/list/delete bodies
+  commands/         the typer-free case-command bodies: run_x(store, config, ...)
+                    -> ExitCode. show, analyze, report, validate, mcm, perfmon,
+                    eustack; _exit.py owns the exit-code vocabulary, parse.py the
+                    pure --filter/--since parsers
   config.py         config precedence: CLI flags > SIFT_* env > config.toml > defaults
   models.py         frozen Event dataclass + event_id(); Hypothesis/HypothesisSet
-  store.py          SQLite + sqlite-vec case store; owns migrations and the
-                    EXCLUDED_FROM_RANKING source-kind seam
+  store.py          SQLite + sqlite-vec case store; owns migrations, open_case and
+                    the EXCLUDED_FROM_RANKING source-kind seam
   adapters/         pluggable parsers (base.py holds the frozen Adapter protocol);
                     five shipped: genericlog, journald, dsserrors, eustack, dssperfmon
   pipeline/         dedup, cluster, salience, retrieve, hypothesise; mcm + mcm_facts
                     (MCM denial episodes), perfmon + perfmon_facts (DSSPerformanceMonitor)
-  llm/              client.py — the ONLY module that opens HTTP; budget.py
+  llm/              client.py — the ONLY module that opens HTTP; bringup.py turns
+                    a SiftConfig into a guarded client for every caller; budget.py
   render/           markdown (primary), json_out, mcm_report, perfmon_report, pdf (extra)
   prompts/          versioned *.md prompt templates, loaded as package data
   eval/             golden-case harness behind `sift eval`

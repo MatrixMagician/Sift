@@ -22,7 +22,8 @@ from typer.testing import CliRunner
 
 from sift.adapters import REGISTRY
 from sift.adapters.genericlog import GenericLogAdapter
-from sift.cli import _resolve_generation_ctx, app  # pyright: ignore[reportPrivateUsage]
+from sift.cli import app
+from sift.commands import resolve_generation_ctx as _resolve_generation_ctx
 from sift.config import load_config
 from sift.llm.client import Endpoint, InferenceClient
 from sift.models import Event, event_id
@@ -905,7 +906,7 @@ def test_show_clusters_warns_when_template_groups_stale(tmp_path: Path) -> None:
 # --- analyze exit-code contract (CLI-04): 0 success / 3 degraded / 1 failure --
 #
 # Zero sockets: the inference calls are served by an httpx.MockTransport bound
-# through the cli._make_http_client seam, so the autouse _no_network guard stays
+# through the llm.bringup.make_http_client seam, so the autouse _no_network guard stays
 # active (EVAL-05). A fixed 8-dim vector for every input is enough to cluster;
 # the generation call (body carries response_format) is answered per test.
 
@@ -952,7 +953,7 @@ def _patch_analyze_http(
             transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
         )
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
 def _seed_analyzable(case: str, messages: list[str]) -> list[str]:

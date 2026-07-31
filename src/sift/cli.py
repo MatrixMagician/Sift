@@ -10,47 +10,46 @@ import json
 import shutil
 import sqlite3
 import sys
-from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
-from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Annotated, Protocol, cast
+from typing import Annotated, cast
 
 import httpx
 import typer
-from rich.console import Console
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    TextColumn,
-    TimeElapsedColumn,
-)
 
 from sift import adapters
+from sift.commands import (
+    BundleFormat,
+    ReportFormat,
+    parse_filters,
+    run_analyze,
+    run_eustack,
+    run_mcm,
+    run_perfmon,
+    run_report,
+    run_show_clusters,
+    run_show_events,
+    run_show_hypotheses,
+    run_validate,
+)
+from sift.commands import parse_moment as _parse_moment_or_raise
 from sift.config import SiftConfig, load_config
-from sift.llm.client import Endpoint, InferenceClient
-from sift.pipeline import retrieve
-from sift.pipeline.analysers import AnalyserSettings
-from sift.pipeline.cluster import cluster_and_label
+from sift.llm.bringup import build_client as _build_client
 from sift.pipeline.hypothesise import (
     DEFAULT_TOP_CLUSTERS as _DEFAULT_TOP_CLUSTERS,
 )
-from sift.pipeline.hypothesise import (
-    TRIAGE_CTX_FALLBACK as _TRIAGE_CTX_FALLBACK,
-)
-from sift.pipeline.hypothesise import hypothesise
 from sift.pipeline.ingest import IngestError, IngestUsageError, run_ingest
-from sift.render._util import PdfExtraMissing
 from sift.render._util import sanitise as _sanitise
-from sift.store import CaseStore, case_db_path, vec_version
-from sift.verdicts import (
-    TargetSpecError,
-    UnknownTargetError,
-    parse_target,
-    record_validation,
+from sift.store import (
+    CaseNotFound,
+    CaseStore,
+    CaseUnreadable,
+    case_db_path,
+    open_case,
+    vec_version,
 )
+from sift.verdicts import TargetSpecError, parse_target
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -82,6 +81,8 @@ def _version_callback(value: bool) -> None:
 
 
 @app.callback()
+
+
 def _main(  # pyright: ignore[reportUnusedFunction] — registered via @app.callback
     _version: Annotated[
         bool,
@@ -103,26 +104,22 @@ DataDirOption = Annotated[
 
 
 def _case_store(case: str, config: SiftConfig) -> CaseStore:
-    """Open an existing case or exit 1 with a helpful message."""
+    """Open an existing case or exit 1 with a helpful message.
+
+    The CLI's mapping of ``store.open_case``'s typed failures (ADR 0019) onto
+    the exit-1 contract. The TUI maps the same two exceptions onto its
+    ErrorScreen, so a missing or corrupt case reads identically on both.
+    """
     try:
-        db_path = case_db_path(config.data_dir, case)
-    except ValueError as exc:
+        return open_case(config.data_dir, case)
+    except (CaseNotFound, CaseUnreadable) as exc:
         print(f"Error: {exc}")
-        raise typer.Exit(1) from None
-    if not db_path.exists():
-        print(f"Error: case {case!r} does not exist; create it with 'sift new'")
-        raise typer.Exit(1)
-    try:
-        return CaseStore(db_path)
-    except sqlite3.Error as exc:
-        # WR-02: corrupt or read-only evidence media fails loudly with a
-        # message, never a Python traceback. Exception text can echo
-        # attacker-controlled db bytes — sanitise (T-04-01).
-        print(f"Error: cannot open case {case!r}: {_sanitise(str(exc))}")
         raise typer.Exit(1) from None
 
 
 @app.command()
+
+
 def new(
     case_name: str,
     input: Annotated[str, typer.Option("--input", help="Directory of artefacts")],
@@ -206,6 +203,8 @@ def _case_row(db_path: Path) -> tuple[str, str, str]:
 
 
 @app.command("list")
+
+
 def list_(data_dir: DataDirOption = None) -> None:
     """List the cases in the data directory.
 
@@ -231,6 +230,8 @@ def list_(data_dir: DataDirOption = None) -> None:
 
 
 @app.command()
+
+
 def delete(
     case: str,
     force: Annotated[
@@ -282,6 +283,8 @@ def delete(
 
 
 @app.command()
+
+
 def ingest(case: str, data_dir: DataDirOption = None) -> None:
     """Parse the case's input directory and store canonical events.
 
@@ -311,95 +314,17 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
         store.close()
 
 
-# The six-severity vocabulary (store CHECK constraint) for filter validation.
-_SEVERITIES = ("fatal", "error", "warn", "info", "debug", "unknown")
-
-# Valid --filter keys per show target (STORE-04). Mirrors the allowlist
-# snippet dicts in store.py — the store re-validates as defence in depth.
-_FILTER_KEYS: dict[str, tuple[str, ...]] = {
-    "events": ("severity", "source", "file", "since", "until", "limit"),
-    "clusters": ("severity", "min-count", "contains", "limit"),
-    # hypotheses: no filters yet (query_hypotheses returns the whole ranked set).
-    # An empty allowlist means any --filter fails loudly (exit 2) rather than
-    # being silently ignored — a richer filter set is out of scope for M4.
-    "hypotheses": (),
-}
-
-
-def _to_utc(value: str) -> datetime:
-    """Parse an ISO 8601 string to a UTC datetime — the shared since/until idiom.
-
-    A naive value is treated as UTC (documented in --help), then normalised to
-    UTC. Raises ``ValueError`` on a non-ISO value; each caller owns its own
-    error message and exit code.
-    """
-    moment = datetime.fromisoformat(value)
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    return moment.astimezone(UTC)
-
-
-def _parse_filters(specs: list[str], target: str) -> dict[str, str | int]:
-    """Parse and validate repeated ``--filter key=value`` specs (typer-free).
-
-    Splits on the FIRST '=': filter keys are allowlisted names that never
-    contain '=', while values may (e.g. ``file=name=odd.log``). This is the
-    deliberate opposite of parse_adapter_overrides' last-'=' split, where the
-    '='-free side is the adapter name on the right. Raises ValueError on any
-    invalid key or value — bad input fails loudly, never an empty result set
-    that looks like 'no matches'. The CLI converts the error to exit 2.
-    """
-    valid_keys = _FILTER_KEYS[target]
-    filters: dict[str, str | int] = {}
-    for spec in specs:
-        key, sep, value = spec.partition("=")
-        if not sep or not key or not value:
-            raise ValueError(f"invalid filter {spec!r}; expected key=value")
-        if key not in valid_keys:
-            raise ValueError(
-                f"unknown filter key {key!r} for {target}; "
-                f"valid keys: {', '.join(valid_keys)}"
-            )
-        if key in filters:
-            # WR-05: never silent last-wins — a repeated key is a mistake the
-            # operator must hear about (fail-loud prohibition).
-            raise ValueError(
-                f"duplicate filter key {key!r}; each key may appear once"
-            )
-        if key == "severity":
-            if value not in _SEVERITIES:
-                raise ValueError(
-                    f"invalid severity {value!r}; "
-                    f"valid severities: {', '.join(_SEVERITIES)}"
-                )
-            filters[key] = value
-        elif key in ("limit", "min-count"):
-            try:
-                number = int(value)
-            except ValueError:
-                raise ValueError(
-                    f"invalid {key} value {value!r}: not an integer"
-                ) from None
-            if number < 0:
-                raise ValueError(
-                    f"invalid {key} value {value!r}: must be non-negative"
-                )
-            filters[key] = number
-        elif key in ("since", "until"):
-            try:
-                # Stored ts strings are UTC isoformat — normalise before binding
-                # so the string comparison in store.py is chronological.
-                filters[key] = _to_utc(value).isoformat()
-            except ValueError:
-                raise ValueError(
-                    f"invalid {key} value {value!r}: not an ISO 8601 timestamp"
-                ) from None
-        else:
-            filters[key] = value
-    return filters
+# The targets `sift show` accepts. Each has its own body in commands/show.py
+# (ADR 0019), so this command is a dispatch: the CLI owns which names are
+# public, the TUI reaches the same functions directly per screen. `templates`
+# is deliberately absent — it is the clusters target's pre-analyze fallback,
+# not a name an operator passes.
+_SHOW_TARGETS = ("events", "clusters", "hypotheses")
 
 
 @app.command()
+
+
 def show(
     case: str,
     what: str,
@@ -424,11 +349,11 @@ def show(
     since/until timestamps are treated as UTC; since/until exclude events
     without a timestamp (a documented filter semantic, not silent loss).
     """
-    if what not in ("events", "clusters", "hypotheses"):
+    if what not in _SHOW_TARGETS:
         print(f"Error: unknown target {what!r}; expected events|clusters|hypotheses")
         raise typer.Exit(1)
     try:
-        parsed = _parse_filters(filters, what)
+        parsed = parse_filters(filters, what)
     except ValueError as exc:
         # T-02-09: echoed filter values are untrusted input — sanitise.
         print(f"Error: {_sanitise(str(exc))}")
@@ -437,125 +362,29 @@ def show(
     store = _case_store(case, config)
     try:
         if what == "hypotheses":
-            # RAG-02: the persisted, ranked hypotheses (query_hypotheses orders
-            # by hyp_index ASC). Nothing yet means analyze has not run — say so
-            # and exit 0 (not the old Phase-4-pending stub).
-            hyps = store.query_hypotheses()
-            if not hyps:
-                # WR-03: distinguish "analyze never ran" from a hard-degraded run
-                # that persisted zero schema-valid rows but stored raw output —
-                # the latter must not claim analyze never ran (nothing disappears
-                # silently). triage_created_at is the "did analyze run" signal.
-                if store.get_meta("triage_created_at") is not None:
-                    print(
-                        "No schema-valid hypotheses; the last analyze degraded "
-                        "and persisted raw model output — run 'sift report' to "
-                        "view the DEGRADED banner and raw output",
-                        file=sys.stderr,
-                    )
-                    return
-                print("No hypotheses yet; run 'sift analyze' first")
-                return
-            # A degraded run flagged rows or persisted raw output — warn on
-            # stderr (mirrors the stale-groups warning) so stdout stays scriptable.
-            if store.get_meta("triage_degraded") == "1":
-                print(
-                    "Warning: last analyze degraded — some hypotheses are FLAGGED "
-                    "(invalid citations) or raw output was persisted; treat "
-                    "flagged rows with care",
-                    file=sys.stderr,
-                )
-            # WR-01: titles and cited ids are model-generated / DB-sourced and
-            # attacker-controlled in a shared case.db — sanitise the COMPLETE
-            # rendered line, never per field (T-04-03). FLAGGED marks a row whose
-            # citations were not all shown to the model (never silently dropped).
-            for h in hyps:
-                marker = "OK" if h.citations_valid else "FLAGGED"
-                title = h.title.replace("\n", " ")[:100]
-                print(_sanitise(
-                    f"{h.hyp_index}  {h.confidence:<6}  {marker:<7}  {title}"
-                ))
-                print(_sanitise(
-                    f"    cites: {' '.join(map(str, h.supporting_event_ids))}"
-                ))
-            return
-        if what == "clusters":
-            # WR-03: events committed but groups never rebuilt (crash between
-            # the event transaction and the rebuild) — warn, still render.
-            if store.get_meta("template_groups_stale") == "1":
-                print(
-                    "Warning: template groups are stale (last ingest did not "
-                    "complete); re-run 'sift ingest'",
-                    file=sys.stderr,
-                )
-            # D-01: once `sift analyze` has run, the clusters table is populated
-            # and IS the clusters view — render the label (else the signature
-            # fallback) per row. Until then, fall back to the template groups as
-            # the pre-cluster view. Decide on the unfiltered table so an applied
-            # --filter that excludes every row still renders the clusters view
-            # (zero matches), never silently reverting to template groups.
-            if store.query_clusters():
-                # STORE-04: clusters, count DESC then cluster_id ASC. Labels are
-                # model-generated and signatures carry hostile log bytes — WR-01:
-                # sanitise the COMPLETE rendered line, not per field (T-03-20).
-                for c in store.query_clusters(parsed or None):
-                    name = (c.label or c.signature).replace("\n", " ")[:100]
-                    print(_sanitise(
-                        f"{c.cluster_id}  {c.count:>7}  {c.severity_max:<7}  {name}"
-                    ))
-                return
-            # STORE-04: template groups, count DESC then template ASC.
-            # Templates and exemplar text carry hostile log bytes — sanitise
-            # at render only (T-02-02); an empty table renders nothing, exit 0.
-            # WR-01: EVERY DB-sourced field (ids, counts, timestamps,
-            # severities, exemplars) is attacker-controlled in a shared
-            # case.db — sanitise the COMPLETE rendered line, not per field.
-            for g in store.query_template_groups(parsed or None):
-                template = g.template.replace("\n", " ")[:100]
-                print(_sanitise(
-                    f"{g.template_id}  {g.count:>7}  {g.severity_max:<7}  "
-                    f"{g.first_ts or '-'}  {g.last_ts or '-'}  {template}"
-                ))
-                print(_sanitise(
-                    f"    exemplars: {' '.join(map(str, g.exemplar_event_ids))}"
-                ))
-            return
-        # T-02-10: stream column-scoped rows — no raw column, no zstd
-        # decompression, no full Event hydration. Lines stay byte-identical
-        # to the Phase 1 rendering (stored ts strings ARE isoformat output).
-        # WR-01: whole-line sanitisation covers event_id/ts/severity too.
-        for event_id, ts, severity, source_file, line_start, message in (
-            store.iter_event_rows(parsed or None)
-        ):
-            rendered = message.replace("\n", " ")[:120]
-            print(_sanitise(
-                f"{event_id}  {ts if ts is not None else '-'}  {severity:<7}  "
-                f"{source_file}:{line_start}  {rendered}"
-            ))
+            code = run_show_hypotheses(store)
+        elif what == "clusters":
+            code = run_show_clusters(store, filters=parsed)
+        else:
+            code = run_show_events(store, filters=parsed)
     finally:
         # Close so WAL sidecars checkpoint on every show path (Pitfall 4).
         store.close()
+    if code:
+        raise typer.Exit(code)
 
 
 def _parse_moment(value: str | None, label: str) -> datetime | None:
-    """Parse an ISO 8601 ``--since``/``--until`` value to a UTC datetime.
+    """Map ``commands.parse_moment``'s ValueError onto the exit-2 contract.
 
-    Mirrors the ``_parse_filters`` datetime idiom: a naive value is treated as
-    UTC then normalised to UTC. A bad value raises ``typer.Exit(2)`` — a usage
-    error, never a silent ``None`` that would look like an absent window.
-    ``--hint`` is NEVER routed through here: it is free operator text, not a
-    timestamp, and reaches the prompt verbatim.
+    A bad ``--since``/``--until`` is a usage error, never a silent ``None``
+    that would look like an absent window. The parser's message is already
+    sanitised (T-04-01: the echoed flag value is untrusted input).
     """
-    if value is None:
-        return None
     try:
-        return _to_utc(value)
-    except ValueError:
-        # T-04-01: echo the untrusted flag value only after sanitising it.
-        print(
-            f"Error: invalid {label} value {_sanitise(value)!r}: "
-            "not an ISO 8601 timestamp"
-        )
+        return _parse_moment_or_raise(value, label)
+    except ValueError as exc:
+        print(f"Error: {exc}")
         raise typer.Exit(2) from None
 
 
@@ -572,38 +401,9 @@ def _config_with_model(data_dir: Path | None, model: str | None) -> SiftConfig:
     return load_config(overrides)
 
 
-def _resolve_generation_ctx(
-    configured: int | None, client: InferenceClient
-) -> tuple[int, str | None]:
-    """Resolve the generation prompt-budget context window (D-10).
-
-    Returns ``(context_tokens, warning_or_None)`` and is the SINGLE place the
-    generation context is resolved on the ``analyze`` path. Precedence follows
-    the project's documented order (CLI flags > ``SIFT_*`` env > config.toml >
-    defaults): an explicitly configured ``generation.context`` wins outright and
-    is never overridden by a server-reported ``n_ctx``, because a pinned value
-    is a deliberate operator decision rather than a hint.
-
-    The warning is RETURNED rather than printed so the whole decision is
-    unit-testable without a ``CliRunner`` and without depending on how the
-    pinned Click version separates stdout from stderr.
-    """
-    if configured is not None and configured > 0:
-        # A pinned window is a choice, not an estimate — never warned about.
-        return configured, None
-    n = client.props().get("n_ctx")
-    if isinstance(n, int) and n > 0:
-        return n, None
-    return (
-        _TRIAGE_CTX_FALLBACK,
-        "Warning: the generation prompt budget is estimated rather than "
-        "discovered — the endpoint served no usable context size, so "
-        f"{_TRIAGE_CTX_FALLBACK} tokens is assumed. Set generation.context in "
-        "config.toml to pin the real window.",
-    )
-
-
 @app.command()
+
+
 def analyze(
     case: str,
     i_know_what_im_doing: Annotated[
@@ -730,224 +530,9 @@ def analyze(
         raise typer.Exit(code)
 
 
-def _echo_stderr(message: str) -> None:
-    """Plain-print stderr sink: ``run_analyze``'s default warning channel."""
-    print(message, file=sys.stderr)
-
-
-def run_analyze(
-    store: CaseStore,
-    config: SiftConfig,
-    *,
-    allow_public: bool = False,
-    label: bool = True,
-    re_embed: bool = False,
-    hint: str | None = None,
-    kb: Path | None = None,
-    since: datetime | None = None,
-    until: datetime | None = None,
-    top_clusters: int = _DEFAULT_TOP_CLUSTERS,
-    echo: Callable[[str], None] = print,
-    echo_err: Callable[[str], None] = _echo_stderr,
-    announce: Callable[[str], None] | None = None,
-) -> int:
-    """Run the analyse pipeline against an open case store (R006).
-
-    The shared in-process body of ``sift analyze``: the Typer command wraps
-    it with flag parsing, config resolution and store lifecycle; the TUI
-    calls it from a worker thread with its own ``CaseStore`` and callbacks.
-    Every operator-visible line flows through an injected sink — ``echo``
-    (stdout result lines), ``echo_err`` (stderr warnings) and ``announce``
-    (pipeline stage messages; ``None`` binds the CLI default, the stderr
-    console that owns the transient progress bar) — so callers fully own
-    presentation. Returns the CLI-04 exit code (0 success, 3 degraded but
-    persisted, 1 failure) instead of raising ``typer.Exit``; the caller owns
-    process exit and ``store.close()``.
-    """
-    # CLUS-01: zero template groups has two distinct causes, which must not
-    # be conflated (D-19-02, EUS-11). Zero events at all means ingest has
-    # not run (or produced nothing) — there is nothing to embed OR
-    # narrate, so skip the client entirely and exit cleanly. Zero groups
-    # WITH events present means every ingested source is held out of
-    # ranking (EXCLUDED_FROM_RANKING, e.g. an eu-stack-only case) — there
-    # is still nothing to embed, but the deterministic fact blocks
-    # (MCM/perfmon/eu-stack) must still reach hypothesise() so they
-    # narrate; falling through here is what makes exclusion a
-    # replacement, not a dead end. groups > 0 always yields >= 1 cluster
-    # (auto-singleton). The probe reads at most one row from the cheap
-    # unfiltered streaming generator — never store.query_events(), which
-    # decompresses every raw zstd blob.
-    groups = store.query_template_groups()
-    if not groups and next(iter(store.iter_event_rows()), None) is None:
-        echo("Nothing to cluster; run 'sift ingest' first")
-        return 0
-
-    # Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
-    # base_urls (LLM-02). A public endpoint without the override refuses.
-    try:
-        http, client, _gen_ep, _emb_ep = _build_client(
-            config, allow_public=allow_public, tuned_embeddings=True
-        )
-    except ValueError as exc:
-        echo(f"Error: {_sanitise(str(exc))}")
-        return 1
-    try:
-        # CLI-03: transient stderr-only progress with a STATIC description —
-        # untrusted server/DB text never enters a rich renderable (T-03-23).
-        # stdout stays scriptable; a non-TTY run renders nothing (disable=).
-        # The embed + cluster + label + persist is one opaque call, so the
-        # count column ticks from 0/N to N/N once it completes.
-        err_console = Console(stderr=True)
-        if announce is None:
-            # D-04: the pipeline's only operator-facing seam. The CLI default
-            # binds the SAME Console that owns the transient Progress live
-            # region, so rich moves the bar below the printed line instead of
-            # letting a redraw erase it. soft_wrap keeps the message on one
-            # line regardless of terminal width; markup/highlight off keep
-            # the text literal (the T-03-23 discipline, applied uniformly).
-            def _default_announce(message: str) -> None:
-                err_console.print(
-                    message, highlight=False, markup=False, soft_wrap=True
-                )
-
-            announce = _default_announce
-
-        with Progress(
-            TextColumn("Embedding"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            console=err_console,
-            transient=True,
-            disable=not err_console.is_terminal,
-        ) as progress:
-            ptask = progress.add_task("embed", total=len(groups))
-            try:
-                # T-03-22: cluster_and_label persists everything inside ONE
-                # store.transaction(); an interrupted embed (client raises)
-                # rolls back to zero clusters/vectors — the embed call is the
-                # first step and precedes every write, so nothing survives.
-                cluster_result = cluster_and_label(
-                    store,
-                    client,
-                    config.clustering,
-                    label=label,
-                    re_embed=re_embed,
-                    announce=announce,
-                )
-            except (httpx.HTTPError, ValueError) as exc:
-                echo(f"Error: embedding/clustering failed: {_sanitise(str(exc))}")
-                return 1
-            progress.update(ptask, completed=len(groups))
-
-        # RAG-07: when --kb is given, index the runbook/RCA directory and
-        # retrieve the nearest chunks against the top salient clusters, then
-        # thread them into the triage prompt as NON-citable reference
-        # material (D-01). KB embeds through the SAME injected client whose
-        # SSRF guard already ran on both base_urls (LLM-02) — no new HTTP
-        # path. An embed/index failure maps to exit 1 with a sanitised
-        # message, mirroring the cluster-embed failure above (T-06-19).
-        kb_context: list[str] | None = None
-        if kb is not None:
-            try:
-                retrieve.index_kb(store, client, kb)
-                query_texts = [
-                    c.label or c.signature
-                    for c in store.query_clusters()[:top_clusters]
-                ]
-                kb_context = retrieve.retrieve_kb(store, client, query_texts)
-            except (httpx.HTTPError, ValueError) as exc:
-                echo(f"Error: KB indexing/retrieval failed: {_sanitise(str(exc))}")
-                return 1
-
-        # D-10: resolve the prompt-budget context window ONCE, here, after
-        # the Progress live region has exited so no bar redraw can overwrite
-        # the warning. A configured generation.context wins over anything
-        # /props reports; an estimated budget is disclosed on stderr.
-        # Passing the resolved int as ctx_configured short-circuits
-        # _ctx_tokens' own probe, so analyze issues exactly one /props GET.
-        ctx_tokens, ctx_warning = _resolve_generation_ctx(
-            config.generation.context, client
-        )
-        if ctx_warning is not None:
-            echo_err(ctx_warning)
-
-        # RAG-02: salience + citation-gated hypotheses over the fresh
-        # clusters, still inside the http lifecycle so the same client is
-        # reused. hypothesise NEVER raises on bad model output — it degrades
-        # and persists; a transport/SSRF error returns a failed Outcome.
-        # --until doubles as the salience incident-time anchor (RESEARCH Q3);
-        # None lets salience derive it from the case-end timestamp.
-        outcome = hypothesise(
-            store,
-            client,
-            top_clusters=top_clusters,
-            incident_time=until,
-            since=since,
-            until=until,
-            hint=hint,
-            kb_context=kb_context,
-            analyser_settings=AnalyserSettings.from_config(config),
-            # ctx_fallback/reserve_out stay on their hypothesise defaults (the
-            # shared TRIAGE_* constants); ctx_configured is the load-bearing
-            # resolved window from _resolve_generation_ctx above.
-            ctx_configured=ctx_tokens,
-        )
-    finally:
-        http.close()
-
-    # Counts are ints — no untrusted text. The labels themselves are only
-    # rendered by `show clusters`, where the whole line is _sanitise'd.
-    labelled = sum(1 for c in store.query_clusters() if c.label)
-    # D-06: always printed, including a first run where reused is 0 — a
-    # stable shape is what tests assert, and zero reuse is itself a signal.
-    echo(
-        f"Embeddings: {cluster_result.embedded_count} new, "
-        f"{cluster_result.reused_count} reused"
-    )
-    echo(f"Clusters: {cluster_result.cluster_count} ({labelled} labelled)")
-
-    # CLI-04 exit-code contract: failed -> 1, degraded -> 3, success -> 0.
-    # (Typer/Click usage errors stay 2; never reused here.)
-    if outcome.failed:
-        # Surface the real cause (a transport failure, OR a server-rejected
-        # 200 body such as a context overflow — 'request (N tokens) exceeds
-        # the available context size') instead of always blaming transport.
-        # A context overflow is fixed by loading the model with a larger
-        # context, lowering --top-clusters, or setting generation.context.
-        reason = outcome.error or "the inference endpoint returned no output"
-        echo(
-            f"Error: hypothesis generation failed ({_sanitise(reason)}); "
-            "no hypotheses were persisted"
-        )
-        return 1
-    count = len(outcome.hypotheses.hypotheses) if outcome.hypotheses else 0
-    if outcome.degraded:
-        # A degraded run RAN to completion but the model output could not be
-        # fully validated or some citations were invalid — the flagged/raw
-        # output is persisted, never presented as a clean success (T-04-02).
-        echo_err(
-            "Warning: triage degraded — the model output could not be fully "
-            "validated or some citations were invalid; the raw/flagged "
-            "output was persisted (see 'sift show hypotheses')"
-        )
-        echo(f"Hypotheses: {count} (degraded)")
-        return 3
-    echo(f"Hypotheses: {count}")
-    echo("Run 'sift show hypotheses' to view them")
-    return 0
-
-
-class ReportFormat(StrEnum):
-    """Output formats for ``sift report`` (an unknown value is a Typer usage
-    error, exit 2 — never a semantic outcome; ADR 0007)."""
-
-    md = "md"
-    json = "json"
-    pdf = "pdf"
-
-
 @app.command()
+
+
 def report(
     case: str,
     fmt: Annotated[
@@ -979,86 +564,9 @@ def report(
         raise typer.Exit(code)
 
 
-def run_report(
-    store: CaseStore,
-    *,
-    fmt: ReportFormat = ReportFormat.md,
-    out: Path | None = None,
-    echo: Callable[[str], None] = print,
-) -> int:
-    """Render a triage report from an open case store (R006).
-
-    The shared in-process body of ``sift report``: the Typer command wraps
-    it with config resolution and store lifecycle; the TUI calls it with its
-    own ``CaseStore`` and an ``out`` path in the case directory. Every
-    operator-visible line — error messages and the stdout report text alike —
-    flows through the injected ``echo`` sink (default ``print``), so callers
-    fully own presentation. Returns the ADR 0007 exit code (0 rendered,
-    including degraded; 1 no hypotheses / render-or-IO failure / missing
-    sift[pdf]) instead of raising ``typer.Exit``; the caller owns process
-    exit and ``store.close()``.
-    """
-    # WR-03/IN-04: gate on whether analyze RAN (triage_created_at present),
-    # not on whether it produced schema-valid rows. A hard-degraded run
-    # persists zero hypotheses but sets triage_created_at and triage_raw —
-    # that is a reportable degraded run (banner + raw), never "run analyze
-    # first". Reserve the no-triage message for the genuine never-analysed
-    # case. Gating on run-meta also drops the redundant second
-    # query_hypotheses (the renderer runs it once) — IN-04.
-    if store.get_meta("triage_created_at") is None:
-        echo("No hypotheses to report; run 'sift analyze' first")
-        return 1
-    if fmt is ReportFormat.pdf:
-        if out is None:
-            echo("Error: --format pdf requires --out <path>")
-            return 1
-        try:
-            # Renderer delivered in 06-05 — lazy so md/json need no WeasyPrint.
-            from sift.render.pdf import render_pdf  # type: ignore
-
-            render_pdf(store, out)
-        except (ImportError, PdfExtraMissing) as exc:
-            echo(
-                "Error: PDF rendering unavailable; install the sift[pdf] "
-                f"extra and pango ({_sanitise(str(exc))})"
-            )
-            return 1
-        except OSError as exc:
-            # WR-02: a write-target failure is NOT a missing-extra problem —
-            # render_pdf renders to bytes first, so an OSError here can only
-            # be the file write. Report it as such, not as "install pango".
-            echo(f"Error: cannot write report to {out}: {_sanitise(str(exc))}")
-            return 1
-        except ValueError as exc:
-            # WR-04: the zero-egress url_fetcher raises ValueError on any
-            # blocked fetch (e.g. an injected <img> in model text). Egress is
-            # still blocked; surface a clean render failure, never a traceback.
-            echo(f"Error: PDF rendering failed: {_sanitise(str(exc))}")
-            return 1
-        return 0
-    if fmt is ReportFormat.md:
-        from sift.render.markdown import render_markdown
-
-        text = render_markdown(store)
-    else:  # ReportFormat.json
-        from sift.render.json_out import render_json
-
-        text = render_json(store)
-    if out is not None:
-        try:
-            out.write_text(text, encoding="utf-8")
-        except OSError as exc:
-            # ADR 0007: a --out write failure (unwritable path, missing
-            # parent, full disk) is exit 1 with a helpful message, never a
-            # raw traceback — mirroring the pdf branch.
-            echo(f"Error: cannot write report to {out}: {_sanitise(str(exc))}")
-            return 1
-    else:
-        echo(text)
-    return 0
-
-
 @app.command()
+
+
 def validate(
     case: str,
     target: Annotated[
@@ -1131,33 +639,17 @@ def validate(
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
-        try:
-            recorded = record_validation(store, spec, chosen[0], note=note)
-        except UnknownTargetError as exc:
-            print(f"Error: {_sanitise(str(exc))}")
-            raise typer.Exit(1) from None
-        except sqlite3.OperationalError as exc:
-            # The service lets a locked/busy database bubble unswallowed
-            # precisely so this command can map it: a semantic failure (exit
-            # 1) with a sanitised message, never a traceback (WR-02).
-            print(
-                f"Error: cannot record verdict for case {case!r}: "
-                f"{_sanitise(str(exc))}"
-            )
-            raise typer.Exit(1) from None
-        # WR-01: a template target_id is caller-supplied text and the note
-        # echoes nothing — sanitise the COMPLETE line, not per field. One
-        # stdout line, scriptable: automation reads the verdict_id from here.
-        print(_sanitise(
-            f"Recorded verdict {recorded.verdict_id}: "
-            f"{recorded.target_type}:{recorded.target_id} {recorded.verdict}"
-        ))
+        code = run_validate(store, case=case, spec=spec, verdict=chosen[0], note=note)
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4).
         store.close()
+    if code:
+        raise typer.Exit(code)
 
 
 @app.command()
+
+
 def tui(case: str, data_dir: DataDirOption = None) -> None:
     """Open an analysed case in the interactive terminal browser (SPEC.md §5.7).
 
@@ -1184,75 +676,9 @@ def tui(case: str, data_dir: DataDirOption = None) -> None:
         store.close()
 
 
-class BundleFormat(StrEnum):
-    """Report format for the ``mcm``/``perfmon``/``eustack`` bundle commands
-    (an unknown value is a Typer usage error, exit 2 — mirrors ``ReportFormat``;
-    ADR 0007). The CSV is always written."""
-
-    md = "md"
-    json = "json"
-
-
-def _write_bundle(
-    bundle_dir: Path,
-    report_name: str,
-    report_text: str,
-    csv_name: str,
-    write_csv: Callable[[Path], None],
-    label: str,
-) -> None:
-    """Write a bundle's report then CSV, unlinking both on any OSError (WR-06).
-
-    The report is written before the CSV, so a mid-CSV failure would otherwise
-    leave a valid-looking report next to a truncated CSV — unlink both so a
-    half-written bundle is never mistaken for a complete one. A write-target
-    failure is exit 1 with a helpful, sanitised message and the traceback chain
-    suppressed (``from None``), never a raw traceback (WR-02).
-    """
-    try:
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        (bundle_dir / report_name).write_text(report_text, encoding="utf-8")
-        write_csv(bundle_dir / csv_name)
-    except OSError as exc:
-        for partial in (bundle_dir / report_name, bundle_dir / csv_name):
-            partial.unlink(missing_ok=True)
-        print(
-            f"Error: cannot write {label} bundle to {bundle_dir}: "
-            f"{_sanitise(str(exc))}"
-        )
-        raise typer.Exit(1) from None
-
-
-# Diagnostic-flag severity order shared by the mcm/perfmon/eustack summaries.
-_SEV_RANK = {"critical": 0, "warn": 1, "info": 2}
-
-
-class _SeverityFlag(Protocol):
-    """The severity/message slice shared by MCM flags, perfmon hazards and
-    eu-stack saturation flags."""
-
-    @property
-    def severity(self) -> str: ...
-
-    @property
-    def message(self) -> str: ...
-
-
-def _print_top_flag(flags: Iterable[_SeverityFlag], prefix: str, empty: str) -> None:
-    """Print the top diagnostic flag by severity, or the empty-case line.
-
-    Flag/hazard message text is log-derived (customer bytes), so it goes
-    through ``_sanitise`` before echo (T-10-15/T-13-STDOUTESC/T-17-02).
-    """
-    ordered = sorted(flags, key=lambda f: _SEV_RANK.get(f.severity, 3))
-    if ordered:
-        top = ordered[0]
-        print(f"{prefix}{top.severity} — {_sanitise(top.message)}")
-    else:
-        print(f"{prefix}{empty}")
-
-
 @app.command()
+
+
 def mcm(
     case: str,
     fmt: Annotated[
@@ -1275,52 +701,17 @@ def mcm(
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
-        from sift.pipeline.mcm import analyse_mcm
-        from sift.render.mcm_report import (
-            render_mcm_json,
-            render_mcm_markdown,
-            write_attribution_csv,
-        )
-
-        # T-10-14: the bundle dir is derived from the SAME resolved case path
-        # _case_store validated (case_db_path asserts containment) — only
-        # <case>/mcm/ beneath it is ever created, never a user-supplied path.
-        mcm_dir = case_db_path(config.data_dir, case).parent / "mcm"
-        # Scoped to the analyser's own source: hydrating (and zstd-
-        # decompressing) unrelated genericlog/journald rows would cost memory
-        # for events analyse_mcm filters straight back out.
-        analysis = analyse_mcm(
-            store.query_events(sources=["dsserrors"]), config.mcm.thresholds
-        )
-        if fmt is BundleFormat.json:
-            report_name = "mcm_report.json"
-            report_text = render_mcm_json(analysis)
-        else:
-            report_name = "mcm_report.md"
-            report_text = render_mcm_markdown(analysis)
-        _write_bundle(
-            mcm_dir,
-            report_name,
-            report_text,
-            "mcm_attribution.csv",
-            lambda path: write_attribution_csv(analysis, path),
-            "MCM",
-        )
-
-        n = len(analysis.episodes)
-        plural = "episode" if n == 1 else "episodes"
-        print(
-            f"Analysed {n} MCM denial {plural}; wrote {report_name} + "
-            f"mcm_attribution.csv to {mcm_dir}"
-        )
-        for i, ea in enumerate(analysis.episodes, start=1):
-            _print_top_flag(ea.flags, f"  Episode {i}: ", "no diagnostic flags raised")
+        code = run_mcm(store, config, case=case, fmt=fmt)
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring report.
         store.close()
+    if code:
+        raise typer.Exit(code)
 
 
 @app.command()
+
+
 def perfmon(
     case: str,
     fmt: Annotated[
@@ -1345,58 +736,17 @@ def perfmon(
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
-        from sift.pipeline.mcm import analyse_mcm
-        from sift.pipeline.perfmon import analyse_perfmon
-        from sift.render.perfmon_report import (
-            render_perfmon_json,
-            render_perfmon_markdown,
-            write_perfmon_trend_csv,
-        )
-
-        # T-13-PATH: the bundle dir is derived from the SAME resolved case path
-        # _case_store validated (case_db_path asserts containment) — only
-        # <case>/perfmon/ beneath it is ever created, never a user-supplied path.
-        perfmon_dir = case_db_path(config.data_dir, case).parent / "perfmon"
-        # ONCE (T-13-DOUBLEREAD): the same list feeds both analyses rather
-        # than doubling the hydrate/decompress cost — and the read is scoped
-        # to the two sources the correlator consumes, so unrelated
-        # genericlog/journald rows are never materialised.
-        # config.mcm.thresholds is threaded in only because obtaining the
-        # episodes needs it — the perfmon hazards themselves take no config
-        # knob.
-        events = store.query_events(sources=["dsserrors", "dssperfmon"])
-        analysis = analyse_perfmon(analyse_mcm(events, config.mcm.thresholds), events)
-        if fmt is BundleFormat.json:
-            report_name = "perfmon_report.json"
-            report_text = render_perfmon_json(analysis)
-        else:
-            report_name = "perfmon_report.md"
-            report_text = render_perfmon_markdown(analysis)
-        _write_bundle(
-            perfmon_dir,
-            report_name,
-            report_text,
-            "perfmon_trend.csv",
-            lambda path: write_perfmon_trend_csv(analysis, path),
-            "perfmon",
-        )
-
-        n = len(analysis.groups)
-        plural = "span" if n == 1 else "spans"
-        print(
-            f"Correlated {n} {plural}; wrote {report_name} + "
-            f"perfmon_trend.csv to {perfmon_dir}"
-        )
-        for i, group in enumerate(analysis.groups, start=1):
-            _print_top_flag(
-                group.hazards, f"  Span {i}: ", "no correlation hazards raised"
-            )
+        code = run_perfmon(store, config, case=case, fmt=fmt)
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring mcm.
         store.close()
+    if code:
+        raise typer.Exit(code)
 
 
 @app.command()
+
+
 def eustack(
     case: str,
     fmt: Annotated[
@@ -1424,64 +774,18 @@ def eustack(
     config = load_config({"data_dir": data_dir})
     store = _case_store(case, config)
     try:
-        from sift.pipeline.eustack import load_rules
-        from sift.pipeline.eustack_progression import analyse_eustack_bundle
-        from sift.render.eustack_report import (
-            changed_signature_count,
-            render_eustack_json,
-            render_eustack_markdown,
-            write_eustack_signatures_csv,
-        )
-
-        # T-17-03: the bundle dir is derived from the SAME resolved case path
-        # _case_store validated (case_db_path asserts containment) — only
-        # <case>/eustack/ beneath it is ever created, never a user-supplied
-        # path.
-        eustack_dir = case_db_path(config.data_dir, case).parent / "eustack"
-        rules, rules_hash = load_rules(config.eustack.rules_path)
-        bundle = analyse_eustack_bundle(
-            store.query_events(sources=["eustack"]),
-            rules,
-            rules_hash,
-            config.eustack.thresholds,
-        )
-        if fmt is BundleFormat.json:
-            report_name = "eustack_report.json"
-            report_text = render_eustack_json(bundle)
-        else:
-            report_name = "eustack_report.md"
-            report_text = render_eustack_markdown(bundle)
-        _write_bundle(
-            eustack_dir,
-            report_name,
-            report_text,
-            "eustack_signatures.csv",
-            lambda path: write_eustack_signatures_csv(bundle, path),
-            "eustack",
-        )
-
-        n_dumps = len(bundle.progression.dumps)
-        dump_plural = "dump" if n_dumps == 1 else "dumps"
-        n_signatures = bundle.analysis.total_signatures
-        sig_plural = "signature" if n_signatures == 1 else "signatures"
-        summary = (
-            f"Analysed {n_dumps} eu-stack {dump_plural}, {n_signatures} "
-            f"{sig_plural}; wrote {report_name} + eustack_signatures.csv to "
-            f"{eustack_dir}"
-        )
-        if n_dumps > 1:
-            n_changed = changed_signature_count(bundle.progression)
-            changed_plural = "signature" if n_changed == 1 else "signatures"
-            summary += f"; {n_changed} changed {changed_plural}"
-        print(_sanitise(summary))
-        _print_top_flag(bundle.saturation.flags, "  ", "no saturation flags raised")
+        code = run_eustack(store, config, case=case, fmt=fmt)
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
         # mcm/perfmon.
         store.close()
+    if code:
+        raise typer.Exit(code)
 
 
 @app.command("eval")
+
+
 def eval_(
     suite: Annotated[
         Path,
@@ -1524,7 +828,7 @@ def eval_(
     hypothesise pipeline against a temp case.db, then the four quality metrics
     (retrieval hit rate, hypothesis hit@k, citation validity, determinism drift)
     are scored against its frozen ``truth.yaml``. Offline runs inject a fake
-    client via the ``_make_http_client`` seam (EVAL-05). ``--json`` emits the
+    client via the ``llm.bringup.make_http_client`` seam (EVAL-05). ``--json`` emits the
     machine-readable table.
 
     The suite is gated against ``--thresholds`` (default ``eval/thresholds.toml``,
@@ -1595,67 +899,9 @@ _OGA_ONNX_MSG = (
 )
 
 
-def _make_http_client(timeout: float) -> httpx.Client:
-    """Build the injected httpx.Client for doctor/analyze (per-request timeouts).
-
-    A module-level seam so tests bind an ``httpx.MockTransport`` and open no
-    socket (EVAL-05) while the real SSRF guard still runs at ``InferenceClient``
-    construction. Explicit timeouts treat the local server as untrusted (Pitfall
-    4 / T-03-05): a hostile or misconfigured endpoint can never hang doctor.
-    """
-    return httpx.Client(timeout=httpx.Timeout(timeout))
-
-
-def _build_client(
-    config: SiftConfig, *, allow_public: bool, tuned_embeddings: bool = False
-) -> tuple[httpx.Client, InferenceClient, Endpoint, Endpoint]:
-    """Build the httpx client plus SSRF-guarded ``InferenceClient`` (LLM-02).
-
-    The shared analyze/eval/doctor bring-up: the Endpoint pair, one
-    ``httpx.Client`` sized to the larger role timeout, then ``InferenceClient``
-    construction — which runs the loopback/RFC1918 SSRF guard on BOTH base_urls;
-    a public endpoint without the override raises ``ValueError``, propagated
-    with the httpx client already closed so each caller owns only its message
-    and exit path. ``tuned_embeddings`` threads the analyze-only embedding
-    knobs (``max_input_chars``/``context``); eval and doctor keep the client
-    defaults. Returns ``(http, client, gen_ep, emb_ep)``; the caller owns
-    ``http.close()``.
-    """
-    gen_ep = Endpoint(
-        base_url=config.generation.base_url, model=config.generation.model
-    )
-    emb_ep = Endpoint(
-        base_url=config.embeddings.base_url, model=config.embeddings.model
-    )
-    http = _make_http_client(
-        max(config.generation.timeout, config.embeddings.timeout)
-    )
-    tuning: dict[str, int] = (
-        {
-            "max_input_chars": config.embeddings.max_input_chars,
-            "context": config.embeddings.context,
-        }
-        if tuned_embeddings
-        else {}
-    )
-    try:
-        client = InferenceClient(
-            generation=gen_ep,
-            embeddings=emb_ep,
-            http=http,
-            allow_public=allow_public,
-            retries=config.generation.retries,
-            backoff_base=config.generation.backoff_base,
-            batch_size=config.embeddings.batch_size,
-            **tuning,
-        )
-    except ValueError:
-        http.close()
-        raise
-    return http, client, gen_ep, emb_ep
-
-
 @app.command()
+
+
 def doctor(
     case: Annotated[
         str | None,

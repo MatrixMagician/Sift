@@ -24,7 +24,7 @@ Two deliberate departures from a naive reading of the demo script:
   as distinct sha256-derived vectors — the ``[0.0]*8`` default would
   degenerate clustering (research Pitfall 2).
 
-All inference traffic rides the ``sift.cli._make_http_client`` seam via
+All inference traffic rides the ``sift.llm.bringup.make_http_client`` seam via
 ``httpx.MockTransport``; the autouse ``_no_network`` guard stays active.
 """
 
@@ -158,7 +158,7 @@ def _patch_http(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
             transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
         )
 
-    monkeypatch.setattr("sift.cli._make_http_client", _factory)
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
 def _seed_case(case: str, tmp_path: Path) -> None:
