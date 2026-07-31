@@ -29,6 +29,28 @@ convention:
 - Never use **adapter** unqualified in a sentence that could be read either
   way.
 
+## Seam — always qualified, never bare
+
+A deliberate boundary where an implementation can be substituted: for a second
+caller, for a test double, or for a future rewrite. It is a **role word**, like
+*adapter*, and Sift uses it for at least eight different boundaries — so a bare
+"the seam" in prose is ambiguous the moment it leaves its own module.
+
+The convention: **name which one**. The recurring ones have canonical names:
+
+- **the command seam** — `run_x(store, config, ...) -> ExitCode` in
+  `sift/commands/` (ADR 0019). The Typer CLI and the Textual TUI sit either
+  side of it.
+- **the client seam** — `llm.bringup.make_http_client`, the single point every
+  test binds an `httpx.MockTransport` to.
+- **the ranking seam** — `store.iter_event_rows`, the one query every ranking
+  stage reads, and therefore where `EXCLUDED_FROM_RANKING` takes effect.
+
+Others (the budget seam, the decompression seam, `base.to_utc`, `announce` as
+"the operator-facing seam") are named in place and are fine unqualified *inside*
+the module that owns them. Nobody is renaming code over this — the ambiguity
+costs nothing while reading a function and everything while reading a document.
+
 ## Case command
 
 An operation an engineer performs against one case: `show`, `analyze`,
@@ -49,6 +71,25 @@ deliberately never returns 3. Contracts are fixed by ADRs 0005, 0007 and 0010.
 
 Say **exit code** for the value crossing the seam, whether or not it ends up as
 a process exit status. The TUI consumes exit codes without any process exiting.
+
+## Flag parsing / domain-identifier parsing
+
+Two kinds of string-to-value parsing, in two modules, deliberately.
+
+**Flag parsing** (`commands/parse.py`) handles shapes that exist *only* because
+a CLI encodes arguments as text — `--filter key=value`, an ISO string in
+`--since`. Nothing in the domain knows what a `--filter` is. Raises
+`ValueError`; the caller owns the message and the exit code.
+
+**Domain-identifier parsing** (`verdicts.parse_target`) turns `hypothesis:0`
+into a `TargetSpec`. That identifier is part of the verdicts model, not the
+CLI's encoding of it — which is why `record_validation` accepts either the raw
+string or an already-parsed spec, and why it raises its own `TargetSpecError`.
+
+The test for which you are looking at: could a caller with no CLI still need it?
+If yes it is a domain identifier and lives with its model. `commands` imports
+`verdicts`, never the reverse, so consolidating the two would invert the
+dependency.
 
 ## Case opening
 

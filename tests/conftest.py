@@ -16,10 +16,20 @@ import pytest
 def _isolate_dirs(  # pyright: ignore[reportUnusedFunction] — autouse fixture
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Redirect XDG dirs to tmp_path and clear SIFT_* env vars.
+    """Redirect XDG dirs to tmp_path, clear SIFT_* and rich's TTY overrides.
 
     Case paths derive from XDG_DATA_HOME (D-04), so no test can ever read or
     write the real home directory.
+
+    ``FORCE_COLOR`` and ``TTY_COMPATIBLE`` are cleared for a different reason:
+    both make ``rich.Console.is_terminal`` return True whatever the stream
+    actually is, and ``is_terminal`` is what gates the transient progress bars
+    in ``pipeline/ingest.py`` and ``commands/analyze.py``. CLI-03 says a
+    non-TTY run prints no bar, and several tests assert exactly that — so the
+    suite has to decide terminal-ness rather than inherit it from whoever runs
+    it. Without this, a developer with ``FORCE_COLOR`` exported (Claude Code
+    sets it; so do many CI images) sees three unrelated-looking failures about
+    escape bytes.
     """
     data_home = tmp_path / "xdg-data"
     config_home = tmp_path / "xdg-config"
@@ -29,6 +39,8 @@ def _isolate_dirs(  # pyright: ignore[reportUnusedFunction] — autouse fixture
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
     for name in [key for key in os.environ if key.startswith("SIFT_")]:
         monkeypatch.delenv(name)
+    for name in ("FORCE_COLOR", "TTY_COMPATIBLE"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

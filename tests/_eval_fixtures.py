@@ -1,8 +1,9 @@
 """Shared offline fixtures for the eval-harness tests (EVAL-05).
 
 Zero sockets: every inference call is served by an ``httpx.MockTransport`` bound
-through the ``llm.bringup.make_http_client`` seam, mirroring ``tests/test_analyze.py``
-so the autouse ``_no_network`` conftest guard stays active. The good handler
+through the client seam (``llm.bringup.make_http_client``), mirroring
+``tests/test_commands_analyze.py`` so the autouse ``_no_network`` conftest
+guard stays active. The good handler
 serves ``/v1/embeddings`` (a deterministic per-text vector) plus the two chat
 calls analyze/eval make: the plain cluster-label call and the
 ``response_format``-tagged generation call, which returns a ``HypothesisSet``

@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -675,11 +676,93 @@ def test_show_corrupt_case_db_exits_1_without_traceback(tmp_path: Path) -> None:
 #
 # ADR 0019 pass 2: which exit code a given run EARNS — degraded output, an
 # invalid citation, a refused endpoint, an empty case — is asserted against
-# ``run_analyze`` directly in tests/test_analyze.py. Three things are left that
-# only the CLI can be wrong about, and each is tested by faking ``run_analyze``
-# rather than running the pipeline: that every flag lands on the parameter it
-# names, that the returned code reaches the shell, and that the contract is
-# documented in ``--help``.
+# ``run_analyze`` directly in tests/test_commands_analyze.py. What is left here
+# is what only the CLI can be wrong about, and all but one of these fake
+# ``run_analyze`` rather than running the pipeline: that every flag lands on the
+# parameter it names, that the returned code reaches the shell, and that the
+# contract is documented in ``--help``.
+#
+# The exception is the smoke test immediately below, and it is deliberate.
+
+
+def _smoke_handler(request: httpx.Request) -> httpx.Response:
+    """The smallest fake server that lets a real analyze run to completion.
+
+    One fixed vector per input, an empty cluster-label map, and a schema-valid
+    HypothesisSet with no hypotheses (empty citations are trivially a subset of
+    what was prompted, so the citation gate passes). Deliberately minimal: this
+    server exists to let the CLI's plumbing run, not to exercise the pipeline —
+    tests/test_commands_analyze.py owns that, with a much richer fake.
+    """
+    path = request.url.path
+    if path.endswith("/embeddings"):
+        inputs = json.loads(request.content)["input"]
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"index": i, "embedding": [1.0, 0.0, 0.0, 0.0]}
+                    for i, _ in enumerate(inputs)
+                ]
+            },
+        )
+    if path.endswith("/chat/completions"):
+        content = "{}"
+        if "response_format" in json.loads(request.content):
+            content = json.dumps(
+                {
+                    "hypotheses": [],
+                    "timeline_summary": "none",
+                    "unexplained_signals": [],
+                }
+            )
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": content}}]}
+        )
+    return httpx.Response(404)
+
+
+def test_analyze_end_to_end_through_the_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ONLY test that drives the CLI's assembled analyze path for real.
+
+    Do not delete this as redundant with tests/test_commands_analyze.py. Every
+    other analyze test in this file replaces ``run_analyze`` with a fake, which
+    is right for asserting flag wiring but means none of them would notice a
+    broken joint BETWEEN the steps: `--since` parsing, config resolution,
+    ``open_case``, the call itself, ``store.close()`` (the WAL checkpoint of
+    Pitfall 4), and the ``typer.Exit`` translation. This test is the one that
+    would.
+
+    Other suites do currently run analyze through the CLI — ``_report_fixtures``
+    and the kb/mcm analyze suites — but incidentally, as setup for something
+    else, and the ADR 0019 follow-up migrates those to direct calls. That would
+    take the last real CLI→pipeline path with it if this test did not exist.
+    """
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "app.log").write_text(REPETITIVE_LOG, encoding="utf-8")
+    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
+    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+
+    def _fake_client(timeout: float) -> httpx.Client:
+        return httpx.Client(
+            transport=httpx.MockTransport(_smoke_handler),
+            timeout=httpx.Timeout(timeout),
+        )
+
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _fake_client)
+    result = runner.invoke(app, ["analyze", "demo"])
+    assert result.exit_code == 0, result.output
+    # Real result lines, not just a clean exit: the pipeline ran and reported.
+    assert "Embeddings: " in result.output
+    assert "Clusters: " in result.output
+    assert "Hypotheses: 0" in result.output
+    # The case directory holds only case.db afterwards — proof the CLI closed
+    # the store, so the WAL sidecars checkpointed away (Pitfall 4).
+    case_dir = case_db_path(load_config().data_dir, "demo").parent
+    assert [p.name for p in case_dir.iterdir()] == ["case.db"]
 
 
 def _empty_case(case: str = "demo") -> None:

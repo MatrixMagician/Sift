@@ -89,10 +89,20 @@ non-zero code to the shell, `DEGRADED` included, so `cli.py` branches on
 something to show?" versus "what status did this run finish with?" — and an
 earlier draft of this ADR wrongly called it one shared rule.
 
-**Parsing is pure and public.** `parse_filters` and `parse_moment` move to
+**Flag parsing is pure and public.** `parse_filters` and `parse_moment` move to
 `commands/parse.py`, returning typed values or raising `ValueError`. Adapters
 parse *before* opening the store, preserving the fail-fast ordering
 `cli.py:706` exists to guarantee, and `run_x` receives typed values.
+
+The clause is scoped to *flag* parsing on purpose. `commands/parse.py` owns the
+shapes that exist only because a CLI encodes arguments as text — `key=value`,
+an ISO string in `--since`. It does **not** own `verdicts.parse_target`, which
+turns `hypothesis:0` into a `TargetSpec`: that is a domain identifier, which is
+why `record_validation` accepts either the raw string or an already-parsed
+spec, why its failure has its own `TargetSpecError`, and why it stays in
+`verdicts.py`. Moving it would invert the dependency — `commands` imports
+`verdicts`, never the reverse. See CONTEXT.md, *Flag parsing / domain-identifier
+parsing*.
 
 **Opening a case moves to the store.** `store.py` already owns
 `validate_case_name` and `case_db_path`; it gains `open_case` raising
@@ -107,8 +117,26 @@ three callers one canonical bring-up.
 
 **Sequencing is two passes.** Pass 1 moves the bodies with the test suite
 untouched; a green suite is the proof behaviour was preserved. Pass 2 migrates
-logic tests to direct calls, leaving `CliRunner` for what is genuinely CLI:
-flag wiring, exit-code propagation, help text, non-TTY stdout, sanitisation.
+logic tests to direct calls under the rule below.
+
+**Where a case-command test goes.** Default to calling `run_x` directly. Reach
+for `CliRunner` only where the CLI can be *independently* wrong — where the
+failure would live in the translation layer (Typer parsing, `typer.Exit`,
+Click's output path) rather than in the body it delegates to. Examples: flag
+wiring, exit-code propagation, `--help`, non-TTY stdout, and the
+terminal-escape checks that prove a sanitised line survives to a real terminal.
+Sanitisation is deliberately tested on both sides: the *stripping* is the
+body's, the *survival to a terminal* is the CLI's.
+
+**Migration is earned, not owed.** A test already on `CliRunner` moves only
+when the move buys reachability — a branch that is awkward or expensive to
+reach through the CLI. Purity is not a reason.
+
+An earlier draft of this ADR gave a five-item list instead of a rule, and the
+list did not survive contact: sanitisation happens *inside* `run_show_*` and so
+is not a CLI property at all, while the `--kb` tests sit outside all five
+categories without being misplaced. A rule with examples states what the list
+was reaching for.
 
 "Untouched" means no assertion changes. Pass 1 did edit eleven test lines,
 all forced by the seam moving rather than by behaviour changing: ten
@@ -125,7 +153,7 @@ Pass 2 migrated the `show`, `analyze` and parsing suites, which is where the
   used to cost a case directory and an `ingest` run to make.
 - `tests/test_commands_show.py` — the four `run_show_*` bodies against a
   directly seeded store.
-- `tests/test_analyze.py` — rewritten onto `run_analyze` with list sinks; the
+- `tests/test_commands_analyze.py` — rewritten onto `run_analyze` with list sinks; the
   `resolve_generation_ctx` unit tests moved here from `tests/test_cli.py` to
   sit beside the branch they resolve.
 
@@ -139,6 +167,16 @@ those parameters previously had no CLI-level test, because reaching them meant
 driving the whole pipeline — and pins the code-3 propagation that the
 `is_failure` asymmetry above exists to protect.
 
+Faking the body costs one thing, and it is paid for explicitly.
+`test_analyze_end_to_end_through_the_cli` is the single test that still drives
+the assembled CLI path for real — `--since` parsing, config resolution,
+`open_case`, the call, `store.close()`, the `typer.Exit` translation — because
+every other analyze test in that file would stay green with any joint between
+those broken. It asserts the WAL sidecars are gone afterwards, so an unclosed
+store fails it. Other suites do run analyze through the CLI, but incidentally,
+as setup for something else; the follow-up below migrates them, which would
+take the last real CLI→pipeline path with it were this test not there.
+
 Line coverage of `sift/commands/` and `sift/cli.py` was measured before and
 after and is unchanged bar one line gained — but that measurement is a floor,
 not a proof. `sanitise()` and the render-time truncation slice sit on every
@@ -149,13 +187,34 @@ has an explicit test now. The lesson is the general one about a move like this:
 line coverage cannot tell you an assertion was relocated rather than deleted,
 so the removed tests have to be read against the new ones by hand.
 
-`tests/test_cli_{mcm,perfmon,eustack,report,validate}.py` were deliberately
-left on `CliRunner`. What they assert is a bundle written to
-`<case>/<command>/`, an exit code and a `--help` line — none of which a direct
-call makes easier to reach, since those bodies take no injected client and
-already run against a real seeded store. Migrating them would be churn, not
-leverage. If one of them grows a branch that is awkward to reach through the
-CLI, that is the moment to move it, not before.
+The remaining `CliRunner` suites split three ways, and an earlier draft of this
+paragraph wrongly gave one blanket reason for all five:
+
+- **`test_cli_{mcm,perfmon,eustack}.py` stay, under *migration is earned*.**
+  What they assert is a bundle written to `<case>/<command>/` by
+  `write_bundle`, plus an exit code and a `--help` line. Those bodies take no
+  injected client and already run against a real seeded store, so a direct call
+  reaches nothing the CLI does not. Moving them would be churn.
+- **`test_cli_{validate,report}.py` are mixed files.** `run_validate` writes a
+  DB row and `run_report` writes to an arbitrary `--out` path, so the bundle
+  argument never applied to either. In `test_cli_validate.py` the exit-2
+  branches are genuinely the CLI's (the "exactly one verdict flag" check lives
+  at `cli.py:618`, and `parse_target` runs before the store opens) while the
+  exit-1 branches — unknown target, locked database — are `run_validate`'s. In
+  `test_cli_report.py` the `--format` enum is Typer's and the unwritable-`--out`
+  exit 1 is `run_report`'s. Their seam-side halves belong with the follow-up
+  below; they are staying put only because pass 2's scope has closed.
+- **`test_kb_analyze.py` (4 tests) and `test_mcm_analyze.py` (2) are
+  mis-shelved.** They drive `run_analyze` through `CliRunner` — a degraded
+  citation, an exit code on an empty `--kb` directory, `analyser_settings`
+  threading. None of that is about Typer, and the `--kb` failure path is the
+  only branch of `commands/analyze.py` the suite still does not cover. Pass 2
+  did not touch them and this ADR was, until now, silent about them, which
+  would have let a reader conclude the analyze suite was fully migrated.
+
+The follow-up is tracked as issue #3 rather than left as a note here — a
+deferral recorded only in a decision document is a to-do nobody works. Its
+precondition is the end-to-end smoke test above.
 
 ## Consequences
 

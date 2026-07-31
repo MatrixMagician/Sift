@@ -1,7 +1,7 @@
 """Shared analysed-case builder for Phase-6 report tests (REPT-01/02).
 
 Builds a real analysed ``case.db`` with zero sockets: clustering and labelling
-run through the same ``httpx.MockTransport`` seam as ``tests/test_analyze.py``
+run through the same ``httpx.MockTransport`` seam as ``tests/test_commands_analyze.py``
 (so the autouse ``_no_network`` guard stays active), then the exact hypotheses
 and ``triage_*`` run-meta the renderer reads are planted deterministically via
 the public store API. Planting (rather than round-tripping the citation gate)
@@ -36,7 +36,7 @@ Handler = Callable[[httpx.Request], httpx.Response]
 runner = CliRunner()
 _BASE = datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC)
 
-# Planted 8-dim vectors (mirrors tests/test_analyze.py): alpha synonyms near
+# Planted 8-dim vectors (mirrors tests/test_commands_analyze.py): alpha synonyms near
 # axis 0, beta synonyms near axis 1, gamma noise orthogonal on axis 7 — HDBSCAN
 # merges the synonyms and leaves gamma a singleton, giving three real clusters.
 _ALPHA_A = "alpha memory pressure warning"
