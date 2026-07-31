@@ -161,7 +161,37 @@ outside the case directory and is kept.
 > model that returns non-empty completions. Ingestion, clustering, and the
 > timeline are unaffected by the generation model.
 
-## 5. Optional: PDF reports
+## 5. Review the analysis interactively
+
+`sift tui` opens an analysed case in a full-screen terminal browser — the
+fastest way to roam the evidence and record your own judgement against it:
+
+```bash
+sift tui my-incident
+```
+
+Everything is keyboard-driven: `enter` drills from a hypothesis into its cited
+events and on into the raw source lines, `esc` walks back, `c` and `t` switch
+to the cluster and timeline views, `?` shows the key bindings for the current
+screen, and `q` quits. Press `v` on a hypothesis, cluster or template to record
+a verdict — confirmed, rejected or uncertain, with an optional free-text note —
+and `e` to export the report without leaving the TUI. Opening a case that has
+not been analysed yet is fine: the TUI offers `i` to ingest and `a` to analyse
+in place, with the interface staying responsive while inference runs.
+
+Verdicts are appended to the case permanently — re-running `sift analyze`
+replaces hypotheses but never discards a recorded verdict — and every
+subsequent report lists them under **Recorded verdicts**. The same verdicts can
+be recorded headlessly for scripting:
+
+```bash
+sift validate my-incident hypothesis:0 --confirm --note "matches the pcap"
+```
+
+See [Getting started](docs/GETTING-STARTED.md#interactive-review-with-sift-tui)
+for the full key reference.
+
+## 6. Optional: PDF reports
 
 PDF output is an opt-in extra so the core install stays free of system
 dependencies. Install the extra and the one system library it needs (Fedora):

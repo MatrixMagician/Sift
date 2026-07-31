@@ -18,7 +18,7 @@ stage independently re-runnable, idempotent, and inspectable with `sift show`.
 ## Component diagram
 
 ```
-   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, mcm, perfmon, eustack, eval, doctor)
+   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, validate, tui, mcm, perfmon, eustack, eval, doctor)
                               │  orchestration only — no HTTP; SQL only in the
                               │  read-only `list` probe (see "The case store")
    ┌──────────────┬───────────┼───────────────┬──────────────┬─────────────┐
@@ -331,6 +331,27 @@ obvious by construction.
 
 `sift report` exit codes are recorded in [`0007-report-exit-codes.md`](decisions/0007-report-exit-codes.md).
 
+## The review TUI and the verdict store
+
+`src/sift/tui/` is a Textual application (`sift tui <case>`) for the analyst
+review pass: hypothesis list → cited evidence → raw source, plus cluster,
+timeline and help screens (`tui/screens/`), with paging reads isolated in
+`tui/data_access.py` and review-progress state in `tui/review_state.py`. It is
+a pure consumer of the case store with one exception: its in-app analyse
+action runs the same `run_analyze` body (and egress guard) as the CLI, in a
+background worker, so the TUI adds no second network path. Untrusted database
+and model text is always rendered with markup disabled and sanitised first.
+
+`src/sift/verdicts.py` is the single write path for analyst verdicts:
+`parse_target` enforces the mandatory `<type>:<id>` spec (`hypothesis:0`,
+`cluster:3`, `template:<hex>` — raw ids were rejected as permanently ambiguous)
+and `record_validation` appends one immutable row snapshotting the judged
+target and the run's provenance. Both `sift validate` and the TUI's verdict
+modal route through it, so headless and interactive capture are equivalent.
+Verdicts are history, never state: re-running `sift analyze` replaces
+hypotheses but keeps every verdict, no update or delete path exists, and the
+Markdown and JSON renderers list them under "Recorded verdicts".
+
 ## The prompt-template layer
 
 All prompts are Markdown files in `src/sift/prompts/`, loaded as package data via
@@ -379,6 +400,8 @@ src/sift/
 ├── config.py        Layered config resolution and validation
 ├── models.py        Frozen Event dataclass + event_id; hypothesis output contract
 ├── store.py         The only SQL: schema, migrations, sqlite-vec, transactions
+├── verdicts.py      Verdict service: parse_target + record_validation — the
+│                    single write path for analyst verdicts (CLI and TUI)
 ├── adapters/        Pluggable parsers (sniff/parse) + the registry
 ├── pipeline/        Stage logic: ingest, dedup, cluster, retrieve, salience,
 │                    hypothesise, and the analyser registry (analysers.py)
@@ -387,8 +410,9 @@ src/sift/
 ├── prompts/         Versioned Markdown prompt templates (package data)
 ├── render/          Pure store→text renderers: markdown, json, pdf, mcm +
 │                    perfmon + eustack bundles (shared escaping in _util.py)
+├── tui/             Textual review TUI: screens/, data_access, review_state
 └── eval/            Golden-case harness: runner, metrics, thresholds, judge
-docs/decisions/      Architecture decision records (ADR 0001–0017)
+docs/decisions/      Architecture decision records (ADR 0001–0018)
 eval/cases/          Golden cases with frozen truth files
 tests/               pytest suite; no test ever opens a socket
 deploy/              Container/Quadlet deployment assets

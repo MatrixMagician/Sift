@@ -59,6 +59,8 @@ silent re-embed.
 | `sift analyze <case>` | Embeds, clusters, labels, ranks, generates cited hypotheses | Yes |
 | `sift report <case>` | Renders a self-contained report from `case.db` | No |
 | `sift show <case> <target>` | Inspects events, clusters or hypotheses | No |
+| `sift tui <case>` | Opens the case in the interactive review TUI | Only via its in-app analyse action |
+| `sift validate <case> <target>` | Records an analyst verdict headlessly | No |
 | `sift mcm <case>` | Deterministic MicroStrategy memory-contract forensics | No |
 | `sift perfmon <case>` | Deterministic DSSPerformanceMonitor correlation against MCM episodes | No |
 | `sift eval` | Runs the golden-case suite and gates on thresholds | Yes |
@@ -66,9 +68,11 @@ silent re-embed.
 | `sift list` | Lists the cases in the data directory (read-only) | No |
 | `sift delete <case>` | Removes the case directory once you are done with it | No |
 
-Only `analyze`, `eval` and `doctor` construct an inference client. `report`,
-`mcm` and `perfmon` are pure functions of the case database — you can render
-and re-render them with the backend shut down entirely.
+Only `analyze`, `eval`, `doctor` and the TUI's in-app analyse action construct
+an inference client. `report`, `mcm` and `perfmon` are pure functions of the
+case database — you can render and re-render them with the backend shut down
+entirely, and browsing or recording verdicts in the TUI never touches the
+network either.
 
 Every command accepts `--data-dir` to override where case directories live.
 
@@ -407,6 +411,78 @@ matters:
 Warnings go to stderr and data to stdout, so piping `sift show` into another
 tool stays clean.
 
+## Interactive review with `sift tui`
+
+`sift tui <case>` opens a case in a full-screen, keyboard-only terminal
+browser built for the review pass: roam the ranked hypotheses, drill into
+their cited evidence and the raw source lines behind it, and record your own
+verdicts against what the model claimed. A missing or corrupt case exits 1
+with a one-line message, never a traceback.
+
+Opening a case that has not been analysed yet is deliberate and useful: the
+TUI shows a "not analysed" screen offering `i` (ingest) and `a` (analyse).
+Both run in a background worker — the interface stays responsive with a
+progress indicator while inference runs, and the hypothesis list appears when
+it finishes. The analyse action is the TUI's only network path; it runs the
+exact same code (and egress guard) as `sift analyze`.
+
+### Screens and navigation
+
+The TUI opens on the **hypothesis list** — one row per hypothesis with its
+confidence, citation status and any recorded verdict. From there:
+
+| Key | Does |
+| --- | --- |
+| `↑` / `↓`, `enter` | Move the cursor; drill into the selected row |
+| `esc` | Back out one level (from the top screen, nothing) |
+| `c` | Cluster list → `enter` a cluster for its member templates |
+| `t` | Timeline — every ingested event in time order, cited or not |
+| `v` | Record a verdict on the selected hypothesis, cluster or template |
+| `e` | Export the report to the case directory (a toast shows the path) |
+| `?` | Help overlay with the bindings for the *current* screen |
+| `q` | Quit (exit 0) |
+
+Drilling into a hypothesis shows its narrative, confidence reasoning, next
+steps and cited events; `enter` on a cited event opens the raw source region
+it was parsed from. The header shows a running review-progress line —
+`Reviewed 1/2 hypotheses · 1/3 clusters · 0/3 templates` — so you always know
+what is left to rule on.
+
+### Recording verdicts
+
+Press `v` on a hypothesis (hypothesis list), a cluster (cluster list) or a
+member template (cluster detail) to open the verdict modal:
+
+- `c` / `r` / `u` — choose **confirmed**, **rejected** or **uncertain**
+- `tab` — move into the optional free-text note field
+- `enter` — commit; `esc` — cancel
+
+The verdict badge appears in the list only after commit, and everything
+survives quitting and reopening the case.
+
+Verdicts are **history, never state**: each one is an immutable append-only
+row in `case.db`, snapshotting the judged target and the run's provenance
+(model, prompt hash). Re-running `sift analyze` replaces hypotheses but never
+discards a verdict, and no update or delete path exists. Every subsequent
+`sift report` lists them — with notes and timestamps — under **Recorded
+verdicts**, in both the Markdown and JSON output.
+
+### Headless verdicts with `sift validate`
+
+The same append can be scripted without the TUI; both paths go through the
+same code, so interactive and headless capture are equivalent:
+
+```bash
+sift validate my-incident hypothesis:0 --confirm --note "matches the pcap"
+sift validate my-incident cluster:3 --reject
+sift validate my-incident template:fbfb3d114509584d --uncertain
+```
+
+The target's type prefix (`hypothesis:`, `cluster:`, `template:`) is
+mandatory — hypothesis indexes and cluster ids are both small integers, so a
+bare id would be permanently ambiguous. Exactly one of `--confirm`,
+`--reject`, `--uncertain` is required.
+
 ## Adapter overrides: when you need them
 
 Ingestion is adapter-driven. Each adapter sniffs a file, returns a
@@ -608,6 +684,19 @@ missing case or write failure, `2` bad `--format`.
 `0` if every file parsed; `1` if any file failed (after ingesting everything
 that did parse); `1` on disk exhaustion, with zero events committed and the
 transaction rolled back.
+
+### `sift validate` — 0 / 1 / 2
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Verdict appended; stdout prints its `verdict_id` and target. |
+| `1` | Missing/corrupt case, unknown target, or a locked database. |
+| `2` | Malformed target spec, or zero/multiple verdict flags. |
+
+### `sift tui`
+
+`0` on quit; `1` for a missing, invalid or corrupt case — reported as a
+one-line message before the interface opens, never a traceback.
 
 ### `sift eval`
 
