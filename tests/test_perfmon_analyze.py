@@ -32,6 +32,7 @@ from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
 from sift.models import Event
 from sift.pipeline import hypothesise
+from sift.pipeline._shared import short_hash
 from sift.pipeline.mcm import McmAnalysis, analyse_mcm
 from sift.pipeline.mcm_facts import render_mcm_facts
 from sift.pipeline.perfmon import analyse_perfmon
@@ -239,7 +240,7 @@ def _assemble_blocks(
     groups = store.query_template_groups()
     ranked = rank_clusters(store.query_clusters(), groups, incident_time=None)
     group_index = {g.template_id: g for g in groups}
-    messages = hypothesise._gather_exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
+    messages = hypothesise._exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
     template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
     budget = PromptBudget(client, 8192, 1024)  # pyright: ignore[reportArgumentType]
     events = store.query_events()
@@ -287,10 +288,10 @@ def test_four_combination_byte_identity(tmp_path: Path) -> None:
         _ip, p_perf = _assemble_blocks(store, c, with_mcm=False, with_perfmon=True)
         _ib, p_both = _assemble_blocks(store, c, with_mcm=True, with_perfmon=True)
 
-    h_neither = hypothesise._prompt_hash(p_neither)  # pyright: ignore[reportPrivateUsage]
-    h_mcm = hypothesise._prompt_hash(p_mcm)  # pyright: ignore[reportPrivateUsage]
-    h_perf = hypothesise._prompt_hash(p_perf)  # pyright: ignore[reportPrivateUsage]
-    h_both = hypothesise._prompt_hash(p_both)  # pyright: ignore[reportPrivateUsage]
+    h_neither = short_hash(p_neither)
+    h_mcm = short_hash(p_mcm)
+    h_perf = short_hash(p_perf)
+    h_both = short_hash(p_both)
 
     # Frozen baselines (source assertion): perfmon stripping restores pre-phase bytes.
     assert h_neither == _NEITHER_PROMPT_HASH

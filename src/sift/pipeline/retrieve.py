@@ -16,6 +16,7 @@ evidence.
 from __future__ import annotations
 
 from pathlib import Path
+from statistics import fmean
 
 from sift.llm.client import InferenceClient
 from sift.store import CaseStore
@@ -115,6 +116,5 @@ def retrieve_kb(
     vectors = client.embed(queries)
     if not vectors:
         return []
-    dim = len(vectors[0])
-    qvec = [sum(v[i] for v in vectors) / len(vectors) for i in range(dim)]
+    qvec = [fmean(col) for col in zip(*vectors, strict=True)]
     return store.knn_kb_chunks(qvec, k)

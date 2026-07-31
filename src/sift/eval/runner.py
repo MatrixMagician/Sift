@@ -42,12 +42,7 @@ from sift.eval.metrics import (
 )
 from sift.eval.truth import load_truth
 from sift.pipeline.cluster import cluster_and_label
-from sift.pipeline.hypothesise import (
-    DEFAULT_TOP_CLUSTERS,
-    TRIAGE_CTX_FALLBACK,
-    TRIAGE_RESERVE_OUT,
-    hypothesise,
-)
+from sift.pipeline.hypothesise import DEFAULT_TOP_CLUSTERS, hypothesise
 from sift.pipeline.ingest import run_ingest
 from sift.render.json_out import normalise_for_determinism, render_json
 from sift.store import CaseStore
@@ -91,16 +86,14 @@ def _run_pipeline(
     try:
         cluster_and_label(store, client, config.clustering, label=True)
         # A negative/quiet case still runs the full triage; incident_time=None
-        # lets salience derive the anchor from the case-end timestamp. These are
-        # the analyze triage defaults reused verbatim (shared constants in
-        # pipeline.hypothesise — eval never imports the CLI).
+        # lets salience derive the anchor from the case-end timestamp. The
+        # ctx/reserve knobs stay on hypothesise's own triage defaults (eval
+        # never imports the CLI).
         hypothesise(
             store,
             client,
             top_clusters=top_clusters,
             incident_time=None,
-            ctx_fallback=TRIAGE_CTX_FALLBACK,
-            reserve_out=TRIAGE_RESERVE_OUT,
         )
     finally:
         # A clean close checkpoints the WAL on every path (Pitfall 4).
@@ -185,15 +178,11 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
                 finally:
                     # A clean close checkpoints the WAL (Pitfall 4).
                     seed.close()
-    except (httpx.HTTPError, ValueError) as exc:
+    except ValueError as exc:
         from sift.render._util import sanitise  # noqa: PLC0415
 
         return CaseResult(
             name=name,
-            retrieval_hit_rate=0.0,
-            hypothesis_hit_at_k=0.0,
-            citation_validity_rate=0.0,
-            determinism_stability=0.0,
             is_eustack=True,
             run_failed=True,
             error=sanitise(str(exc)),
@@ -210,10 +199,6 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
 
     return CaseResult(
         name=name,
-        retrieval_hit_rate=0.0,
-        hypothesis_hit_at_k=0.0,
-        citation_validity_rate=0.0,
-        determinism_stability=0.0,
         is_eustack=True,
         eustack_case_pass=_eustack_verdict(bundle, expect),
     )
@@ -290,10 +275,6 @@ def run_case(
 
             return CaseResult(
                 name=name,
-                retrieval_hit_rate=0.0,
-                hypothesis_hit_at_k=0.0,
-                citation_validity_rate=0.0,
-                determinism_stability=0.0,
                 expect_no_incident=truth.expect_no_incident,
                 run_failed=True,
                 error=sanitise(str(exc)),

@@ -185,38 +185,25 @@ def run_ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
                                     completed=done_bytes
                                     + min(offset, file_size),
                                 )
-                except sqlite3.Error as exc:
+                except Exception as exc:
                     # WR-07: storage exhaustion is NOT a recoverable per-file
                     # error — SQLite has auto-rolled-back the whole transaction
                     # and destroyed every savepoint, so continuing would report
                     # a disk-full as one bad file and commit zero events. Detect
                     # the fatal codes (SQLITE_FULL=13, SQLITE_IOERR=10 + its
-                    # extended codes share the low byte) and abort loudly. Catch
-                    # order matters: sqlite3.Error is a subclass of Exception, so
-                    # this handler MUST precede the generic one below.
-                    code = getattr(exc, "sqlite_errorcode", None)
-                    if code in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_IOERR) or (
-                        code is not None and code & 0xFF == sqlite3.SQLITE_IOERR
-                    ):
-                        raise DiskFullError(
-                            f"disk full / I/O error during ingest at "
-                            f"{_sanitise(relpath)}: no events committed "
-                            "(transaction rolled back)"
-                        ) from exc
-                    # Any other sqlite3.Error is a recoverable per-file failure:
-                    # a sibling except cannot catch a re-raise, so record and
-                    # continue here exactly as the generic handler does below.
-                    failed.append(relpath)
-                    coverage[relpath] = {
-                        "error": str(exc),
-                        "event_count": 0,
-                        "coverage": 0.0,
-                    }
-                    print(f"ERROR {_sanitise(relpath)}: {_sanitise(str(exc))}")
-                    done_bytes += file_size
-                    progress.update(ptask, completed=done_bytes)
-                    continue
-                except Exception as exc:
+                    # extended codes share the low byte) and abort loudly; any
+                    # other error — sqlite3 or not — falls through to the shared
+                    # recoverable per-file body below.
+                    if isinstance(exc, sqlite3.Error):
+                        code = getattr(exc, "sqlite_errorcode", None)
+                        if code in (sqlite3.SQLITE_FULL, sqlite3.SQLITE_IOERR) or (
+                            code is not None and code & 0xFF == sqlite3.SQLITE_IOERR
+                        ):
+                            raise DiskFullError(
+                                f"disk full / I/O error during ingest at "
+                                f"{_sanitise(relpath)}: no events committed "
+                                "(transaction rolled back)"
+                            ) from exc
                     # A bad file never silently vanishes: loud error, keep
                     # going. T-04-01: relpath and exception text carry
                     # untrusted bundle bytes (filenames may contain ESC) —

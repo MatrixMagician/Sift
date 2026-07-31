@@ -25,15 +25,10 @@ from textual.widgets import DataTable, Footer, Header, Static
 from sift.store import CaseStore
 from sift.tui.data_access import DEFAULT_PAGE_SIZE, EventPager
 from sift.tui.screens.base import CaseScreen
-from sift.tui.screens.evidence import RawSourceScreen, cell
+from sift.tui.screens.evidence import RawSourceScreen, cell, first_line
 
 # Shown when the events table holds nothing at all.
 NO_EVENTS_MESSAGE = "No events stored for this case."
-
-
-def _first_line(text: str) -> str:
-    """A message's first line — multi-line records stay one table row."""
-    return text.splitlines()[0] if text else ""
 
 
 class TimelineScreen(CaseScreen):
@@ -86,7 +81,7 @@ class TimelineScreen(CaseScreen):
                 cell(row.ts or "—"),
                 cell(row.severity),
                 cell(f"{row.source_file}:{row.line_start}"),
-                cell(_first_line(row.message)),
+                cell(first_line(row.message)),
                 key=row.event_id,
             )
         self._update_status()

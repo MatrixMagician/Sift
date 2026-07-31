@@ -63,15 +63,21 @@ fragment only. It must NOT import from ``sift.pipeline.hypothesise`` or
 
 from __future__ import annotations
 
-import importlib.resources
 from typing import TYPE_CHECKING
 
+from sift.pipeline._shared import load_prompt
 from sift.pipeline.eustack import (
     UNKNOWN_LOCK_SITE,
     enclosing_application_frame,
     signature_of,
 )
 from sift.pipeline.eustack_progression import ORDER_BASIS_FILENAME, group_dumps
+
+# Shared, not copied: perfmon_facts._cite_prefix is the single implementation
+# of the D-05 printed-token contract — a second copy here could drift from it.
+from sift.pipeline.perfmon_facts import (
+    _cite_prefix,  # pyright: ignore[reportPrivateUsage]
+)
 from sift.render._util import sanitise
 
 if TYPE_CHECKING:
@@ -79,7 +85,6 @@ if TYPE_CHECKING:
     from sift.pipeline.eustack import SignatureGroup
     from sift.pipeline.eustack_progression import DumpSlice, EustackBundle
 
-_PROMPT_PACKAGE = "sift.prompts"
 _EUSTACK_FILE = "eustack_facts.md"
 _EUSTACK_LINES_SLOT = "<<EUSTACK_LINES>>"
 
@@ -96,26 +101,8 @@ _MAX_SIGNATURES = 8
 
 
 def _load_eustack_fragment() -> str:
-    """Load the versioned eu-stack fragment from package data (CLI-02).
-
-    Mirrors ``perfmon_facts._load_perfmon_fragment`` — the same
-    ``importlib.resources`` idiom, so wording changes touch no path maths.
-    """
-    return (
-        importlib.resources.files(_PROMPT_PACKAGE)
-        .joinpath(_EUSTACK_FILE)
-        .read_text(encoding="utf-8")
-    )
-
-
-def _cite_prefix(event_ids: tuple[str, ...], ids: set[str]) -> str:
-    """Join ``[evt:<id>]`` tokens for ``event_ids`` and record them as citable.
-
-    Only ids that become a printed token enter ``ids`` — the exact D-05
-    contract. Copied verbatim from ``perfmon_facts._cite_prefix``.
-    """
-    ids.update(event_ids)
-    return "".join(f"[evt:{eid}]" for eid in event_ids)
+    """Load the versioned eu-stack fragment from package data (CLI-02)."""
+    return load_prompt(_EUSTACK_FILE)
 
 
 def _sampling_sentence(k: int, population: int) -> str:
@@ -418,22 +405,19 @@ def _signature_listing_lines(
     return lines
 
 
-def _suppression_statement() -> str:
-    """D-10/D-11: the single sentence emitted whenever the multi-dump
-    progression layer is suppressed. No delta figure is emitted anywhere
-    else in the block alongside this line, in either triggering case: a real
-    figure carried in a wrong or absent order is indistinguishable from a
-    correct one to citation validation, so the whole layer is withheld
-    rather than guessed at. Worded to name both possible reasons (an
-    unverified order, or too few dumps to compare) so it stays truthful
-    regardless of which one applies.
-    """
-    return (
-        "Signature-population progression across dumps was not reported for "
-        "this case: either the dump order could not be verified, or fewer "
-        "than two dumps were available, so no population-change figure "
-        "appears anywhere in this block."
-    )
+# D-10/D-11: the single sentence emitted whenever the multi-dump progression
+# layer is suppressed. No delta figure is emitted anywhere else in the block
+# alongside this line, in either triggering case: a real figure carried in a
+# wrong or absent order is indistinguishable from a correct one to citation
+# validation, so the whole layer is withheld rather than guessed at. Worded to
+# name both possible reasons (an unverified order, or too few dumps to
+# compare) so it stays truthful regardless of which one applies.
+_SUPPRESSION_STATEMENT = (
+    "Signature-population progression across dumps was not reported for "
+    "this case: either the dump order could not be verified, or fewer "
+    "than two dumps were available, so no population-change figure "
+    "appears anywhere in this block."
+)
 
 
 def _progression_lines(
@@ -461,7 +445,7 @@ def _progression_lines(
         or len(bundle.progression.dumps) < 2
     )
     if unverified:
-        lines.append(_suppression_statement())
+        lines.append(_SUPPRESSION_STATEMENT)
         for flag in bundle.progression.ordering_flags:
             lines.append(
                 f"eu-stack dump-ordering flag ({sanitise(flag.severity)}) "

@@ -33,22 +33,23 @@ only. It must NOT import from ``sift.pipeline.hypothesise`` or ``sift.cli``
 
 from __future__ import annotations
 
-import importlib.resources
 from typing import TYPE_CHECKING
 
+from sift.pipeline._shared import load_prompt
+
+# Shared, not copied: mcm_facts._SEVERITY_ORDER (critical first; an unknown
+# severity sorts last rather than raising) is the single display-order source.
+from sift.pipeline.mcm_facts import (
+    _SEVERITY_ORDER,  # pyright: ignore[reportPrivateUsage]
+)
 from sift.pipeline.perfmon import MCM_DENIAL_COUNTER
 from sift.render._util import sanitise
 
 if TYPE_CHECKING:
     from sift.pipeline.perfmon import CounterTrend, PerfmonAnalysis, TrendGroup
 
-_PROMPT_PACKAGE = "sift.prompts"
 _PERFMON_FILE = "perfmon_facts.md"
 _PERFMON_LINES_SLOT = "<<PERFMON_LINES>>"
-
-# Display order for graded hazards (mirrors mcm_facts._SEVERITY_ORDER) — critical
-# first. An unknown severity sorts last rather than raising.
-_SEVERITY_ORDER = {"critical": 0, "warn": 1, "info": 2}
 
 # The five salient counters printed per group (D-04), keyed on the counter's
 # FINAL backslash segment so a collision-qualified name (``Process(MSTRSvr)\Size(MB)``)
@@ -92,16 +93,8 @@ def _group_severity_rank(group: TrendGroup) -> int:
 
 
 def _load_perfmon_fragment() -> str:
-    """Load the versioned perfmon fragment from package data (CLI-02).
-
-    Mirrors ``mcm_facts._load_mcm_fragment`` — the same ``importlib.resources``
-    idiom, so wording changes touch no path maths.
-    """
-    return (
-        importlib.resources.files(_PROMPT_PACKAGE)
-        .joinpath(_PERFMON_FILE)
-        .read_text(encoding="utf-8")
-    )
+    """Load the versioned perfmon fragment from package data (CLI-02)."""
+    return load_prompt(_PERFMON_FILE)
 
 
 def _cite_prefix(event_ids: tuple[str, ...], ids: set[str]) -> str:

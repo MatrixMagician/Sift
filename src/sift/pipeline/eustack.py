@@ -20,11 +20,10 @@ re-run — no ``set`` iteration anywhere on the path, all ordering explicit.
 
 from __future__ import annotations
 
-import hashlib
 import importlib.resources
 import re
 import tomllib
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -45,6 +44,7 @@ from sift.adapters.eustack import (
 # grader — reused as-is rather than promoted to a shared home, so mcm.py's
 # shipped, tested surface stays untouched. mcm.py imports nothing from
 # sift.pipeline, so this import introduces no cycle.
+from sift.pipeline._shared import short_hash
 from sift.pipeline.mcm import _grade  # pyright: ignore[reportPrivateUsage]
 
 _RULES_PACKAGE = "sift.rules"
@@ -200,7 +200,7 @@ def load_rules(rules_path: str | None = None) -> tuple[ThreadRoleRules, str]:
         # / config.py:186-192's convention, extended to the rules file).
         raise ValueError(f"invalid rules file {source}: {exc}") from exc
     rules = ThreadRoleRules.model_validate(data)
-    content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    content_hash = short_hash(text)
     return rules, content_hash
 
 
@@ -623,21 +623,20 @@ def analyse_saturation(
     rather than an exception, mirroring ``analyse_eustack()``'s own contract.
     """
     # One pass, tallying per-subsystem totals and idle-parked totals plus a
-    # signature count. Plain dict accumulation (never Counter.most_common(),
-    # never set iteration) matches analyse_eustack()'s own discipline.
+    # signature count. Plain defaultdict accumulation (insertion-ordered, so
+    # determinism holds; never Counter.most_common(), never set iteration)
+    # matches analyse_eustack()'s own discipline.
     # `subsystem` stays typed str | None throughout and is never stringified
     # — a literal "None" subsystem string could otherwise collide with the
     # unclassified row's None key (D-02).
-    totals: dict[str | None, int] = {}
-    idle_totals: dict[str | None, int] = {}
-    signature_counts: dict[str | None, int] = {}
+    totals: defaultdict[str | None, int] = defaultdict(int)
+    idle_totals: defaultdict[str | None, int] = defaultdict(int)
+    signature_counts: defaultdict[str | None, int] = defaultdict(int)
     for group in analysis.signatures:
-        totals[group.subsystem] = totals.get(group.subsystem, 0) + group.thread_count
-        signature_counts[group.subsystem] = signature_counts.get(group.subsystem, 0) + 1
+        totals[group.subsystem] += group.thread_count
+        signature_counts[group.subsystem] += 1
         if group.role == "idle-parked":
-            idle_totals[group.subsystem] = (
-                idle_totals.get(group.subsystem, 0) + group.thread_count
-            )
+            idle_totals[group.subsystem] += group.thread_count
 
     pools: list[PoolOccupancy] = []
     for subsystem, total in totals.items():
@@ -668,8 +667,8 @@ def analyse_saturation(
     # `unclassified` is the sole role without one — assert rather than
     # silently skip so pyright is satisfied and a future role change without
     # frame_index fails loudly instead of quietly dropping threads.
-    lock_totals: dict[str, int] = {}
-    lock_signature_counts: dict[str, int] = {}
+    lock_totals: defaultdict[str, int] = defaultdict(int)
+    lock_signature_counts: defaultdict[str, int] = defaultdict(int)
     for group in analysis.signatures:
         if group.role != "blocked-on-lock":
             continue
@@ -678,8 +677,8 @@ def analyse_saturation(
         )
         found = enclosing_application_frame(group.frames, group.frame_index)
         site = found if found is not None else UNKNOWN_LOCK_SITE
-        lock_totals[site] = lock_totals.get(site, 0) + group.thread_count
-        lock_signature_counts[site] = lock_signature_counts.get(site, 0) + 1
+        lock_totals[site] += group.thread_count
+        lock_signature_counts[site] += 1
 
     lock_sites: list[LockSite] = [
         LockSite(
@@ -701,20 +700,16 @@ def analyse_saturation(
     # `Rule.subsystem` is a required non-optional field, so every group
     # reaching this pass carries a real str; unclassified groups (the only
     # ones carrying None) never have role == "blocked-on-external".
-    dependency_totals: dict[str, int] = {}
-    dependency_signature_counts: dict[str, int] = {}
+    dependency_totals: defaultdict[str, int] = defaultdict(int)
+    dependency_signature_counts: defaultdict[str, int] = defaultdict(int)
     for group in analysis.signatures:
         if group.role != "blocked-on-external":
             continue
         assert group.subsystem is not None, (
             "blocked-on-external groups always carry a rule subsystem"
         )
-        dependency_totals[group.subsystem] = (
-            dependency_totals.get(group.subsystem, 0) + group.thread_count
-        )
-        dependency_signature_counts[group.subsystem] = (
-            dependency_signature_counts.get(group.subsystem, 0) + 1
-        )
+        dependency_totals[group.subsystem] += group.thread_count
+        dependency_signature_counts[group.subsystem] += 1
 
     dependencies: list[DependencyWait] = [
         DependencyWait(

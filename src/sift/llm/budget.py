@@ -10,15 +10,11 @@ slice only; full triage-prompt budgeting lands in Phase 4.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import TYPE_CHECKING
 
-
-class _Tokenizer(Protocol):
-    """The slice of `InferenceClient` that `PromptBudget` depends on."""
-
-    has_tokenize: bool
-
-    def tokenize(self, text: str) -> int | None: ...
+if TYPE_CHECKING:
+    # Type-only: budget must never import client at runtime (import-cycle guard).
+    from sift.llm.client import InferenceClient
 
 
 class PromptBudget:
@@ -32,7 +28,7 @@ class PromptBudget:
     """
 
     def __init__(
-        self, client: _Tokenizer | None, ctx_tokens: int, reserve_out: int
+        self, client: InferenceClient | None, ctx_tokens: int, reserve_out: int
     ) -> None:
         self._client = client
         self._ctx_tokens = ctx_tokens

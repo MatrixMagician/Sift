@@ -8,6 +8,7 @@ receive a ``Path`` and call ``open_bytes`` themselves, staying self-contained.
 
 import gzip
 import io
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -23,6 +24,14 @@ from sift.models import Event
 GZIP_MAGIC = b"\x1f\x8b"
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
 SNIFF_BYTES = 65536
+
+# Anchored ISO 8601 candidate: four-digit year, dashes, T-or-space separator,
+# HH:MM:SS, optional fractional seconds and offset/Z. The bounded slice is fed
+# to datetime.fromisoformat — never an unanchored substring (Pitfall 5:
+# fromisoformat accepts bare "20260716" as a date).
+ISO_TS_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)"
+)
 
 
 class Adapter(Protocol):
@@ -93,6 +102,12 @@ class ConfigurableAdapter:
         self.tz_overrides: dict[str, str] = {}  # glob -> IANA name (D-05)
         self.last_stats: ParseStats | None = None
 
+    def case_relpath(self, path: Path) -> str:
+        """Case-relative POSIX path — the ``source_file``/``event_id`` key."""
+        return (
+            path.relative_to(self.input_root) if self.input_root else Path(path.name)
+        ).as_posix()
+
 
 def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, str]:
     """Normalise to aware UTC, returning (datetime, ts_confidence) per D-05."""
@@ -100,6 +115,38 @@ def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, str]:
         return dt.astimezone(UTC), "exact"
     tz = ZoneInfo(override_tz) if override_tz else UTC
     return dt.replace(tzinfo=tz).astimezone(UTC), "inferred"
+
+
+def parse_iso_prefix(text: str) -> tuple[int, datetime] | None:
+    """Match a leading ISO 8601 stamp -> (prefix_end, datetime) or None.
+
+    The datetime is naive or aware exactly as written; tz normalisation is the
+    caller's job (``match_iso_ts``, or genericlog's format ladder).
+    """
+    m = ISO_TS_RE.match(text)
+    if m is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(m.group(1).replace(",", "."))
+    except ValueError:
+        return None
+    return m.end(), dt
+
+
+def match_iso_ts(
+    text: str, override_tz: str | None
+) -> tuple[int, datetime, str] | None:
+    """Return (prefix_end, aware-UTC datetime, ts_confidence) or None.
+
+    An offset-bearing stamp -> ``exact``; a naive stamp -> ``inferred`` after
+    the file's ``tz_overrides`` glob is applied through the shared ``to_utc``.
+    """
+    parsed = parse_iso_prefix(text)
+    if parsed is None:
+        return None
+    prefix_end, dt = parsed
+    dt_utc, confidence = to_utc(dt, override_tz)
+    return prefix_end, dt_utc, confidence
 
 
 def tz_override_for(relpath: str, tz_overrides: dict[str, str]) -> str | None:

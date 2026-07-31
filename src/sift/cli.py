@@ -10,12 +10,12 @@ import json
 import shutil
 import sqlite3
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated, Protocol, cast
 
 import httpx
 import typer
@@ -39,9 +39,6 @@ from sift.pipeline.hypothesise import (
 )
 from sift.pipeline.hypothesise import (
     TRIAGE_CTX_FALLBACK as _TRIAGE_CTX_FALLBACK,
-)
-from sift.pipeline.hypothesise import (
-    TRIAGE_RESERVE_OUT as _TRIAGE_RESERVE_OUT,
 )
 from sift.pipeline.hypothesise import hypothesise
 from sift.pipeline.ingest import IngestError, IngestUsageError, run_ingest
@@ -329,6 +326,19 @@ _FILTER_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _to_utc(value: str) -> datetime:
+    """Parse an ISO 8601 string to a UTC datetime — the shared since/until idiom.
+
+    A naive value is treated as UTC (documented in --help), then normalised to
+    UTC. Raises ``ValueError`` on a non-ISO value; each caller owns its own
+    error message and exit code.
+    """
+    moment = datetime.fromisoformat(value)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
 def _parse_filters(specs: list[str], target: str) -> dict[str, str | int]:
     """Parse and validate repeated ``--filter key=value`` specs (typer-free).
 
@@ -377,17 +387,13 @@ def _parse_filters(specs: list[str], target: str) -> dict[str, str | int]:
             filters[key] = number
         elif key in ("since", "until"):
             try:
-                moment = datetime.fromisoformat(value)
+                # Stored ts strings are UTC isoformat — normalise before binding
+                # so the string comparison in store.py is chronological.
+                filters[key] = _to_utc(value).isoformat()
             except ValueError:
                 raise ValueError(
                     f"invalid {key} value {value!r}: not an ISO 8601 timestamp"
                 ) from None
-            if moment.tzinfo is None:
-                # Naive input is treated as UTC (documented in --help).
-                moment = moment.replace(tzinfo=UTC)
-            # Stored ts strings are UTC isoformat — normalise before binding
-            # so the string comparison in store.py is chronological.
-            filters[key] = moment.astimezone(UTC).isoformat()
         else:
             filters[key] = value
     return filters
@@ -543,7 +549,7 @@ def _parse_moment(value: str | None, label: str) -> datetime | None:
     if value is None:
         return None
     try:
-        moment = datetime.fromisoformat(value)
+        return _to_utc(value)
     except ValueError:
         # T-04-01: echo the untrusted flag value only after sanitising it.
         print(
@@ -551,10 +557,19 @@ def _parse_moment(value: str | None, label: str) -> datetime | None:
             "not an ISO 8601 timestamp"
         )
         raise typer.Exit(2) from None
-    if moment.tzinfo is None:
-        # Naive input is treated as UTC (documented in --help).
-        moment = moment.replace(tzinfo=UTC)
-    return moment.astimezone(UTC)
+
+
+def _config_with_model(data_dir: Path | None, model: str | None) -> SiftConfig:
+    """Resolve config with the shared ``--model`` override.
+
+    D-03 precedence: ``--model`` feeds BOTH roles' config (flags win,
+    deep-merged) — the one dance analyze/eval/doctor all share.
+    """
+    overrides: dict[str, object] = {"data_dir": data_dir}
+    if model is not None:
+        overrides["generation"] = {"model": model}
+        overrides["embeddings"] = {"model": model}
+    return load_config(overrides)
 
 
 def _resolve_generation_ctx(
@@ -692,12 +707,7 @@ def analyze(
     # store so it fails fast. --hint is never parsed as a time.
     since_dt = _parse_moment(since, "since")
     until_dt = _parse_moment(until, "until")
-    # D-03 precedence: --model feeds BOTH roles' config (flags win, deep-merged).
-    overrides: dict[str, object] = {"data_dir": data_dir}
-    if model is not None:
-        overrides["generation"] = {"model": model}
-        overrides["embeddings"] = {"model": model}
-    config = load_config(overrides)
+    config = _config_with_model(data_dir, model)
     store = _case_store(case, config)
     try:
         code = run_analyze(
@@ -772,34 +782,16 @@ def run_analyze(
         echo("Nothing to cluster; run 'sift ingest' first")
         return 0
 
-    gen_ep = Endpoint(
-        base_url=config.generation.base_url, model=config.generation.model
-    )
-    emb_ep = Endpoint(
-        base_url=config.embeddings.base_url, model=config.embeddings.model
-    )
-    http = _make_http_client(
-        max(config.generation.timeout, config.embeddings.timeout)
-    )
+    # Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
+    # base_urls (LLM-02). A public endpoint without the override refuses.
     try:
-        # Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
-        # base_urls (LLM-02). A public endpoint without the override refuses.
-        try:
-            client = InferenceClient(
-                generation=gen_ep,
-                embeddings=emb_ep,
-                http=http,
-                allow_public=allow_public,
-                retries=config.generation.retries,
-                backoff_base=config.generation.backoff_base,
-                batch_size=config.embeddings.batch_size,
-                max_input_chars=config.embeddings.max_input_chars,
-                context=config.embeddings.context,
-            )
-        except ValueError as exc:
-            echo(f"Error: {_sanitise(str(exc))}")
-            return 1
-
+        http, client, _gen_ep, _emb_ep = _build_client(
+            config, allow_public=allow_public, tuned_embeddings=True
+        )
+    except ValueError as exc:
+        echo(f"Error: {_sanitise(str(exc))}")
+        return 1
+    try:
         # CLI-03: transient stderr-only progress with a STATIC description —
         # untrusted server/DB text never enters a rich renderable (T-03-23).
         # stdout stays scriptable; a non-TTY run renders nothing (disable=).
@@ -896,9 +888,10 @@ def run_analyze(
             hint=hint,
             kb_context=kb_context,
             analyser_settings=AnalyserSettings.from_config(config),
-            ctx_fallback=_TRIAGE_CTX_FALLBACK,
+            # ctx_fallback/reserve_out stay on their hypothesise defaults (the
+            # shared TRIAGE_* constants); ctx_configured is the load-bearing
+            # resolved window from _resolve_generation_ctx above.
             ctx_configured=ctx_tokens,
-            reserve_out=_TRIAGE_RESERVE_OUT,
         )
     finally:
         http.close()
@@ -1191,21 +1184,81 @@ def tui(case: str, data_dir: DataDirOption = None) -> None:
         store.close()
 
 
-class McmFormat(StrEnum):
-    """Report format for ``sift mcm`` (an unknown value is a Typer usage error,
-    exit 2 — mirrors ``ReportFormat``; ADR 0007). The CSV is always written."""
+class BundleFormat(StrEnum):
+    """Report format for the ``mcm``/``perfmon``/``eustack`` bundle commands
+    (an unknown value is a Typer usage error, exit 2 — mirrors ``ReportFormat``;
+    ADR 0007). The CSV is always written."""
 
     md = "md"
     json = "json"
+
+
+def _write_bundle(
+    bundle_dir: Path,
+    report_name: str,
+    report_text: str,
+    csv_name: str,
+    write_csv: Callable[[Path], None],
+    label: str,
+) -> None:
+    """Write a bundle's report then CSV, unlinking both on any OSError (WR-06).
+
+    The report is written before the CSV, so a mid-CSV failure would otherwise
+    leave a valid-looking report next to a truncated CSV — unlink both so a
+    half-written bundle is never mistaken for a complete one. A write-target
+    failure is exit 1 with a helpful, sanitised message and the traceback chain
+    suppressed (``from None``), never a raw traceback (WR-02).
+    """
+    try:
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        (bundle_dir / report_name).write_text(report_text, encoding="utf-8")
+        write_csv(bundle_dir / csv_name)
+    except OSError as exc:
+        for partial in (bundle_dir / report_name, bundle_dir / csv_name):
+            partial.unlink(missing_ok=True)
+        print(
+            f"Error: cannot write {label} bundle to {bundle_dir}: "
+            f"{_sanitise(str(exc))}"
+        )
+        raise typer.Exit(1) from None
+
+
+# Diagnostic-flag severity order shared by the mcm/perfmon/eustack summaries.
+_SEV_RANK = {"critical": 0, "warn": 1, "info": 2}
+
+
+class _SeverityFlag(Protocol):
+    """The severity/message slice shared by MCM flags, perfmon hazards and
+    eu-stack saturation flags."""
+
+    @property
+    def severity(self) -> str: ...
+
+    @property
+    def message(self) -> str: ...
+
+
+def _print_top_flag(flags: Iterable[_SeverityFlag], prefix: str, empty: str) -> None:
+    """Print the top diagnostic flag by severity, or the empty-case line.
+
+    Flag/hazard message text is log-derived (customer bytes), so it goes
+    through ``_sanitise`` before echo (T-10-15/T-13-STDOUTESC/T-17-02).
+    """
+    ordered = sorted(flags, key=lambda f: _SEV_RANK.get(f.severity, 3))
+    if ordered:
+        top = ordered[0]
+        print(f"{prefix}{top.severity} — {_sanitise(top.message)}")
+    else:
+        print(f"{prefix}{empty}")
 
 
 @app.command()
 def mcm(
     case: str,
     fmt: Annotated[
-        McmFormat,
+        BundleFormat,
         typer.Option("--format", help="Report format: md (default) or json"),
-    ] = McmFormat.md,
+    ] = BundleFormat.md,
     data_dir: DataDirOption = None,
 ) -> None:
     """Write the MCM forensics bundle for a case (MCM-05, D-10).
@@ -1239,29 +1292,20 @@ def mcm(
         analysis = analyse_mcm(
             store.query_events(sources=["dsserrors"]), config.mcm.thresholds
         )
-        if fmt is McmFormat.json:
+        if fmt is BundleFormat.json:
             report_name = "mcm_report.json"
             report_text = render_mcm_json(analysis)
         else:
             report_name = "mcm_report.md"
             report_text = render_mcm_markdown(analysis)
-        try:
-            mcm_dir.mkdir(parents=True, exist_ok=True)
-            (mcm_dir / report_name).write_text(report_text, encoding="utf-8")
-            write_attribution_csv(analysis, mcm_dir / "mcm_attribution.csv")
-        except OSError as exc:
-            # WR-06: report is written before the CSV, so a mid-CSV failure would
-            # leave a valid-looking report next to a truncated CSV. Unlink both so
-            # a half-written bundle is never mistaken for a complete one.
-            for partial in (
-                mcm_dir / report_name,
-                mcm_dir / "mcm_attribution.csv",
-            ):
-                partial.unlink(missing_ok=True)
-            # WR-02: a write-target failure is exit 1 with a helpful, sanitised
-            # message, never a raw traceback (mirrors report).
-            print(f"Error: cannot write MCM bundle to {mcm_dir}: {_sanitise(str(exc))}")
-            raise typer.Exit(1) from None
+        _write_bundle(
+            mcm_dir,
+            report_name,
+            report_text,
+            "mcm_attribution.csv",
+            lambda path: write_attribution_csv(analysis, path),
+            "MCM",
+        )
 
         n = len(analysis.episodes)
         plural = "episode" if n == 1 else "episodes"
@@ -1269,36 +1313,20 @@ def mcm(
             f"Analysed {n} MCM denial {plural}; wrote {report_name} + "
             f"mcm_attribution.csv to {mcm_dir}"
         )
-        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
         for i, ea in enumerate(analysis.episodes, start=1):
-            flags = sorted(ea.flags, key=lambda f: _sev_rank.get(f.severity, 3))
-            if flags:
-                top = flags[0]
-                # T-10-15: log-derived message text through _sanitise before echo.
-                print(f"  Episode {i}: {top.severity} — {_sanitise(top.message)}")
-            else:
-                print(f"  Episode {i}: no diagnostic flags raised")
+            _print_top_flag(ea.flags, f"  Episode {i}: ", "no diagnostic flags raised")
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring report.
         store.close()
-
-
-class PerfmonFormat(StrEnum):
-    """Report format for ``sift perfmon`` (an unknown value is a Typer usage
-    error, exit 2 — mirrors ``McmFormat``; ADR 0007). The CSV is always
-    written."""
-
-    md = "md"
-    json = "json"
 
 
 @app.command()
 def perfmon(
     case: str,
     fmt: Annotated[
-        PerfmonFormat,
+        BundleFormat,
         typer.Option("--format", help="Report format: md (default) or json"),
-    ] = PerfmonFormat.md,
+    ] = BundleFormat.md,
     data_dir: DataDirOption = None,
 ) -> None:
     """Write the perfmon correlation bundle for a case (PERF-06, D-17).
@@ -1338,34 +1366,20 @@ def perfmon(
         # knob.
         events = store.query_events(sources=["dsserrors", "dssperfmon"])
         analysis = analyse_perfmon(analyse_mcm(events, config.mcm.thresholds), events)
-        if fmt is PerfmonFormat.json:
+        if fmt is BundleFormat.json:
             report_name = "perfmon_report.json"
             report_text = render_perfmon_json(analysis)
         else:
             report_name = "perfmon_report.md"
             report_text = render_perfmon_markdown(analysis)
-        try:
-            perfmon_dir.mkdir(parents=True, exist_ok=True)
-            (perfmon_dir / report_name).write_text(report_text, encoding="utf-8")
-            write_perfmon_trend_csv(analysis, perfmon_dir / "perfmon_trend.csv")
-        except OSError as exc:
-            # WR-06: the report is written before the CSV, so a mid-CSV failure
-            # would otherwise leave a valid-looking report next to a truncated
-            # CSV. Unlink both so a later reader never mistakes a half-written
-            # bundle for a complete one.
-            for partial in (
-                perfmon_dir / report_name,
-                perfmon_dir / "perfmon_trend.csv",
-            ):
-                partial.unlink(missing_ok=True)
-            # T-13-ERRLEAK: exit 1 with a sanitised message; `from None`
-            # suppresses the traceback chain so no stack frame or internal path
-            # reaches the operator.
-            print(
-                f"Error: cannot write perfmon bundle to {perfmon_dir}: "
-                f"{_sanitise(str(exc))}"
-            )
-            raise typer.Exit(1) from None
+        _write_bundle(
+            perfmon_dir,
+            report_name,
+            report_text,
+            "perfmon_trend.csv",
+            lambda path: write_perfmon_trend_csv(analysis, path),
+            "perfmon",
+        )
 
         n = len(analysis.groups)
         plural = "span" if n == 1 else "spans"
@@ -1373,37 +1387,22 @@ def perfmon(
             f"Correlated {n} {plural}; wrote {report_name} + "
             f"perfmon_trend.csv to {perfmon_dir}"
         )
-        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
         for i, group in enumerate(analysis.groups, start=1):
-            hazards = sorted(group.hazards, key=lambda h: _sev_rank.get(h.severity, 3))
-            if hazards:
-                top = hazards[0]
-                # T-13-STDOUTESC: counter names originate in the customer's CSV
-                # header, so hazard text goes through _sanitise before echo.
-                print(f"  Span {i}: {top.severity} — {_sanitise(top.message)}")
-            else:
-                print(f"  Span {i}: no correlation hazards raised")
+            _print_top_flag(
+                group.hazards, f"  Span {i}: ", "no correlation hazards raised"
+            )
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring mcm.
         store.close()
-
-
-class EustackFormat(StrEnum):
-    """Report format for ``sift eustack`` (an unknown value is a Typer usage
-    error, exit 2 — mirrors ``PerfmonFormat``; ADR 0007). The CSV is always
-    written."""
-
-    md = "md"
-    json = "json"
 
 
 @app.command()
 def eustack(
     case: str,
     fmt: Annotated[
-        EustackFormat,
+        BundleFormat,
         typer.Option("--format", help="Report format: md (default) or json"),
-    ] = EustackFormat.md,
+    ] = BundleFormat.md,
     data_dir: DataDirOption = None,
 ) -> None:
     """Write the eu-stack thread-dump analysis bundle for a case (EUS-09).
@@ -1446,35 +1445,20 @@ def eustack(
             rules_hash,
             config.eustack.thresholds,
         )
-        if fmt is EustackFormat.json:
+        if fmt is BundleFormat.json:
             report_name = "eustack_report.json"
             report_text = render_eustack_json(bundle)
         else:
             report_name = "eustack_report.md"
             report_text = render_eustack_markdown(bundle)
-        try:
-            eustack_dir.mkdir(parents=True, exist_ok=True)
-            (eustack_dir / report_name).write_text(report_text, encoding="utf-8")
-            write_eustack_signatures_csv(
-                bundle, eustack_dir / "eustack_signatures.csv"
-            )
-        except OSError as exc:
-            # T-17-04: the report is written before the CSV, so a mid-CSV
-            # failure would otherwise leave a valid-looking report next to a
-            # truncated CSV. Unlink both so a half-written bundle is never
-            # mistaken for a complete one; the message is sanitised and the
-            # traceback chain suppressed so no internal path or stack frame
-            # reaches the operator.
-            for partial in (
-                eustack_dir / report_name,
-                eustack_dir / "eustack_signatures.csv",
-            ):
-                partial.unlink(missing_ok=True)
-            print(
-                f"Error: cannot write eustack bundle to {eustack_dir}: "
-                f"{_sanitise(str(exc))}"
-            )
-            raise typer.Exit(1) from None
+        _write_bundle(
+            eustack_dir,
+            report_name,
+            report_text,
+            "eustack_signatures.csv",
+            lambda path: write_eustack_signatures_csv(bundle, path),
+            "eustack",
+        )
 
         n_dumps = len(bundle.progression.dumps)
         dump_plural = "dump" if n_dumps == 1 else "dumps"
@@ -1490,17 +1474,7 @@ def eustack(
             changed_plural = "signature" if n_changed == 1 else "signatures"
             summary += f"; {n_changed} changed {changed_plural}"
         print(_sanitise(summary))
-        _sev_rank = {"critical": 0, "warn": 1, "info": 2}
-        flags = sorted(
-            bundle.saturation.flags, key=lambda f: _sev_rank.get(f.severity, 3)
-        )
-        if flags:
-            top = flags[0]
-            # T-17-02: matched/leaf-frame-derived hazard text originates in
-            # the customer's binary, so it goes through _sanitise before echo.
-            print(f"  {top.severity} — {_sanitise(top.message)}")
-        else:
-            print("  no saturation flags raised")
+        _print_top_flag(bundle.saturation.flags, "  ", "no saturation flags raised")
     finally:
         # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
         # mcm/perfmon.
@@ -1584,35 +1558,16 @@ def eval_(
         print(f"Error: {_sanitise(str(exc))}")
         raise typer.Exit(2) from None
 
-    overrides: dict[str, object] = {"data_dir": data_dir}
-    if model is not None:
-        overrides["generation"] = {"model": model}
-        overrides["embeddings"] = {"model": model}
-    config = load_config(overrides)
+    config = _config_with_model(data_dir, model)
 
-    gen_ep = Endpoint(
-        base_url=config.generation.base_url, model=config.generation.model
-    )
-    emb_ep = Endpoint(
-        base_url=config.embeddings.base_url, model=config.embeddings.model
-    )
-    http = _make_http_client(
-        max(config.generation.timeout, config.embeddings.timeout)
-    )
     try:
-        try:
-            client = InferenceClient(
-                generation=gen_ep,
-                embeddings=emb_ep,
-                http=http,
-                allow_public=i_know_what_im_doing,
-                retries=config.generation.retries,
-                backoff_base=config.generation.backoff_base,
-                batch_size=config.embeddings.batch_size,
-            )
-        except ValueError as exc:
-            print(f"Error: {_sanitise(str(exc))}")
-            raise typer.Exit(1) from None
+        http, client, _gen_ep, _emb_ep = _build_client(
+            config, allow_public=i_know_what_im_doing
+        )
+    except ValueError as exc:
+        print(f"Error: {_sanitise(str(exc))}")
+        raise typer.Exit(1) from None
+    try:
         results = [
             run_case(case_dir, client, config, judge=judge) for case_dir in case_dirs
         ]
@@ -1651,6 +1606,55 @@ def _make_http_client(timeout: float) -> httpx.Client:
     return httpx.Client(timeout=httpx.Timeout(timeout))
 
 
+def _build_client(
+    config: SiftConfig, *, allow_public: bool, tuned_embeddings: bool = False
+) -> tuple[httpx.Client, InferenceClient, Endpoint, Endpoint]:
+    """Build the httpx client plus SSRF-guarded ``InferenceClient`` (LLM-02).
+
+    The shared analyze/eval/doctor bring-up: the Endpoint pair, one
+    ``httpx.Client`` sized to the larger role timeout, then ``InferenceClient``
+    construction — which runs the loopback/RFC1918 SSRF guard on BOTH base_urls;
+    a public endpoint without the override raises ``ValueError``, propagated
+    with the httpx client already closed so each caller owns only its message
+    and exit path. ``tuned_embeddings`` threads the analyze-only embedding
+    knobs (``max_input_chars``/``context``); eval and doctor keep the client
+    defaults. Returns ``(http, client, gen_ep, emb_ep)``; the caller owns
+    ``http.close()``.
+    """
+    gen_ep = Endpoint(
+        base_url=config.generation.base_url, model=config.generation.model
+    )
+    emb_ep = Endpoint(
+        base_url=config.embeddings.base_url, model=config.embeddings.model
+    )
+    http = _make_http_client(
+        max(config.generation.timeout, config.embeddings.timeout)
+    )
+    tuning: dict[str, int] = (
+        {
+            "max_input_chars": config.embeddings.max_input_chars,
+            "context": config.embeddings.context,
+        }
+        if tuned_embeddings
+        else {}
+    )
+    try:
+        client = InferenceClient(
+            generation=gen_ep,
+            embeddings=emb_ep,
+            http=http,
+            allow_public=allow_public,
+            retries=config.generation.retries,
+            backoff_base=config.generation.backoff_base,
+            batch_size=config.embeddings.batch_size,
+            **tuning,
+        )
+    except ValueError:
+        http.close()
+        raise
+    return http, client, gen_ep, emb_ep
+
+
 @app.command()
 def doctor(
     case: Annotated[
@@ -1678,64 +1682,33 @@ def doctor(
     a Lemonade OGA/ONNX-recipe model that lists but cannot embed. Determinism
     risks reached before any stop print as warnings without failing.
     """
-    # D-03 precedence: --model feeds BOTH roles' config (flags win, deep-merged).
-    overrides: dict[str, object] = {"data_dir": data_dir}
-    if model is not None:
-        overrides["generation"] = {"model": model}
-        overrides["embeddings"] = {"model": model}
-    config = load_config(overrides)
-    gen_ep = Endpoint(
-        base_url=config.generation.base_url, model=config.generation.model
-    )
-    emb_ep = Endpoint(
-        base_url=config.embeddings.base_url, model=config.embeddings.model
-    )
+    config = _config_with_model(data_dir, model)
 
-    http = _make_http_client(max(config.generation.timeout, config.embeddings.timeout))
+    # 1. Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
+    # base_urls (LLM-02). A public endpoint without the override is refused.
     try:
-        # 1. Construct the client → runs the loopback/RFC1918 SSRF guard on BOTH
-        # base_urls (LLM-02). A public endpoint without the override is refused.
-        try:
-            client = InferenceClient(
-                generation=gen_ep,
-                embeddings=emb_ep,
-                http=http,
-                allow_public=i_know_what_im_doing,
-                retries=config.generation.retries,
-                backoff_base=config.generation.backoff_base,
-                batch_size=config.embeddings.batch_size,
-            )
-        except ValueError as exc:
-            print(f"Error: {_sanitise(str(exc))}")
-            raise typer.Exit(1) from None
-
-        # 2. GET /v1/models on the generation endpoint [CRITICAL if unreachable].
-        try:
-            gen_models = client.models(gen_ep)
-        except (httpx.HTTPError, ValueError) as exc:
-            print(
-                f"Error: generation endpoint {gen_ep.base_url!r} unreachable: "
-                f"{_sanitise(str(exc))}"
-            )
-            raise typer.Exit(1) from None
-        print(
-            "generation endpoint OK: "
-            + _sanitise(", ".join(gen_models) or "(no models listed)")
+        http, client, gen_ep, emb_ep = _build_client(
+            config, allow_public=i_know_what_im_doing
         )
-
-        # 3. GET /v1/models on the embeddings endpoint [CRITICAL if unreachable].
-        try:
-            emb_models = client.models(emb_ep)
-        except (httpx.HTTPError, ValueError) as exc:
+    except ValueError as exc:
+        print(f"Error: {_sanitise(str(exc))}")
+        raise typer.Exit(1) from None
+    try:
+        # 2./3. GET /v1/models on the generation then embeddings endpoint
+        # [CRITICAL if unreachable].
+        for role, ep in (("generation", gen_ep), ("embeddings", emb_ep)):
+            try:
+                models = client.models(ep)
+            except (httpx.HTTPError, ValueError) as exc:
+                print(
+                    f"Error: {role} endpoint {ep.base_url!r} unreachable: "
+                    f"{_sanitise(str(exc))}"
+                )
+                raise typer.Exit(1) from None
             print(
-                f"Error: embeddings endpoint {emb_ep.base_url!r} unreachable: "
-                f"{_sanitise(str(exc))}"
+                f"{role} endpoint OK: "
+                + _sanitise(", ".join(models) or "(no models listed)")
             )
-            raise typer.Exit(1) from None
-        print(
-            "embeddings endpoint OK: "
-            + _sanitise(", ".join(emb_models) or "(no models listed)")
-        )
 
         # 4. REAL /v1/embeddings round-trip [CRITICAL]. An OGA/ONNX-recipe server
         # lists a model but returns an empty embedding — embed() raises. Never

@@ -74,10 +74,6 @@ class EventPager:
         self._exhausted = False
 
     @property
-    def page_size(self) -> int:
-        return self._page_size
-
-    @property
     def loaded_count(self) -> int:
         """How many rows have been pulled from the cursor so far."""
         return len(self._rows)

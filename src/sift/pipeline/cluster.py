@@ -17,8 +17,6 @@ The A2 linkage constraint is honoured: cosine distance requires
 
 from __future__ import annotations
 
-import hashlib
-import importlib.resources
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -34,6 +32,8 @@ from sklearn.preprocessing import (  # pyright: ignore[reportMissingTypeStubs]
 )
 
 from sift.llm.budget import PromptBudget
+from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
+from sift.pipeline._shared import load_prompt, short_hash
 from sift.store import CaseStore, Cluster, TemplateGroup
 
 if TYPE_CHECKING:
@@ -42,7 +42,6 @@ if TYPE_CHECKING:
 
 # The versioned label prompt (CLI-02): editing the .md changes label output with
 # no Python change. Loaded via importlib.resources so it ships as package data.
-_PROMPT_PACKAGE = "sift.prompts"
 _PROMPT_FILE = "cluster_label.md"
 
 # Label-slice budget (RAG-05). Constants, not config: labels are short and the
@@ -69,19 +68,6 @@ _MAX_LABELLED = 48
 # CLUS-03 / Pitfall 4: cap each label by Unicode code points (str slicing is
 # code-point based), never bytes — British/non-ASCII spelling survives intact.
 _MAX_LABEL_CHARS = 80
-
-# Explicit severity rank, mirroring dedup._SEVERITY_RANK — never lexicographic
-# ('unknown' > 'error' as a string would be wrong). The vocabulary is frozen by
-# the clusters/severity CHECK constraint, so a local copy cannot drift.
-_SEVERITY_RANK = {
-    "fatal": 5,
-    "error": 4,
-    "warn": 3,
-    "info": 2,
-    "debug": 1,
-    "unknown": 0,
-}
-
 
 def exemplar_text(group: TemplateGroup, messages: dict[str, str]) -> str:
     """Return the text embedded for ``group`` — its first exemplar message.
@@ -207,16 +193,7 @@ def _build_clusters(
 
 def _load_template() -> str:
     """Load the versioned label prompt from package data (CLI-02)."""
-    return (
-        importlib.resources.files(_PROMPT_PACKAGE)
-        .joinpath(_PROMPT_FILE)
-        .read_text(encoding="utf-8")
-    )
-
-
-def _template_hash(template: str) -> str:
-    """sha256(template)[:16], mirroring the event_id / template_id idiom."""
-    return hashlib.sha256(template.encode("utf-8")).hexdigest()[:16]
+    return load_prompt(_PROMPT_FILE)
 
 
 def build_label_prompt(excerpts: Sequence[str], template: str) -> str:
@@ -272,10 +249,7 @@ def _label_clusters(
     """
     if client is None:
         return {}
-    # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
-    # has_tokenize is a read-only property vs the protocol's plain (invariant)
-    # attribute, which pyright flags as a false mismatch.
-    estimator = PromptBudget(client, _LABEL_CTX_TOKENS, 0)  # pyright: ignore[reportArgumentType]
+    estimator = PromptBudget(client, _LABEL_CTX_TOKENS, 0)
     template_tokens = estimator.estimate(template)
     labels: dict[int, str] = {}
     # One batched chat per chunk keeps each assembled prompt (template + numbered
@@ -293,7 +267,7 @@ def _label_clusters(
             + _LABEL_OUT_PER_LABEL * len(chunk_ids)
             + template_tokens
         )
-        budget = PromptBudget(client, _LABEL_CTX_TOKENS, reserve)  # pyright: ignore[reportArgumentType]
+        budget = PromptBudget(client, _LABEL_CTX_TOKENS, reserve)
         fitted = budget.fit(chunk_excerpts)
         if not fitted:
             continue
@@ -540,7 +514,7 @@ def cluster_and_label(
         if label_map:
             store.set_cluster_labels(label_map)
         if label:
-            store.set_meta("cluster_label_prompt_hash", _template_hash(template))
+            store.set_meta("cluster_label_prompt_hash", short_hash(template))
         # D-05: persist the true split in the SAME transaction as the vectors
         # and chunks it describes, so a rolled-back run cannot leave counts
         # claiming work that was never committed (T-20-07).

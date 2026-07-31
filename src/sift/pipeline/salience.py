@@ -24,21 +24,10 @@ from datetime import UTC, datetime
 from math import exp, log1p
 from typing import TYPE_CHECKING
 
+from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
+
 if TYPE_CHECKING:
     from sift.store import Cluster, TemplateGroup
-
-# Explicit severity rank, copied verbatim from cluster.py:56-66 — never
-# lexicographic ('unknown' > 'error' as a string would be wrong). The vocabulary
-# is frozen by the clusters/severity CHECK constraint, so a local copy cannot
-# drift; an out-of-vocab severity defaults to rank 0 (T-04-09).
-_SEVERITY_RANK = {
-    "fatal": 5,
-    "error": 4,
-    "warn": 3,
-    "info": 2,
-    "debug": 1,
-    "unknown": 0,
-}
 
 # Feature weights (sum 1.0) — a hand-tuned starting point per SPEC OQ4.
 _W_SEVERITY = 0.35

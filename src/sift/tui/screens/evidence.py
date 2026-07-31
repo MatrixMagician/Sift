@@ -44,7 +44,7 @@ def cell(text: str) -> Text:
     return Text(sanitise(text))
 
 
-def _first_line(text: str) -> str:
+def first_line(text: str) -> str:
     """A message's first line — multi-line records stay one table row."""
     return text.splitlines()[0] if text else ""
 
@@ -148,7 +148,7 @@ class EvidenceScreen(CaseScreen):
                 Text(ev.ts.isoformat() if ev.ts else "—"),
                 cell(ev.severity),
                 cell(f"{ev.source_file}:{ev.line_start}"),
-                cell(_first_line(ev.message)),
+                cell(first_line(ev.message)),
                 key=eid,
             )
         self.table.focus()

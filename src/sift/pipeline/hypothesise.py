@@ -21,8 +21,6 @@ model output degrades and persists the raw text rather than crashing (T-04-04).
 
 from __future__ import annotations
 
-import hashlib
-import importlib.resources
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -32,12 +30,20 @@ import httpx
 
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
+from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
+from sift.pipeline._shared import load_prompt, short_hash
 from sift.pipeline.analysers import (
     ANALYSER_SOURCES,
     ANALYSERS,
     AnalyserSettings,
     apply_block,
     build_fact_blocks,
+)
+
+# Shared, not copied: cluster's exemplar-message gatherer is the single
+# implementation — a second copy here would be free to drift from it.
+from sift.pipeline.cluster import (
+    _exemplar_messages,  # pyright: ignore[reportPrivateUsage]
 )
 from sift.pipeline.salience import rank_clusters
 from sift.render._util import sanitise
@@ -52,7 +58,6 @@ if TYPE_CHECKING:
     from sift.pipeline.analysers import FactBlock
     from sift.store import CaseStore, Cluster, TemplateGroup
 
-_PROMPT_PACKAGE = "sift.prompts"
 _PROMPT_FILE = "triage.md"
 
 # Triage-run defaults (CLI-04), shared by the CLI and the eval harness so the
@@ -89,19 +94,6 @@ def _apply_kb_block(template: str, kb_context: list[str] | None) -> str:
     return apply_block(template, "KB", _KB_SLOT, joined)
 
 
-# Explicit severity rank, mirroring cluster._SEVERITY_RANK — never lexicographic
-# ('unknown' > 'error' as a string would be wrong). Frozen by the clusters
-# severity CHECK constraint, so a local copy cannot drift.
-_SEVERITY_RANK = {
-    "fatal": 5,
-    "error": 4,
-    "warn": 3,
-    "info": 2,
-    "debug": 1,
-    "unknown": 0,
-}
-
-
 @dataclass(frozen=True)
 class Outcome:
     """The result of one triage run (SPEC §5.5, exit-code mapping in CLI-04).
@@ -126,11 +118,7 @@ class Outcome:
 
 def _load_triage_template() -> str:
     """Load the versioned triage prompt from package data (CLI-02)."""
-    return (
-        importlib.resources.files(_PROMPT_PACKAGE)
-        .joinpath(_PROMPT_FILE)
-        .read_text(encoding="utf-8")
-    )
+    return load_prompt(_PROMPT_FILE)
 
 
 def _schema_rf(schema: dict[str, object]) -> dict[str, object]:
@@ -142,15 +130,6 @@ def _schema_rf(schema: dict[str, object]) -> dict[str, object]:
     error). Pydantic validation is the backstop if a server ignores it.
     """
     return {"type": "json_schema", "schema": schema}
-
-
-def _prompt_hash(text: str) -> str:
-    """sha256(prompt)[:16], mirroring the event_id / template_id idiom.
-
-    Identical inputs assemble an identical prompt and thus an identical hash —
-    the determinism guarantee that makes a run reproducible.
-    """
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _ctx_tokens(
@@ -171,27 +150,6 @@ def _ctx_tokens(
         return configured
     n = client.props().get("n_ctx")
     return n if isinstance(n, int) and n > 0 else fallback
-
-
-def _gather_exemplar_messages(
-    store: CaseStore, groups: list[TemplateGroup]
-) -> dict[str, str]:
-    """Gather the message text for each group's first exemplar event.
-
-    Mirrors ``cluster._exemplar_messages``: streams ``iter_event_summaries``
-    once (no raw decompression) and keeps only the exemplar messages needed to
-    render the prompt.
-    """
-    wanted = {g.exemplar_event_ids[0] for g in groups if g.exemplar_event_ids}
-    if not wanted:
-        return {}
-    messages: dict[str, str] = {}
-    for eid, _ts, _severity, message in store.iter_event_summaries():
-        if eid in wanted:
-            messages[eid] = message
-            if len(messages) == len(wanted):
-                break
-    return messages
 
 
 def _representative_exemplar(
@@ -341,9 +299,9 @@ def hypothesise(
     hint: str | None = None,
     kb_context: list[str] | None = None,
     analyser_settings: AnalyserSettings | None = None,
-    ctx_fallback: int = 8192,
+    ctx_fallback: int = TRIAGE_CTX_FALLBACK,
     ctx_configured: int | None = None,
-    reserve_out: int = 1024,
+    reserve_out: int = TRIAGE_RESERVE_OUT,
 ) -> Outcome:
     """Produce citation-gated triage hypotheses for the case (SPEC §5.5).
 
@@ -366,7 +324,7 @@ def hypothesise(
         clusters, groups, incident_time=incident_time, since=since, until=until
     )[:top_clusters]
     group_index = {g.template_id: g for g in groups}
-    messages_map = _gather_exemplar_messages(store, groups)
+    messages_map = _exemplar_messages(store, groups)
     template = _load_triage_template()
 
     # Deterministic analyser facts (MCM + perfmon + eu-stack today), built
@@ -383,15 +341,12 @@ def hypothesise(
     fact_blocks = build_fact_blocks(events, analyser_settings or AnalyserSettings())
 
     ctx = _ctx_tokens(client, ctx_fallback, configured=ctx_configured)
-    # InferenceClient satisfies PromptBudget's tokenizer seam at runtime; its
-    # has_tokenize is a read-only property vs the protocol's plain attribute,
-    # which pyright flags as a false mismatch (same as cluster.py).
-    budget = PromptBudget(client, ctx, reserve_out)  # pyright: ignore[reportArgumentType]
+    budget = PromptBudget(client, ctx, reserve_out)
     chat_messages, prompted_ids, prompt_text = _assemble(
         ranked, group_index, messages_map, template, hint, budget,
         kb_context=kb_context, fact_blocks=fact_blocks,
     )
-    prompt_hash = _prompt_hash(prompt_text)
+    prompt_hash = short_hash(prompt_text)
     rf = _schema_rf(HypothesisSet.model_json_schema())
 
     try:

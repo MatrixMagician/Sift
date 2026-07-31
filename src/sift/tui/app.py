@@ -97,36 +97,34 @@ class SiftApp(App[None]):
         if len(self.screen_stack) > 2:
             self.pop_screen()
 
-    def action_clusters(self) -> None:
-        """'c': open the cluster browser (R002); a no-op if already there.
+    def _roam(
+        self,
+        target_cls: type[ClustersScreen] | type[TimelineScreen],
+        sibling_cls: type[ClustersScreen] | type[TimelineScreen],
+    ) -> None:
+        """Shared roam body: a no-op on the target screen already.
 
-        The two roam surfaces are siblings, so hopping from the timeline
-        replaces it instead of stacking — alternating c/t holds the stack
+        The two roam surfaces are siblings, so hopping from one replaces
+        the other instead of stacking — alternating c/t holds the stack
         flat and escape returns to wherever roaming started.
         """
-        if isinstance(self.screen, ClustersScreen):
+        if isinstance(self.screen, target_cls):
             return
-        if isinstance(self.screen, TimelineScreen):
+        if isinstance(self.screen, sibling_cls):
             # Textual types switch_screen's parameter as Screen[Unknown].
             self.switch_screen(  # pyright: ignore[reportUnknownMemberType]
-                ClustersScreen(self.store)
+                target_cls(self.store)
             )
             return
-        self.push_screen(ClustersScreen(self.store))
+        self.push_screen(target_cls(self.store))
+
+    def action_clusters(self) -> None:
+        """'c': open the cluster browser (R002); a no-op if already there."""
+        self._roam(ClustersScreen, TimelineScreen)
 
     def action_timeline(self) -> None:
-        """'t': open the event timeline (R002); a no-op if already there.
-
-        Sibling-switch mirror of :meth:`action_clusters`.
-        """
-        if isinstance(self.screen, TimelineScreen):
-            return
-        if isinstance(self.screen, ClustersScreen):
-            self.switch_screen(  # pyright: ignore[reportUnknownMemberType]
-                TimelineScreen(self.store)
-            )
-            return
-        self.push_screen(TimelineScreen(self.store))
+        """'t': open the event timeline (R002); a no-op if already there."""
+        self._roam(TimelineScreen, ClustersScreen)
 
     def action_help(self) -> None:
         """'?': overlay the current screen's active bindings (R013)."""

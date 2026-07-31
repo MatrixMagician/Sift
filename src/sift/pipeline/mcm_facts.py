@@ -24,15 +24,14 @@ only. It must NOT import from ``sift.pipeline.hypothesise`` or ``sift.cli``
 
 from __future__ import annotations
 
-import importlib.resources
 from typing import TYPE_CHECKING
 
+from sift.pipeline._shared import load_prompt
 from sift.render._util import mb_bytes, sanitise
 
 if TYPE_CHECKING:
     from sift.pipeline.mcm import EpisodeAnalysis, McmAnalysis
 
-_PROMPT_PACKAGE = "sift.prompts"
 _MCM_FILE = "mcm_facts.md"
 _MCM_LINES_SLOT = "<<MCM_LINES>>"
 
@@ -68,16 +67,8 @@ def _episode_severity_rank(ea: EpisodeAnalysis) -> int:
 
 
 def _load_mcm_fragment() -> str:
-    """Load the versioned MCM fragment from package data (CLI-02).
-
-    Mirrors ``hypothesise._load_triage_template`` — the same
-    ``importlib.resources`` idiom, so wording changes touch no path maths.
-    """
-    return (
-        importlib.resources.files(_PROMPT_PACKAGE)
-        .joinpath(_MCM_FILE)
-        .read_text(encoding="utf-8")
-    )
+    """Load the versioned MCM fragment from package data (CLI-02)."""
+    return load_prompt(_MCM_FILE)
 
 
 def render_mcm_facts(analysis: McmAnalysis) -> tuple[str, set[str]]:

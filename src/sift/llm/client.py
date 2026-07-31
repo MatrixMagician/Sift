@@ -265,7 +265,6 @@ class InferenceClient:
         self._context = max(1, context)
         self._batch_chars = self._context * self._CHARS_PER_TOKEN
         self._has_tokenize: bool | None = None  # None = not yet probed
-        self._has_props: bool | None = None
         # Model id the embeddings server reported on the last embed (STORE-03
         # provenance); None until the first embed call returns one.
         self._last_embedding_model: str | None = None
@@ -505,13 +504,6 @@ class InferenceClient:
         if not isinstance(tokens, list):
             return None
         return len(cast(list[object], tokens))
-
-    @property
-    def has_props(self) -> bool:
-        """Whether the generation server exposes ``/props`` (probed once)."""
-        if self._has_props is None:
-            self._has_props = bool(self.props())
-        return self._has_props
 
     def props(self) -> dict[str, object]:
         """Return the server's ``/props`` dict, or ``{}`` if absent (LLM-04).

@@ -457,8 +457,8 @@ def _coerce_str_list(value: str) -> list[str]:
     A tampered case.db can hold ANY JSON in a list column. Guard while the value
     is still typed Any: wrap a non-array as a single element and coerce every
     element to str, so tampering stays visible (never crashes the read path) and
-    render-time sanitisation strips hostile bytes. Mirrors the inline idiom in
-    query_clusters/query_template_groups.
+    render-time sanitisation strips hostile bytes. Shared by the template-group,
+    cluster and hypothesis read paths.
     """
     loaded: object = json.loads(value)
     if not isinstance(loaded, list):
@@ -606,7 +606,7 @@ class CaseStore:
             self._conn.execute("COMMIT")
 
     @contextmanager
-    def savepoint(self, name: str = _SAVEPOINT_INGEST_FILE) -> Generator[None]:
+    def savepoint(self) -> Generator[None]:
         """Nested atomic unit inside an open transaction (CR-01).
 
         Ingest wraps each file's detect+parse+insert body so a mid-stream
@@ -617,6 +617,7 @@ class CaseStore:
         ``_SAVEPOINT_INGEST_FILE`` — a code constant, never user data
         (the PRAGMA user_version precedent, T-02-13).
         """
+        name = _SAVEPOINT_INGEST_FILE
         self._conn.execute(f"SAVEPOINT {name}")
         try:
             yield
@@ -858,16 +859,6 @@ class CaseStore:
         ).fetchall()
         groups: list[TemplateGroup] = []
         for r in rows:
-            # WR-01: a tampered case.db can hold ANY JSON here. Guard while
-            # the value is still typed Any (pyright strict forbids a
-            # redundant isinstance on the list[str] dataclass field later):
-            # wrap non-arrays as a single element and coerce all elements to
-            # str, so the tampering stays visible to the operator and
-            # render-time sanitisation strips hostile bytes.
-            loaded: object = json.loads(r[6])
-            if not isinstance(loaded, list):
-                loaded = [loaded]
-            items = cast("list[object]", loaded)
             groups.append(
                 TemplateGroup(
                     template_id=r[0],
@@ -876,10 +867,39 @@ class CaseStore:
                     first_ts=r[3],
                     last_ts=r[4],
                     severity_max=r[5],
-                    exemplar_event_ids=[str(x) for x in items],
+                    # WR-01: a tampered case.db can hold ANY JSON here —
+                    # _coerce_str_list keeps the tampering visible instead of
+                    # crashing the read path.
+                    exemplar_event_ids=_coerce_str_list(r[6]),
                 )
             )
         return groups
+
+    def _check_embedding_dim(self, dim: int) -> str | None:
+        """STORE-03 guard: return ``meta.embedding_dim``, raising on a mismatch
+        with ``dim`` — a differing dimension is never silently re-indexed."""
+        existing = self.get_meta("embedding_dim")
+        if existing is not None and int(existing) != dim:
+            raise ValueError(
+                f"embedding dimension mismatch: index has {existing}, "
+                f"server returned {dim}"
+            )
+        return existing
+
+    def _ensure_vec_table(self, table: str, id_col: str, dim: int) -> None:
+        """Shared body of the two vec0 ensure-* methods: same STORE-03 guard,
+        same lazy extension load, same DDL shape, same meta writes."""
+        existing = self._check_embedding_dim(dim)
+        self._ensure_vec_loaded()
+        self._conn.execute(
+            # dim is our validated int, never user text (the PRAGMA
+            # user_version precedent, T-02-13).
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS {table} "  # noqa: S608 — table/id_col are module-fixed names; dim is our int, never user text
+            f"USING vec0({id_col} INTEGER PRIMARY KEY, embedding FLOAT[{int(dim)}])"
+        )
+        if existing is None:
+            self.set_meta("embedding_dim", str(dim))
+            self.set_meta("embedding_metric", "cosine")
 
     def ensure_vectors_table(self, dim: int) -> None:
         """Lazily create the sqlite-vec vec0 vectors table at ``dim`` (D-03).
@@ -889,25 +909,10 @@ class CaseStore:
         if ``meta.embedding_dim`` already records a different dimension, raise
         ValueError naming both dims BEFORE loading the extension or writing
         anything — a mismatch is never silently re-indexed. sqlite-vec is
-        loaded lazily here (never in ``__init__``).
+        loaded lazily here (never in ``__init__``). KNN retrieval in Phase 4/6
+        uses ``WHERE embedding MATCH ? AND k = ?`` against this table.
         """
-        existing = self.get_meta("embedding_dim")
-        if existing is not None and int(existing) != dim:
-            raise ValueError(
-                f"embedding dimension mismatch: index has {existing}, "
-                f"server returned {dim}"
-            )
-        self._ensure_vec_loaded()
-        self._conn.execute(
-            # dim is our validated int, never user text (the PRAGMA
-            # user_version precedent, T-02-13). KNN retrieval in Phase 4/6 will
-            # use `WHERE embedding MATCH ? AND k = ?` against this table.
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS vectors "  # noqa: S608 — dim is our int, never user text
-            f"USING vec0(chunk_id INTEGER PRIMARY KEY, embedding FLOAT[{int(dim)}])"
-        )
-        if existing is None:
-            self.set_meta("embedding_dim", str(dim))
-            self.set_meta("embedding_metric", "cosine")
+        self._ensure_vec_table("vectors", "chunk_id", dim)
 
     def record_embedding_identity(self, model: str, dim: int) -> None:
         """Record the server's embedding model + dimension in meta (STORE-03).
@@ -918,14 +923,9 @@ class CaseStore:
         the hard-error guard on reload.
         """
         self.set_meta("embedding_model", model)
-        existing = self.get_meta("embedding_dim")
+        existing = self._check_embedding_dim(dim)
         if existing is None:
             self.set_meta("embedding_dim", str(dim))
-        elif int(existing) != dim:
-            raise ValueError(
-                f"embedding dimension mismatch: index has {existing}, "
-                f"server returned {dim}"
-            )
 
     def record_embedding_batch_knobs(
         self, *, context: int, batch_size: int, max_input_chars: int
@@ -1016,22 +1016,7 @@ class CaseStore:
         the first embed), never in a migration. The KB namespace is physically
         separate from the citable ``vectors`` table (D-01).
         """
-        existing = self.get_meta("embedding_dim")
-        if existing is not None and int(existing) != dim:
-            raise ValueError(
-                f"embedding dimension mismatch: index has {existing}, "
-                f"server returned {dim}"
-            )
-        self._ensure_vec_loaded()
-        self._conn.execute(
-            # dim is our validated int, never user text (the PRAGMA
-            # user_version precedent, T-02-13).
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS kb_vectors "  # noqa: S608 — dim is our int, never user text
-            f"USING vec0(kb_chunk_id INTEGER PRIMARY KEY, embedding FLOAT[{int(dim)}])"
-        )
-        if existing is None:
-            self.set_meta("embedding_dim", str(dim))
-            self.set_meta("embedding_metric", "cosine")
+        self._ensure_vec_table("kb_vectors", "kb_chunk_id", dim)
 
     def drop_vector_tables(self) -> tuple[int, int]:
         """Drop BOTH vec0 tables and clear the shared dimension meta (D-08).
@@ -1193,14 +1178,6 @@ class CaseStore:
         ).fetchall()
         clusters: list[Cluster] = []
         for r in rows:
-            # WR-01: a tampered case.db can hold ANY JSON in template_ids. Guard
-            # while the value is still typed Any: wrap non-arrays as a single
-            # element and coerce every element to str, so tampering stays
-            # visible and render-time sanitisation strips hostile bytes.
-            loaded: object = json.loads(r[5])
-            if not isinstance(loaded, list):
-                loaded = [loaded]
-            items = cast("list[object]", loaded)
             clusters.append(
                 Cluster(
                     cluster_id=r[0],
@@ -1208,7 +1185,10 @@ class CaseStore:
                     signature=r[2],
                     severity_max=r[3],
                     count=r[4],
-                    template_ids=[str(x) for x in items],
+                    # WR-01: a tampered case.db can hold ANY JSON here —
+                    # _coerce_str_list keeps the tampering visible instead of
+                    # crashing the read path.
+                    template_ids=_coerce_str_list(r[5]),
                 )
             )
         return clusters

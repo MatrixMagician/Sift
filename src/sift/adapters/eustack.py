@@ -12,8 +12,8 @@ addition — the grouping rule (a thread-header line starts a new event, frames
 accrue until the next header or a safety cap) is format-independent.
 
 Reuses ``base.ConfigurableAdapter`` (``input_root``/``tz_overrides``/
-``last_stats``), the shared ``base.to_utc``/``base.tz_override_for`` UTC path,
-``base.open_bytes``, ``base.read_head`` and ``base.ParseStats``. Byte offsets
+``last_stats``), the shared ``base.match_iso_ts``/``base.tz_override_for`` UTC
+path, ``base.open_bytes``, ``base.read_head`` and ``base.ParseStats``. Byte offsets
 are computed on the raw decompressed byte stream (``offset += len(byte_line)``)
 so ``event_id`` stays deterministic.
 
@@ -31,21 +31,19 @@ from pathlib import Path
 from sift.adapters.base import (
     ConfigurableAdapter,
     ParseStats,
+    match_iso_ts,
     open_bytes,
     read_head,
-    to_utc,
     tz_override_for,
 )
-from sift.adapters.genericlog import byte_lines
+from sift.adapters.genericlog import MAX_EVENT_BYTES, MAX_EVENT_LINES, byte_lines
 from sift.models import Event, event_id
 
 # Record-accumulation safety caps: on breach the open thread closes and a
 # severity="unknown" continuation event opens — bounded memory for a
-# monster/never-terminated thread block (Pitfall 5 / T-05-30). The byte-line
-# splitter (with its own MAX_EVENT_BYTES force-split) is shared from genericlog
-# (IN-01) to avoid a drifting verbatim copy.
-MAX_EVENT_LINES = 256
-MAX_EVENT_BYTES = 65536
+# monster/never-terminated thread block (Pitfall 5 / T-05-30). The caps and the
+# byte-line splitter (with its own MAX_EVENT_BYTES force-split) are shared from
+# genericlog (IN-01) to avoid drifting verbatim copies.
 
 # Condensed message: the first few frame symbols (SPEC "condensed top frames").
 CONDENSED_FRAMES = 5
@@ -55,10 +53,8 @@ CONDENSED_FRAMES = 5
 _TID_RE = re.compile(r"^TID (\d+):")
 # Frame: "#<N>  0x<ADDR>  <symbol>[ - <lib> <source>:<line>]".
 _FRAME_RE = re.compile(r"^#(\d+)\s+0x([0-9A-Fa-f]+)\s+(.+)$")
-# Optional single dump-time header timestamp (ISO 8601, offset -> exact).
-_TS_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)"
-)
+# The optional single dump-time header timestamp (ISO 8601, offset -> exact)
+# is matched by the shared base.match_iso_ts.
 
 # Sniff signature: both a TID header AND an eu-stack frame must appear in the
 # head, so a bare "TID" mention in prose can never be mistaken for a dump.
@@ -95,17 +91,14 @@ def iter_frames(raw: str) -> Iterator[tuple[int, str]]:
 def _match_ts(text: str, override_tz: str | None) -> tuple[datetime, str] | None:
     """Parse a leading ISO 8601 dump-time stamp -> (aware-UTC dt, confidence).
 
-    Offset-bearing -> ``exact``; naive -> ``inferred`` after the file's
-    ``tz_overrides`` glob is applied through the shared ``to_utc``.
+    Thin wrapper over the shared ``base.match_iso_ts``, dropping the prefix
+    end — the whole line stays in the preamble event, so eustack never slices
+    the text at the match boundary.
     """
-    m = _TS_RE.match(text)
-    if m is None:
+    parsed = match_iso_ts(text, override_tz)
+    if parsed is None:
         return None
-    try:
-        dt = datetime.fromisoformat(m.group(1).replace(",", "."))
-    except ValueError:
-        return None
-    dt_utc, confidence = to_utc(dt, override_tz)
+    _, dt_utc, confidence = parsed
     return dt_utc, confidence
 
 
@@ -150,9 +143,7 @@ class EustackAdapter(ConfigurableAdapter):
         return 0.0
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
-        relpath = (
-            path.relative_to(self.input_root) if self.input_root else Path(path.name)
-        ).as_posix()
+        relpath = self.case_relpath(path)
         override_tz = tz_override_for(relpath, self.tz_overrides)
         stats = ParseStats(path=relpath)
         current: _Record | None = None
@@ -200,7 +191,7 @@ class EustackAdapter(ConfigurableAdapter):
             # eu-stack output is UTF-8: a plain b"\n" byte split suffices;
             # byte_lines still force-splits a monster line at MAX_EVENT_BYTES
             # (T-05-30).
-            for bline in byte_lines(stream, b"\n", b"", unit=1):
+            for bline in byte_lines(stream):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline too
                 line_no += 1

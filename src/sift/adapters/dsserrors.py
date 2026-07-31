@@ -10,8 +10,8 @@ sentinels) rather than on column order, so a later layout refinement against a
 real sample is a localised regex change — not a rewrite.
 
 Reuses ``base.ConfigurableAdapter`` (``input_root``/``tz_overrides``/
-``last_stats``), the shared ``base.to_utc``/``base.tz_override_for`` UTC path
-(the criterion-4 hook), ``base.open_bytes``, ``base.read_head`` and
+``last_stats``), the shared ``base.match_iso_ts``/``base.tz_override_for`` UTC
+path (the criterion-4 hook), ``base.open_bytes``, ``base.read_head`` and
 ``base.ParseStats``. Byte offsets are computed on the raw decompressed byte
 stream (``offset += len(byte_line)``) so ``event_id`` stays deterministic.
 
@@ -31,26 +31,22 @@ from pathlib import Path
 from sift.adapters.base import (
     ConfigurableAdapter,
     ParseStats,
+    match_iso_ts,
     open_bytes,
     read_head,
-    to_utc,
     tz_override_for,
 )
-from sift.adapters.genericlog import byte_lines
+from sift.adapters.genericlog import MAX_EVENT_BYTES, MAX_EVENT_LINES, byte_lines
 from sift.models import Event, event_id
 
 # Record-accumulation safety caps: on breach the open event closes and a
 # severity="unknown" continuation event opens — bounded memory for a
-# never-terminated MCM dump (Pitfall 5 / T-05-20). The byte-line splitter
-# (with its own MAX_EVENT_BYTES force-split) is shared from genericlog (IN-01)
-# to avoid a drifting verbatim copy.
-MAX_EVENT_LINES = 256
-MAX_EVENT_BYTES = 65536
+# never-terminated MCM dump (Pitfall 5 / T-05-20). The caps and the byte-line
+# splitter (with its own MAX_EVENT_BYTES force-split) are shared from
+# genericlog (IN-01) to avoid drifting verbatim copies.
 
 # Anchored, linear-scan token regexes — no ReDoS (mirrors dedup discipline).
-_TS_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)"
-)
+# The leading ISO timestamp is matched by the shared base.match_iso_ts.
 _SRCLOC_RE = re.compile(r"\[([A-Za-z]\w*)\.cpp:(\d+)\]")
 _ERRCODE_RE = re.compile(r"\b0[xX][0-9A-Fa-f]+\b")
 _OID_RE = re.compile(
@@ -112,23 +108,6 @@ def _severity_from(text: str) -> str:
     return "unknown"
 
 
-def _match_ts(text: str, override_tz: str | None) -> tuple[int, datetime, str] | None:
-    """Return (prefix_end, aware-UTC datetime, ts_confidence) or None.
-
-    An offset-bearing stamp -> ``exact``; a naive stamp -> ``inferred`` after
-    the node's ``tz_overrides`` glob is applied through the shared ``to_utc``.
-    """
-    m = _TS_RE.match(text)
-    if m is None:
-        return None
-    try:
-        dt = datetime.fromisoformat(m.group(1).replace(",", "."))
-    except ValueError:
-        return None
-    dt_utc, confidence = to_utc(dt, override_tz)
-    return m.end(), dt_utc, confidence
-
-
 def _mcm_message(raw: str) -> str:
     """Condensed MCM head: title + Source/Size (the verbatim block is ``raw``)."""
     parts = ["MCM Info Dump"]
@@ -181,9 +160,7 @@ class DsserrorsAdapter(ConfigurableAdapter):
         return 0.0
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:  # noqa: C901
-        relpath = (
-            path.relative_to(self.input_root) if self.input_root else Path(path.name)
-        ).as_posix()
+        relpath = self.case_relpath(path)
         # Only a real subdirectory (nodeN/DSSErrors.log) names a node; a file
         # placed directly under the case root has parts[0] == the filename, so
         # omit the attr rather than mislabel it (WR-01).
@@ -268,14 +245,14 @@ class DsserrorsAdapter(ConfigurableAdapter):
         with open_bytes(path) as stream:
             # DSSErrors is UTF-8: a plain b"\n" byte split suffices; byte_lines
             # still force-splits a monster line at MAX_EVENT_BYTES (T-05-20).
-            for bline in byte_lines(stream, b"\n", b"", unit=1):
+            for bline in byte_lines(stream):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline too
                 line_no += 1
                 decoded = bline.decode("utf-8", errors="replace")
                 text = decoded.rstrip("\r\n")
                 stripped = text.strip()
-                ts_match = _match_ts(text, override_tz)
+                ts_match = match_iso_ts(text, override_tz)
                 # A new record-start (MCM Start sentinel or timestamp line)
                 # closes the open event — this also force-closes an
                 # unterminated MCM block (Pitfall 5).

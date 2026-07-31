@@ -124,10 +124,8 @@ def _counter_table(counters: tuple[CounterTrend, ...]) -> list[str]:
     return lines
 
 
-def _hazard_table(
-    hazards: tuple[PerfmonHazard, ...], heading: str = "### Correlation hazards"
-) -> list[str]:
-    lines = [heading, ""]
+def _hazard_table(hazards: tuple[PerfmonHazard, ...]) -> list[str]:
+    lines = ["### Correlation hazards", ""]
     if not hazards:
         lines.append("_No correlation hazards raised._")
         lines.append("")

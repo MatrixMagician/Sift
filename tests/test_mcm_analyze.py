@@ -156,7 +156,7 @@ def _assemble_mcm(
     groups = store.query_template_groups()
     ranked = rank_clusters(clusters, groups, incident_time=None)
     group_index = {g.template_id: g for g in groups}
-    messages = hypothesise._gather_exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
+    messages = hypothesise._exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
     template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
     budget = PromptBudget(client, 8192, 1024)  # pyright: ignore[reportArgumentType]
     mcm_block = render_mcm_facts(

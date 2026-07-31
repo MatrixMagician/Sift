@@ -8,9 +8,10 @@ strings. This module is typer-free, print-free and SQL-free: persistence
 goes exclusively through CaseStore methods.
 """
 
-import hashlib
 import re
 
+from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
+from sift.pipeline._shared import short_hash
 from sift.store import CaseStore, TemplateGroup
 
 MASK_VERSION = 2  # bump whenever mask rules change; groups recompute cheaply
@@ -46,17 +47,6 @@ _PLACEHOLDER = {
     "num": "<NUM>",
 }
 
-# Explicit rank order — never lexicographic comparison ('unknown' > 'error'
-# as a string, which would be wrong).
-_SEVERITY_RANK = {
-    "fatal": 5,
-    "error": 4,
-    "warn": 3,
-    "info": 2,
-    "debug": 1,
-    "unknown": 0,
-}
-
 EXEMPLAR_K = 5  # exemplar event ids kept per group, in canonical store order
 
 
@@ -73,7 +63,7 @@ def mask(message: str) -> str:
 
 def template_id(template: str) -> str:
     """sha256(template)[:16], mirroring the frozen event_id idiom."""
-    return hashlib.sha256(template.encode()).hexdigest()[:16]
+    return short_hash(template)
 
 
 class _Agg:

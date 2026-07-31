@@ -99,10 +99,13 @@ class CaseResult:
     read only by ``mean_eustack_detection_rate``."""
 
     name: str
-    retrieval_hit_rate: float
-    hypothesis_hit_at_k: float
-    citation_validity_rate: float
-    determinism_stability: float
+    # The four keyword metrics default to 0.0 — the honest run-failed/eu-stack
+    # shape (never a fabricated vacuous 1.0), so those constructors pass only
+    # the flags.
+    retrieval_hit_rate: float = 0.0
+    hypothesis_hit_at_k: float = 0.0
+    citation_validity_rate: float = 0.0
+    determinism_stability: float = 0.0
     expect_no_incident: bool = False
     negative_case_pass: bool | None = None
     run_failed: bool = False

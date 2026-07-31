@@ -24,14 +24,9 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.widgets import DataTable, Footer, Header, Static
-from textual.widgets.data_table import ColumnKey
 
 from sift.store import CaseStore, StoredHypothesis
-from sift.tui.review_state import (
-    format_progress,
-    latest_verdicts,
-    review_progress,
-)
+from sift.tui.review_state import format_progress, review_progress
 from sift.tui.screens.base import CaseScreen
 from sift.tui.screens.evidence import EvidenceScreen, cell
 from sift.verdicts import RecordedVerdict, TargetSpec
@@ -66,7 +61,6 @@ class HypothesesScreen(CaseScreen):
         super().__init__()
         self._store = store
         self._hyps: dict[str, StoredHypothesis] = {}
-        self._verdict_col: ColumnKey | None = None
         # False until the mount-time read succeeds: a dead store already
         # pushed one ErrorScreen from on_mount, so resume repaints stay
         # inert instead of stacking a second one.
@@ -117,7 +111,7 @@ class HypothesesScreen(CaseScreen):
         if not self._ready:
             return
         self._refresh_progress()
-        self._refresh_badges()
+        self._refresh_badges("hypothesis", self._hyps)
 
     def _refresh_progress(self) -> None:
         progress = self.guarded(lambda: review_progress(self._store))
@@ -126,21 +120,6 @@ class HypothesesScreen(CaseScreen):
         self.query_one("#hypotheses-progress", Static).update(
             format_progress(progress)
         )
-
-    def _refresh_badges(self) -> None:
-        if self._verdict_col is None:
-            return
-        badges = self.guarded(
-            lambda: latest_verdicts(self._store, "hypothesis")
-        )
-        if badges is None:
-            return
-        for key in self._hyps:
-            self.table.update_cell(
-                key,
-                self._verdict_col,
-                Text(badges.get(("hypothesis", key), "")),
-            )
 
     def action_verdict(self) -> None:
         """v: capture a verdict for the highlighted hypothesis (R003)."""
@@ -162,11 +141,8 @@ class HypothesesScreen(CaseScreen):
         )
 
     def _paint_recorded(self, recorded: RecordedVerdict) -> None:
-        """The R012 commit gate: paint exactly what the INSERT returned."""
-        if self._verdict_col is not None:
-            self.table.update_cell(
-                recorded.target_id, self._verdict_col, Text(recorded.verdict)
-            )
+        """The R012 commit gate, plus the landing progress-line repaint."""
+        super()._paint_recorded(recorded)
         self._refresh_progress()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:

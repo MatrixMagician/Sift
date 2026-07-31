@@ -146,9 +146,7 @@ class JournaldAdapter(ConfigurableAdapter):
         return 0.0
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
-        relpath = (
-            path.relative_to(self.input_root) if self.input_root else Path(path.name)
-        ).as_posix()
+        relpath = self.case_relpath(path)
         stats = ParseStats(path=relpath)
         offset = 0
         line_no = 0
@@ -186,10 +184,10 @@ class JournaldAdapter(ConfigurableAdapter):
             )
 
         with open_bytes(path) as stream:
-            # nl=b"\n", unit=1: journald is UTF-8 so a plain byte split suffices;
+            # journald is UTF-8 so a plain byte split (the defaults) suffices;
             # byte_lines still force-splits a monster line at MAX_EVENT_BYTES
             # (T-05-10 DoS cap, inherited from genericlog).
-            for bline in byte_lines(stream, b"\n", b"", unit=1):
+            for bline in byte_lines(stream):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline too
                 line_no += 1

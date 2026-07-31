@@ -4,7 +4,10 @@ The label-slice budget seam (RAG-05). The client is stubbed — no HTTP, no
 socket — so estimate/fit are exercised deterministically.
 """
 
+from typing import cast
+
 from sift.llm.budget import PromptBudget
+from sift.llm.client import InferenceClient
 
 
 class _FakeClient:
@@ -18,23 +21,28 @@ class _FakeClient:
         return self._count
 
 
+def _fake(has_tokenize: bool, count: int | None = None) -> InferenceClient:
+    """The stub cast to the client type PromptBudget is annotated with."""
+    return cast(InferenceClient, _FakeClient(has_tokenize, count))
+
+
 def test_estimate_falls_back_to_chars_over_four_without_client() -> None:
     budget = PromptBudget(client=None, ctx_tokens=100, reserve_out=10)
     assert budget.estimate("abcdefgh") == 2  # 8 // 4
 
 
 def test_estimate_uses_tokenize_when_available() -> None:
-    budget = PromptBudget(_FakeClient(True, 7), ctx_tokens=100, reserve_out=10)
+    budget = PromptBudget(_fake(True, 7), ctx_tokens=100, reserve_out=10)
     assert budget.estimate("whatever length") == 7
 
 
 def test_estimate_falls_back_when_tokenize_returns_none() -> None:
-    budget = PromptBudget(_FakeClient(True, None), ctx_tokens=100, reserve_out=10)
+    budget = PromptBudget(_fake(True, None), ctx_tokens=100, reserve_out=10)
     assert budget.estimate("abcd") == 1  # 4 // 4
 
 
 def test_estimate_ignores_tokenize_when_unsupported() -> None:
-    budget = PromptBudget(_FakeClient(False, 999), ctx_tokens=100, reserve_out=10)
+    budget = PromptBudget(_fake(False, 999), ctx_tokens=100, reserve_out=10)
     assert budget.estimate("abcd") == 1  # chars//4, not the (ignored) 999
 
 

@@ -27,14 +27,12 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.widgets import DataTable, Footer, Header, Static
-from textual.widgets.data_table import ColumnKey
 
 from sift.render._util import sanitise
 from sift.store import CaseStore, Cluster
-from sift.tui.review_state import latest_verdicts
 from sift.tui.screens.base import CaseScreen
-from sift.tui.screens.evidence import cell
-from sift.verdicts import RecordedVerdict, TargetSpec
+from sift.tui.screens.evidence import cell, first_line
+from sift.verdicts import TargetSpec
 
 # What the member-templates table shows for a template_id the store does
 # not hold (the evidence screen's cited-but-absent idiom).
@@ -45,11 +43,6 @@ NO_CLUSTERS_MESSAGE = (
     "No semantic clusters stored for this case.\n"
     "Run 'sift analyze' to build clusters."
 )
-
-
-def _first_line(text: str) -> str:
-    """A template's first line — multi-line templates stay one table row."""
-    return text.splitlines()[0] if text else ""
 
 
 class ClustersScreen(CaseScreen):
@@ -71,7 +64,6 @@ class ClustersScreen(CaseScreen):
         super().__init__()
         self._store = store
         self._clusters: dict[str, Cluster] = {}
-        self._verdict_col: ColumnKey | None = None
         # False until the mount-time read succeeds (see HypothesesScreen).
         self._ready = False
 
@@ -112,17 +104,9 @@ class ClustersScreen(CaseScreen):
 
     def on_screen_resume(self) -> None:
         """DB re-read of cluster rulings on surface/return (R012)."""
-        if not self._ready or self._verdict_col is None:
+        if not self._ready:
             return
-        badges = self.guarded(lambda: latest_verdicts(self._store, "cluster"))
-        if badges is None:
-            return
-        for key in self._clusters:
-            self.table.update_cell(
-                key,
-                self._verdict_col,
-                Text(badges.get(("cluster", key), "")),
-            )
+        self._refresh_badges("cluster", self._clusters)
 
     def action_verdict(self) -> None:
         """v: capture a verdict for the highlighted cluster (R003)."""
@@ -142,13 +126,6 @@ class ClustersScreen(CaseScreen):
             cluster.label or cluster.signature,
             self._paint_recorded,
         )
-
-    def _paint_recorded(self, recorded: RecordedVerdict) -> None:
-        """The R012 commit gate: paint exactly what the INSERT returned."""
-        if self._verdict_col is not None:
-            self.table.update_cell(
-                recorded.target_id, self._verdict_col, Text(recorded.verdict)
-            )
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         key = event.row_key.value
@@ -187,7 +164,6 @@ class ClusterDetailScreen(CaseScreen):
         # absent here, which is what makes it verdict-inert (Q7).
         self._labels: dict[str, str] = {}
         self._member_ids: list[str] = []
-        self._verdict_col: ColumnKey | None = None
         # False until the mount-time read succeeds (see HypothesesScreen).
         self._ready = False
 
@@ -244,14 +220,14 @@ class ClusterDetailScreen(CaseScreen):
                     key=tid,
                 )
                 continue
-            self._labels[tid] = _first_line(group.template)
+            self._labels[tid] = first_line(group.template)
             self.table.add_row(
                 cell(tid),
                 Text(str(group.count)),
                 cell(group.severity_max),
                 cell(group.first_ts or "—"),
                 cell(group.last_ts or "—"),
-                cell(_first_line(group.template)),
+                cell(first_line(group.template)),
                 Text(""),
                 key=tid,
             )
@@ -259,19 +235,9 @@ class ClusterDetailScreen(CaseScreen):
 
     def on_screen_resume(self) -> None:
         """DB re-read of template rulings on surface/return (R012)."""
-        if not self._ready or self._verdict_col is None:
+        if not self._ready:
             return
-        badges = self.guarded(
-            lambda: latest_verdicts(self._store, "template")
-        )
-        if badges is None:
-            return
-        for tid in self._member_ids:
-            self.table.update_cell(
-                tid,
-                self._verdict_col,
-                Text(badges.get(("template", tid), "")),
-            )
+        self._refresh_badges("template", self._member_ids)
 
     def action_verdict(self) -> None:
         """v: capture a verdict for the highlighted member template (R003).
@@ -292,10 +258,3 @@ class ClusterDetailScreen(CaseScreen):
             self._labels[key],
             self._paint_recorded,
         )
-
-    def _paint_recorded(self, recorded: RecordedVerdict) -> None:
-        """The R012 commit gate: paint exactly what the INSERT returned."""
-        if self._verdict_col is not None:
-            self.table.update_cell(
-                recorded.target_id, self._verdict_col, Text(recorded.verdict)
-            )

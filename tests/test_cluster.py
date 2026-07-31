@@ -23,6 +23,7 @@ from sift.config import ClusteringConfig
 from sift.llm.client import Endpoint, InferenceClient
 from sift.models import Event, event_id
 from sift.pipeline import cluster, dedup
+from sift.pipeline._shared import short_hash
 from sift.store import CaseStore
 
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -849,7 +850,7 @@ def test_label_prompt_hash_written_to_meta(tmp_path: Path) -> None:
         cluster.cluster_and_label(
             store, _client(_embed_handler(chat_content="{}")), ClusteringConfig()
         )
-        expected = cluster._template_hash(cluster._load_template())  # pyright: ignore[reportPrivateUsage]
+        expected = short_hash(cluster._load_template())  # pyright: ignore[reportPrivateUsage]
         assert store.get_meta("cluster_label_prompt_hash") == expected
     finally:
         store.close()

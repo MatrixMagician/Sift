@@ -31,6 +31,7 @@ from sift.config import (
 from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
 from sift.pipeline import hypothesise
+from sift.pipeline._shared import short_hash
 from sift.pipeline.eustack import load_rules
 from sift.pipeline.eustack_facts import render_eustack_facts
 from sift.pipeline.eustack_progression import analyse_eustack_bundle
@@ -198,7 +199,7 @@ def _assemble_blocks(
     groups = store.query_template_groups()
     ranked = rank_clusters(store.query_clusters(), groups, incident_time=None)
     group_index = {g.template_id: g for g in groups}
-    messages = hypothesise._gather_exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
+    messages = hypothesise._exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
     template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
     budget = PromptBudget(client, 8192, 1024)  # pyright: ignore[reportArgumentType]
     events = store.query_events()
@@ -285,9 +286,9 @@ def test_no_eustack_data_byte_identical_to_baseline(tmp_path: Path) -> None:
         _im, p_mcm = _assemble_blocks(store, client, with_mcm=True)
         _ip, p_perfmon = _assemble_blocks(store, client, with_perfmon=True)
 
-    assert hypothesise._prompt_hash(p_neither) == _NEITHER_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
-    assert hypothesise._prompt_hash(p_mcm) == _MCM_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
-    assert hypothesise._prompt_hash(p_perfmon) == _PERFMON_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    assert short_hash(p_neither) == _NEITHER_PROMPT_HASH
+    assert short_hash(p_mcm) == _MCM_ONLY_PROMPT_HASH
+    assert short_hash(p_perfmon) == _PERFMON_ONLY_PROMPT_HASH
 
 
 def test_five_combination_byte_identity(tmp_path: Path) -> None:
@@ -310,9 +311,9 @@ def test_five_combination_byte_identity(tmp_path: Path) -> None:
         _im, p_mcm = _assemble_blocks(store, client, with_mcm=True)
         _ip, p_perfmon = _assemble_blocks(store, client, with_perfmon=True)
 
-    assert hypothesise._prompt_hash(p_neither) == _NEITHER_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
-    assert hypothesise._prompt_hash(p_mcm) == _MCM_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
-    assert hypothesise._prompt_hash(p_perfmon) == _PERFMON_ONLY_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+    assert short_hash(p_neither) == _NEITHER_PROMPT_HASH
+    assert short_hash(p_mcm) == _MCM_ONLY_PROMPT_HASH
+    assert short_hash(p_perfmon) == _PERFMON_ONLY_PROMPT_HASH
 
     with _eustack_carrying_store(
         config, tmp_path / "eustack_in", tmp_path / "eustack_in" / "case.db"
@@ -338,10 +339,10 @@ def test_five_combination_byte_identity(tmp_path: Path) -> None:
             store, client, with_mcm=True, with_perfmon=True, with_eustack=True
         )
 
-    h_es_neither = hypothesise._prompt_hash(es_neither)  # pyright: ignore[reportPrivateUsage]
-    h_eustack_only = hypothesise._prompt_hash(es_eustack_only)  # pyright: ignore[reportPrivateUsage]
-    h_mcm_perfmon = hypothesise._prompt_hash(es_mcm_perfmon)  # pyright: ignore[reportPrivateUsage]
-    h_all_three = hypothesise._prompt_hash(es_all_three)  # pyright: ignore[reportPrivateUsage]
+    h_es_neither = short_hash(es_neither)
+    h_eustack_only = short_hash(es_eustack_only)
+    h_mcm_perfmon = short_hash(es_mcm_perfmon)
+    h_all_three = short_hash(es_all_three)
 
     assert h_eustack_only != h_es_neither, (
         "eu-stack-present prompt must differ from that store's own no-data prompt"

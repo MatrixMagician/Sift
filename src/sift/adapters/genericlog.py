@@ -28,6 +28,7 @@ from sift.adapters.base import (
     ConfigurableAdapter,
     ParseStats,
     open_bytes,
+    parse_iso_prefix,
     read_head,
     to_utc,
 )
@@ -44,14 +45,6 @@ MAX_EVENT_LINES = 256
 MAX_EVENT_BYTES = 65536
 
 _CHUNK = 65536
-
-# Anchored ISO 8601 candidate: four-digit year, dashes, T-or-space separator,
-# HH:MM:SS, optional fractional seconds and offset/Z. The bounded slice is fed
-# to datetime.fromisoformat — never an unanchored substring (Pitfall 5:
-# fromisoformat accepts bare "20260716" as a date).
-_ISO_RE = re.compile(
-    r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)"
-)
 
 # syslog RFC3164: "Jul  9 03:14:15" at line start, followed by whitespace.
 # Parsed by hand (not strptime) because strptime defaults to year 1900 and
@@ -100,14 +93,9 @@ def _severity(text: str) -> str:
 
 
 def _try_iso(text: str, _mtime: float) -> tuple[int, datetime] | None:
-    m = _ISO_RE.match(text)
-    if not m:
-        return None
-    try:
-        dt = datetime.fromisoformat(m.group(1).replace(",", "."))
-    except ValueError:
-        return None
-    return m.end(), dt
+    # The anchored ISO regex + fromisoformat core is shared from base
+    # (parse_iso_prefix); tz normalisation stays in _match_ts, per the ladder.
+    return parse_iso_prefix(text)
 
 
 def _try_syslog(text: str, mtime: float) -> tuple[int, datetime] | None:
@@ -225,7 +213,7 @@ def _decode(raw: bytes, encoding: str) -> str:
 
 
 def byte_lines(
-    stream: io.BufferedIOBase, nl: bytes, initial: bytes, unit: int = 1
+    stream: io.BufferedIOBase, nl: bytes = b"\n", initial: bytes = b"", unit: int = 1
 ) -> Iterator[bytes]:
     """Yield byte lines (terminator included) split on ``nl``.
 
@@ -313,9 +301,7 @@ class GenericLogAdapter(ConfigurableAdapter):
         )
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
-        relpath = (
-            path.relative_to(self.input_root) if self.input_root else Path(path.name)
-        ).as_posix()
+        relpath = self.case_relpath(path)
         override_glob, override_tz = next(
             (
                 (glob, tz)

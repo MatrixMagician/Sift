@@ -69,13 +69,7 @@ def _link_citations(narrative: str, appendix_ids: set[str]) -> str:
 
 def _fence(body: str) -> str:
     """Fence ``body`` in a backtick run longer than any it contains (min 3)."""
-    longest = run = 0
-    for ch in body:
-        if ch == "`":
-            run += 1
-            longest = max(longest, run)
-        else:
-            run = 0
+    longest = max(map(len, re.findall("`+", body)), default=0)
     ticks = "`" * max(3, longest + 1)
     return f"{ticks}\n{body}\n{ticks}"
 

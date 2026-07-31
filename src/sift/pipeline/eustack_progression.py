@@ -20,6 +20,7 @@ ordering flag are 17-02's work.
 
 from __future__ import annotations
 
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
@@ -266,9 +267,7 @@ def compute_progression(
             groups[frames].thread_count if frames in groups else 0
             for groups in per_dump_groups
         )
-        step_deltas = tuple(
-            counts[i + 1] - counts[i] for i in range(len(counts) - 1)
-        )
+        step_deltas = tuple(after - before for before, after in pairwise(counts))
         overall_delta = counts[-1] - counts[0]
         appeared = counts[0] == 0 and counts[-1] != 0
         vanished = counts[0] != 0 and counts[-1] == 0

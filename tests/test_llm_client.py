@@ -412,7 +412,6 @@ def test_props_absent_returns_empty_and_no_raise() -> None:
 
     c = _client(handler)
     assert c.props() == {}
-    assert c.has_props is False
 
 
 def test_props_exposes_keys_absent_safe() -> None:
@@ -423,7 +422,6 @@ def test_props_exposes_keys_absent_safe() -> None:
     props = c.props()
     assert props.get("n_ctx") == 4096
     assert props.get("n_parallel") is None  # absent-key-safe
-    assert c.has_props is True
 
 
 def test_chat_surfaces_server_error_body() -> None:

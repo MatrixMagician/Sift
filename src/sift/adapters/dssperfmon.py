@@ -276,9 +276,7 @@ class DssperfmonAdapter(ConfigurableAdapter):
         return 0.0
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
-        relpath = (
-            path.relative_to(self.input_root) if self.input_root else Path(path.name)
-        ).as_posix()
+        relpath = self.case_relpath(path)
         override_tz = tz_override_for(relpath, self.tz_overrides)
         stats = ParseStats(path=relpath)
         offset = 0
@@ -297,7 +295,7 @@ class DssperfmonAdapter(ConfigurableAdapter):
         header_width = 0
 
         with open_bytes(path) as stream:
-            for bline in byte_lines(stream, b"\n", b"", unit=1):
+            for bline in byte_lines(stream):
                 line_offset = offset
                 # Every byte accounted before any decode: no parse outcome may
                 # perturb the offset, or event_id stops being reproducible.
@@ -367,7 +365,7 @@ class DssperfmonAdapter(ConfigurableAdapter):
                 try:
                     naive = datetime.strptime(row[0], TS_FORMAT)  # noqa: DTZ007
                 except ValueError:
-                    # D-15, mirroring dsserrors._match_ts's ValueError guard.
+                    # D-15, mirroring base.match_iso_ts's ValueError guard.
                     ts, ts_confidence = None, "missing"
                 else:
                     ts, ts_confidence = to_utc(naive, override_tz)

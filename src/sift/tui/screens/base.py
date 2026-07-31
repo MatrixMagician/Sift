@@ -22,14 +22,18 @@ Three contracts live here and nowhere else:
 """
 
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import ClassVar, cast
 
+from rich.text import Text
 from textual.app import App
 from textual.binding import Binding, BindingType
 from textual.screen import Screen
+from textual.widgets import DataTable
+from textual.widgets.data_table import ColumnKey
 
 from sift.store import CaseStore
+from sift.tui.review_state import latest_verdicts
 from sift.tui.screens.error import ErrorScreen
 from sift.tui.screens.verdict_modal import VerdictModal
 from sift.verdicts import RecordedVerdict, TargetSpec
@@ -47,17 +51,52 @@ class CaseScreen(Screen[None]):
         Binding("question_mark", "app.help", "Help", key_display="?"),
     ]
 
-    def push(self, screen: Screen[None]) -> None:
-        """Push a screen via the app, typed once here for every subclass.
+    # Populated by the table-bearing subclasses; the shared badge helpers
+    # below read them and stay inert until a mount assigns _verdict_col.
+    _store: CaseStore
+    table: DataTable[Text]
+    _verdict_col: ColumnKey | None = None
+
+    @property
+    def _app(self) -> App[object]:
+        """The running app, cast once for every subclass.
 
         Textual types Screen.app as App[Unknown]; the typed alternative
         (getters.app(SiftApp)) would be a circular import, so cast once.
         """
-        app = cast(
+        return cast(
             "App[object]",
             self.app,  # pyright: ignore[reportUnknownMemberType]
         )
-        app.push_screen(screen)
+
+    def push(self, screen: Screen[None]) -> None:
+        """Push a screen via the app, typed once here for every subclass."""
+        self._app.push_screen(screen)
+
+    def _refresh_badges(self, level: str, keys: Iterable[str]) -> None:
+        """DB re-read of ``level`` rulings into the Verdict column (R012).
+
+        ``keys`` are the screen's row keys, which double as target ids; a
+        target with no ruling paints the empty badge.
+        """
+        if self._verdict_col is None:
+            return
+        badges = self.guarded(lambda: latest_verdicts(self._store, level))
+        if badges is None:
+            return
+        for key in keys:
+            self.table.update_cell(
+                key,
+                self._verdict_col,
+                Text(badges.get((level, key), "")),
+            )
+
+    def _paint_recorded(self, recorded: RecordedVerdict) -> None:
+        """The R012 commit gate: paint exactly what the INSERT returned."""
+        if self._verdict_col is not None:
+            self.table.update_cell(
+                recorded.target_id, self._verdict_col, Text(recorded.verdict)
+            )
 
     def capture_verdict(
         self,
@@ -79,11 +118,7 @@ class CaseScreen(Screen[None]):
             if recorded is not None:
                 on_recorded(recorded)
 
-        app = cast(
-            "App[object]",
-            self.app,  # pyright: ignore[reportUnknownMemberType]
-        )
-        app.push_screen(VerdictModal(store, target, label), gate)
+        self._app.push_screen(VerdictModal(store, target, label), gate)
 
     def guarded[T](self, read: Callable[[], T]) -> T | None:
         """Run a store read; a sqlite failure becomes a sanitised ErrorScreen.

@@ -31,6 +31,7 @@ from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
 from sift.models import Event, event_id
 from sift.pipeline import cluster, dedup, hypothesise
+from sift.pipeline._shared import short_hash
 from sift.pipeline.salience import rank_clusters
 from sift.store import CaseStore, case_db_path
 
@@ -192,7 +193,7 @@ def _assemble(
     groups = store.query_template_groups()
     ranked = rank_clusters(clusters, groups, incident_time=None)
     group_index = {g.template_id: g for g in groups}
-    messages = hypothesise._gather_exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
+    messages = hypothesise._exemplar_messages(store, groups)  # pyright: ignore[reportPrivateUsage]
     template = hypothesise._load_triage_template()  # pyright: ignore[reportPrivateUsage]
     budget = PromptBudget(client, 8192, 1024)  # pyright: ignore[reportArgumentType]
     _msgs, prompted_ids, prompt = hypothesise._assemble(  # pyright: ignore[reportPrivateUsage]
@@ -233,7 +234,7 @@ def test_assemble_no_kb_is_byte_identical_baseline(tmp_path: Path) -> None:
         _seed_clustered(store)
         _ids, prompt_no = _assemble(store, _client(_handler()), None)
         # Byte-identity: sha256(prompt)[:16] must equal the pre-change golden.
-        assert hypothesise._prompt_hash(prompt_no) == _NO_KB_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+        assert short_hash(prompt_no) == _NO_KB_PROMPT_HASH
     finally:
         store.close()
 
@@ -383,7 +384,7 @@ def test_assemble_no_mcm_is_byte_identical_baseline(tmp_path: Path) -> None:
     try:
         _seed_clustered(store)
         _ids, prompt_no = _assemble(store, _client(_handler()), None)
-        assert hypothesise._prompt_hash(prompt_no) == _NO_KB_PROMPT_HASH  # pyright: ignore[reportPrivateUsage]
+        assert short_hash(prompt_no) == _NO_KB_PROMPT_HASH
     finally:
         store.close()
 
