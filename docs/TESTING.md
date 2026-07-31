@@ -73,7 +73,8 @@ matching `extraPaths` execution environments for pyright).
 | Pipeline | `test_dedup.py`, `test_cluster.py`, `test_salience.py`, `test_kb_retrieval.py`, `test_kb_analyze.py`, `test_budget.py` | masking/templating, HDBSCAN clustering, ranking, KB retrieval, token budgeting |
 | LLM boundary | `test_llm_client.py`, `test_hypothesise.py` | endpoint guards, retries, llama.cpp `response_format` shape, schema + citation enforcement |
 | Rendering | `test_render_markdown.py`, `test_render_json.py`, `test_render_pdf.py`, `test_report_determinism.py`, `test_cli_report.py` | report output and byte-identity |
-| CLI & end-to-end | `test_cli.py`, `test_analyze.py`, `test_doctor.py`, `test_acceptance.py` | subcommand behaviour, exit codes, whole-pipeline acceptance |
+| Case commands (the ADR 0019 seam) | `test_commands_seam.py`, `test_commands_parse.py`, `test_commands_show.py`, `test_analyze.py` | `ExitCode`/`open_case`, `parse_filters`/`parse_moment`, the four `run_show_*` bodies, `run_analyze`'s branches — all called directly, no `CliRunner` |
+| CLI & end-to-end | `test_cli.py`, `test_doctor.py`, `test_acceptance.py` | flag wiring, exit-code propagation, `--help`, non-TTY stdout, sanitisation, whole-pipeline acceptance |
 | Eval harness | `test_eval_truth.py`, `test_eval_harness.py`, `test_eval_thresholds.py`, `test_eval_judge.py`, `test_eval_cases.py` | truth loading, metrics, gate/exit codes, advisory judge, the committed golden cases |
 | Guards | `test_conftest_network_guard.py`, `test_packaging.py` | the socket guard itself; packaging smoke |
 | Perf | `tests/perf/` | `generate_synthetic.py` plus the `perf`-marked 100 MB gate |
@@ -93,6 +94,31 @@ by name (`from _report_fixtures import ...`), deliberately **not** conftest fixt
   fixtures* below). Each builder is paired with a guard test in the same module
   asserting the fixture genuinely carries the defect it claims, so it runs only
   when named explicitly (`uv run pytest tests/_perfmon_fixtures.py`).
+
+### Where a case-command test goes: the seam, not the CLI
+
+ADR 0019 put every case command's implementation behind
+`run_x(store, config, *, ..., echo, echo_err) -> ExitCode` in `sift/commands/`.
+That decides where a new test belongs.
+
+**Default to calling `run_x` directly.** Pass `echo=lines.append` and assert on
+the list; the exit code is the return value, so there is no output to grep and
+no case directory to build. Reaching a branch — a degraded run, an invalid
+citation, a refused endpoint — costs one call.
+
+**Reach for `CliRunner` only for what the CLI itself can get wrong:** that a
+flag lands on the parameter it names, that the returned code reaches the shell
+(code 3 included — see ADR 0005), `--help` text, non-TTY stdout, and the
+terminal-escape checks that prove hostile bytes never reach a real terminal.
+For flag wiring, monkeypatch the `run_x` the CLI imported
+(`monkeypatch.setattr("sift.cli.run_analyze", fake)`) and assert on the
+recorded kwargs rather than running the pipeline —
+`test_cli.py::test_analyze_flags_land_on_the_parameters_they_name` is the
+worked example.
+
+`test_cli_{mcm,perfmon,eustack,report,validate}.py` are the deliberate
+exception: they assert a bundle written under `<case>/<command>/`, which a
+direct call makes no easier to reach.
 
 ## Shared fixtures (`tests/conftest.py`)
 

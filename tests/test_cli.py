@@ -12,23 +12,21 @@ import os
 import re
 import shutil
 import sqlite3
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import httpx
 import pytest
 from typer.testing import CliRunner
 
 from sift.adapters import REGISTRY
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.cli import app
-from sift.commands import resolve_generation_ctx as _resolve_generation_ctx
-from sift.config import load_config
-from sift.llm.client import Endpoint, InferenceClient
-from sift.models import Event, event_id
-from sift.pipeline import dedup
-from sift.store import CaseStore, case_db_path
+from sift.commands import ExitCode
+from sift.config import SiftConfig, load_config
+from sift.models import Event
+from sift.pipeline.hypothesise import DEFAULT_TOP_CLUSTERS
+from sift.store import CaseStore, StoredHypothesis, case_db_path
 
 
 def _read_coverage_meta(case: str) -> dict[str, dict[str, object]]:
@@ -452,46 +450,6 @@ def test_show_clusters_e2e(tmp_path: Path) -> None:
     ), shown.output
 
 
-def test_show_clusters_empty_case_exits_0(tmp_path: Path) -> None:
-    """A case with zero events renders an empty listing — no crash."""
-    empty = tmp_path / "empty-input"
-    empty.mkdir()
-    assert runner.invoke(app, ["new", "demo", "--input", str(empty)]).exit_code == 0
-    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
-
-    shown = runner.invoke(app, ["show", "demo", "clusters"])
-    assert shown.exit_code == 0, shown.output
-    assert not re.search(r"\b[0-9a-f]{16}\b", shown.output)
-
-
-def test_show_clusters_ordering(tmp_path: Path) -> None:
-    """Groups render by count DESC, tie-break on template text ASC."""
-    lines: list[str] = []
-    second = 0
-    for msg, n in [
-        ("gamma repeated event", 3),
-        ("beta thing done", 2),
-        ("alpha thing done", 2),
-    ]:
-        for _ in range(n):
-            lines.append(f"2026-07-16T10:00:{second:02d}+00:00 INFO {msg}")
-            second += 1
-    input_dir = tmp_path / "input"
-    input_dir.mkdir()
-    (input_dir / "app.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
-    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
-
-    shown = runner.invoke(app, ["show", "demo", "clusters"])
-    assert shown.exit_code == 0, shown.output
-    out = shown.output
-    assert (
-        out.index("gamma repeated event")
-        < out.index("alpha thing done")
-        < out.index("beta thing done")
-    ), out
-
-
 def test_show_clusters_strips_terminal_escapes(tmp_path: Path) -> None:
     """T-02-02: hostile log bytes in templates never reach the terminal."""
     input_dir = tmp_path / "input"
@@ -510,10 +468,12 @@ def test_show_clusters_strips_terminal_escapes(tmp_path: Path) -> None:
 
 
 # --- plan 02-03: show --filter (STORE-04) -----------------------------------
-
-EVENT_FILTER_KEYS = ("severity", "source", "file", "since", "until", "limit")
-CLUSTER_FILTER_KEYS = ("severity", "min-count", "contains", "limit")
-SEVERITIES = ("fatal", "error", "warn", "info", "debug", "unknown")
+#
+# ADR 0019 pass 2: what a given filter spec PARSES to — the key allowlists, the
+# severity vocabulary, integer and timestamp coercion, duplicate keys — is
+# asserted directly against ``parse_filters`` in tests/test_commands_parse.py.
+# What stays here is the CLI boundary either side of it: that a parse failure
+# becomes exit 2, and that a parsed filter actually reaches the query.
 
 
 def _ingested_case(tmp_path: Path, content: str = FIXTURE_LOG) -> None:
@@ -524,32 +484,14 @@ def _ingested_case(tmp_path: Path, content: str = FIXTURE_LOG) -> None:
     assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
 
 
-def test_show_events_output_matches_query_events_rendering(tmp_path: Path) -> None:
-    """Safety net for the 02-03 streaming rewrite: unfiltered `show events`
-    lines must stay byte-identical to the rendering derived from
-    query_events(). Passes before AND after the rewrite — do not xfail."""
-    _ingested_case(tmp_path)
+def test_show_filter_flag_reaches_the_query(tmp_path: Path) -> None:
+    """The wiring test: a ``--filter`` genuinely scopes the rows shown.
 
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
-        expected = [
-            (
-                f"{e.event_id}  "
-                f"{e.ts.isoformat() if e.ts is not None else '-'}  "
-                f"{e.severity:<7}  {e.source_file}:{e.line_start}  "
-                f"{e.message.replace(chr(10), ' ')[:120]}"
-            )
-            for e in store.query_events()
-        ]
-    finally:
-        store.close()
-
-    shown = runner.invoke(app, ["show", "demo", "events"])
-    assert shown.exit_code == 0, shown.output
-    assert shown.output.splitlines() == expected
-
-
-def test_show_events_filter_severity(tmp_path: Path) -> None:
+    ``parse_filters`` and ``run_show_events`` are each covered directly, so what
+    is left to prove here is only that ``show`` passes the parsed value to the
+    body — dropping it would leave both of those suites green and quietly
+    render every event under any filter.
+    """
     _ingested_case(tmp_path)
     shown = runner.invoke(
         app, ["show", "demo", "events", "--filter", "severity=error"]
@@ -560,134 +502,18 @@ def test_show_events_filter_severity(tmp_path: Path) -> None:
     assert "retrying with backoff" not in shown.output
 
 
-def test_show_events_filters_and_combine(tmp_path: Path) -> None:
-    """Two --filter options AND-combine (severity AND file)."""
-    input_dir = tmp_path / "input"
-    input_dir.mkdir()
-    (input_dir / "app.log").write_text(FIXTURE_LOG, encoding="utf-8")
-    (input_dir / "other.log").write_text(
-        "2026-07-16T10:00:05+00:00 ERROR database on fire\n", encoding="utf-8"
-    )
-    assert runner.invoke(app, ["new", "demo", "--input", str(input_dir)]).exit_code == 0
-    assert runner.invoke(app, ["ingest", "demo"]).exit_code == 0
+def test_show_bad_filter_exits_2_carrying_the_parser_message(tmp_path: Path) -> None:
+    """A ``parse_filters`` ValueError becomes exit 2 with the message on stdout.
 
-    shown = runner.invoke(
-        app,
-        [
-            "show", "demo", "events",
-            "--filter", "severity=error",
-            "--filter", "file=app",
-        ],
-    )
-    assert shown.exit_code == 0, shown.output
-    assert "connection pool exhausted" in shown.output
-    assert "database on fire" not in shown.output
-    assert "service started" not in shown.output
-
-
-def test_show_events_filter_limit(tmp_path: Path) -> None:
+    One test for the boundary, per target, rather than one per rejection: the
+    rejections themselves are asserted in tests/test_commands_parse.py, and the
+    only thing the CLI adds is the translation.
+    """
     _ingested_case(tmp_path)
-    shown = runner.invoke(app, ["show", "demo", "events", "--filter", "limit=1"])
-    assert shown.exit_code == 0, shown.output
-    assert len(re.findall(r"\b[0-9a-f]{16}\b", shown.output)) == 1
-
-
-def test_show_events_filter_since_naive_treated_as_utc(tmp_path: Path) -> None:
-    """A naive since/until value is treated as UTC and normalised before
-    binding — 10:00:01 excludes only the 10:00:00 event."""
-    _ingested_case(tmp_path)
-    shown = runner.invoke(
-        app, ["show", "demo", "events", "--filter", "since=2026-07-16T10:00:01"]
-    )
-    assert shown.exit_code == 0, shown.output
-    assert "service started" not in shown.output
-    assert "connection pool exhausted" in shown.output
-    assert "retrying with backoff" in shown.output
-
-
-def test_show_events_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> None:
-    _ingested_case(tmp_path)
-    shown = runner.invoke(app, ["show", "demo", "events", "--filter", "bogus=1"])
-    assert shown.exit_code == 2, shown.output
-    for key in EVENT_FILTER_KEYS:
-        assert key in shown.output, f"{key!r} missing from: {shown.output!r}"
-
-
-def test_show_clusters_unknown_filter_key_exits_2_listing_keys(tmp_path: Path) -> None:
-    _ingested_case(tmp_path)
-    shown = runner.invoke(app, ["show", "demo", "clusters", "--filter", "bogus=1"])
-    assert shown.exit_code == 2, shown.output
-    for key in CLUSTER_FILTER_KEYS:
-        assert key in shown.output, f"{key!r} missing from: {shown.output!r}"
-
-
-def test_show_clusters_filter_min_count(tmp_path: Path) -> None:
-    _ingested_case(tmp_path, REPETITIVE_LOG)
-    shown = runner.invoke(
-        app, ["show", "demo", "clusters", "--filter", "min-count=2"]
-    )
-    assert shown.exit_code == 0, shown.output
-    assert "connection pool exhausted" in shown.output
-    assert "service started" not in shown.output
-
-
-def test_show_clusters_filter_contains_literal(tmp_path: Path) -> None:
-    """contains matches template substrings literally — a LIKE-style %
-    wildcard pattern matches nothing (instr semantics, T-02-08)."""
-    _ingested_case(tmp_path, REPETITIVE_LOG)
-    shown = runner.invoke(
-        app, ["show", "demo", "clusters", "--filter", "contains=pool"]
-    )
-    assert shown.exit_code == 0, shown.output
-    assert "connection pool exhausted" in shown.output
-    assert "service started" not in shown.output
-
-    wildcard = runner.invoke(
-        app, ["show", "demo", "clusters", "--filter", "contains=connection%retries"]
-    )
-    assert wildcard.exit_code == 0, wildcard.output
-    assert not re.findall(r"\b[0-9a-f]{16}\b", wildcard.output)
-
-
-def test_show_clusters_filter_severity(tmp_path: Path) -> None:
-    _ingested_case(tmp_path, REPETITIVE_LOG)
-    shown = runner.invoke(
-        app, ["show", "demo", "clusters", "--filter", "severity=error"]
-    )
-    assert shown.exit_code == 0, shown.output
-    assert "connection pool exhausted" in shown.output
-    assert "service started" not in shown.output
-
-
-@pytest.mark.parametrize(
-    ("target", "spec", "fragment"),
-    [
-        ("events", "limit=abc", "abc"),
-        ("events", "since=notatime", "notatime"),
-        ("clusters", "min-count=abc", "abc"),
-        ("clusters", "min-count=-1", "-1"),
-    ],
-)
-def test_show_invalid_filter_values_exit_2(
-    tmp_path: Path, target: str, spec: str, fragment: str
-) -> None:
-    """Invalid values fail loudly naming the offending value — never an
-    empty result set that looks like 'no matches'."""
-    _ingested_case(tmp_path)
-    shown = runner.invoke(app, ["show", "demo", target, "--filter", spec])
-    assert shown.exit_code == 2, shown.output
-    assert fragment in shown.output
-
-
-def test_show_invalid_severity_exits_2_listing_vocabulary(tmp_path: Path) -> None:
-    _ingested_case(tmp_path)
-    shown = runner.invoke(
-        app, ["show", "demo", "events", "--filter", "severity=catastrophic"]
-    )
-    assert shown.exit_code == 2, shown.output
-    assert "catastrophic" in shown.output
-    for sev in SEVERITIES:
-        assert sev in shown.output, f"{sev!r} missing from: {shown.output!r}"
+    for target in ("events", "clusters", "hypotheses"):
+        shown = runner.invoke(app, ["show", "demo", target, "--filter", "bogus=1"])
+        assert shown.exit_code == 2, shown.output
+        assert "unknown filter key" in shown.output
 
 
 def test_show_filter_injection_shaped_value_is_literal(tmp_path: Path) -> None:
@@ -802,64 +628,33 @@ def test_show_sanitises_every_db_sourced_field(tmp_path: Path) -> None:
         conn.commit()
     finally:
         conn.close()
+    # The hypotheses target too: titles and cited ids are MODEL-generated, the
+    # one rendered surface whose hostile bytes need no tampered case.db at all.
+    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
+    try:
+        store.replace_hypotheses(
+            [
+                StoredHypothesis(
+                    hyp_index=0,
+                    title="\x1b[31mfabricated\u202e",
+                    narrative="n",
+                    confidence="high",
+                    confidence_reasoning="r",
+                    supporting_event_ids=["\x1b[2Jdeadbeef"],
+                    contradicting_evidence=None,
+                    suggested_next_steps=[],
+                    citations_valid=True,
+                )
+            ]
+        )
+    finally:
+        store.close()
 
-    for target in ("clusters", "events"):
+    for target in ("clusters", "events", "hypotheses"):
         shown = runner.invoke(app, ["show", "demo", target])
         assert shown.exit_code == 0, shown.output
         assert "\x1b" not in shown.output, f"raw ESC leaked from show {target}"
         assert "\u202e" not in shown.output, f"bidi override leaked from {target}"
-
-
-def test_show_clusters_non_list_exemplar_json_renders_sanitised(
-    tmp_path: Path,
-) -> None:
-    """WR-01: a tampered non-array exemplar_event_ids JSON renders visibly
-    (sanitised) instead of crashing ' '.join with a traceback."""
-    _ingested_case(tmp_path, REPETITIVE_LOG)
-    conn = sqlite3.connect(case_db_path(load_config().data_dir, "demo"))
-    try:
-        conn.execute(
-            "UPDATE template_groups SET exemplar_event_ids = ? "
-            "WHERE rowid = (SELECT rowid FROM template_groups LIMIT 1)",
-            ('"hostile"',),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    shown = runner.invoke(app, ["show", "demo", "clusters"])
-    assert shown.exit_code == 0, shown.output
-    assert "Traceback" not in shown.output
-    assert "hostile" in shown.output  # tampering stays visible to the operator
-
-
-def test_show_duplicate_filter_key_exits_2(tmp_path: Path) -> None:
-    """WR-05: a repeated --filter key fails loudly naming the key — never
-    silent last-wins (fail-loud prohibition)."""
-    _ingested_case(tmp_path, REPETITIVE_LOG)
-    events = runner.invoke(
-        app,
-        [
-            "show", "demo", "events",
-            "--filter", "severity=error",
-            "--filter", "severity=warn",
-        ],
-    )
-    assert events.exit_code == 2, events.output
-    assert "duplicate filter key" in events.output
-    assert "severity" in events.output
-
-    clusters = runner.invoke(
-        app,
-        [
-            "show", "demo", "clusters",
-            "--filter", "min-count=1",
-            "--filter", "min-count=2",
-        ],
-    )
-    assert clusters.exit_code == 2, clusters.output
-    assert "duplicate filter key" in clusters.output
-    assert "min-count" in clusters.output
 
 
 def test_show_corrupt_case_db_exits_1_without_traceback(tmp_path: Path) -> None:
@@ -876,284 +671,133 @@ def test_show_corrupt_case_db_exits_1_without_traceback(tmp_path: Path) -> None:
     assert shown.exception is None or isinstance(shown.exception, SystemExit)
 
 
-def test_show_clusters_warns_when_template_groups_stale(tmp_path: Path) -> None:
-    """WR-03: a crash between the event commit and the rebuild is detectable —
-    show clusters warns on stderr while still rendering groups on stdout."""
-    _ingested_case(tmp_path, REPETITIVE_LOG)
-
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
-        assert store.get_meta("template_groups_stale") == "0"
-    finally:
-        store.close()
-    clean = runner.invoke(app, ["show", "demo", "clusters"])
-    assert clean.exit_code == 0, clean.output
-    assert "stale" not in clean.stderr
-
-    # Simulate a crash between the event transaction and the rebuild.
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
-        store.set_meta("template_groups_stale", "1")
-    finally:
-        store.close()
-    shown = runner.invoke(app, ["show", "demo", "clusters"])
-    assert shown.exit_code == 0, shown.output
-    assert "stale" in shown.stderr
-    assert "sift ingest" in shown.stderr
-    assert re.findall(r"\b[0-9a-f]{16}\b", shown.stdout), "groups still render"
-
-
-# --- analyze exit-code contract (CLI-04): 0 success / 3 degraded / 1 failure --
+# --- analyze: the CLI boundary (CLI-04, ADR 0005) --------------------------
 #
-# Zero sockets: the inference calls are served by an httpx.MockTransport bound
-# through the llm.bringup.make_http_client seam, so the autouse _no_network guard stays
-# active (EVAL-05). A fixed 8-dim vector for every input is enough to cluster;
-# the generation call (body carries response_format) is answered per test.
-
-_Handler = Callable[[httpx.Request], httpx.Response]
-_CTX_PROPS_SUFFIX = "/props"  # generation server capability document
-_VALID_EMPTY_HYPSET = json.dumps(
-    {"hypotheses": [], "timeline_summary": "none", "unexplained_signals": []}
-)
+# ADR 0019 pass 2: which exit code a given run EARNS — degraded output, an
+# invalid citation, a refused endpoint, an empty case — is asserted against
+# ``run_analyze`` directly in tests/test_analyze.py. Three things are left that
+# only the CLI can be wrong about, and each is tested by faking ``run_analyze``
+# rather than running the pipeline: that every flag lands on the parameter it
+# names, that the returned code reaches the shell, and that the contract is
+# documented in ``--help``.
 
 
-def _analyze_handler(*, hyp_content: str | None = None) -> _Handler:
-    def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path.endswith("/embeddings"):
-            inputs = json.loads(request.content)["input"]
-            data = [
-                {"index": i, "embedding": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]}
-                for i, _ in enumerate(inputs)
-            ]
-            return httpx.Response(200, json={"data": data})
-        if path.endswith("/chat/completions"):
-            payload = json.loads(request.content)
-            if "response_format" in payload:
-                content = (
-                    hyp_content if hyp_content is not None else _VALID_EMPTY_HYPSET
-                )
-                return httpx.Response(
-                    200, json={"choices": [{"message": {"content": content}}]}
-                )
-            # cluster-label call — a lenient empty map is fine.
-            return httpx.Response(
-                200, json={"choices": [{"message": {"content": "{}"}}]}
-            )
-        return httpx.Response(404)
+def _empty_case(case: str = "demo") -> None:
+    """Create an empty but openable ``case.db``.
 
-    return handler
-
-
-def _patch_analyze_http(
-    monkeypatch: pytest.MonkeyPatch, handler: _Handler
-) -> None:
-    def _factory(timeout: float) -> httpx.Client:
-        return httpx.Client(
-            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
-        )
-
-    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
-
-
-def _seed_analyzable(case: str, messages: list[str]) -> list[str]:
-    """Seed a case with one event per message + template groups; return ids."""
-    store = CaseStore(case_db_path(load_config().data_dir, case))
-    ids = [event_id("case.log", i) for i in range(len(messages))]
-    try:
-        with store.transaction():
-            store.insert_events(
-                [
-                    Event(
-                        event_id=ids[i],
-                        case_id=case,
-                        ts=datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC),
-                        ts_confidence="exact",
-                        source="genericlog",
-                        source_file="case.log",
-                        line_start=i + 1,
-                        line_end=i + 1,
-                        severity="error",
-                        component=None,
-                        thread=None,
-                        session=None,
-                        message=m,
-                        attrs={},
-                        raw=m,
-                    )
-                    for i, m in enumerate(messages)
-                ]
-            )
-        dedup.rebuild_template_groups(store)
-    finally:
-        store.close()
-    return ids
-
-
-def _embedding_line(output: str) -> str:
-    """The single ``Embeddings:`` summary line (D-06), for a scoped assertion.
-
-    Asserting on the whole output would let an unrelated ``0 new`` elsewhere
-    satisfy a reuse assertion, so the line is isolated first.
+    Every analyze test below fakes ``run_analyze``, so the case needs no events
+    — it exists only to give ``_case_store`` something to open. Seeding one
+    anyway would imply the pipeline runs here, and it does not.
     """
-    lines = [ln for ln in output.splitlines() if ln.startswith("Embeddings: ")]
-    assert len(lines) == 1, f"expected exactly one Embeddings line, got {lines!r}"
-    return lines[0]
+    db_path = case_db_path(load_config().data_dir, case)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    CaseStore(db_path).close()
 
 
-def test_analyze_exit_0_with_valid_cited_hypotheses(
-    monkeypatch: pytest.MonkeyPatch,
+def _record_analyze(
+    monkeypatch: pytest.MonkeyPatch, code: ExitCode = ExitCode.SUCCESS
+) -> dict[str, object]:
+    """Replace ``run_analyze`` with a recorder and return the kwargs dict."""
+    recorded: dict[str, object] = {}
+
+    def fake(store: CaseStore, config: SiftConfig, **kwargs: object) -> ExitCode:
+        recorded.update(kwargs)
+        return code
+
+    monkeypatch.setattr("sift.cli.run_analyze", fake)
+    return recorded
+
+
+def test_analyze_flags_land_on_the_parameters_they_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """RAG-02 e2e: a valid model whose citation is in the prompt exits 0."""
-    ids = _seed_analyzable("demo", ["solo memory pressure warning"])
-    hyp = json.dumps(
-        {
-            "hypotheses": [
-                {
-                    "title": "Memory exhaustion",
-                    "narrative": "the box ran out of memory",
-                    "confidence": "high",
-                    "confidence_reasoning": "clear signal",
-                    "supporting_event_ids": [ids[0]],  # cited ⊆ prompted
-                    "contradicting_evidence": None,
-                    "suggested_next_steps": ["add RAM"],
-                }
-            ],
-            "timeline_summary": "one event",
-            "unexplained_signals": [],
-        }
+    """Every ``analyze`` flag, in one pass.
+
+    Nine of these twelve parameters had no CLI-level coverage at all before the
+    seam existed, because reaching them meant driving the whole pipeline. A
+    flag silently wired to the wrong parameter — ``--since`` onto ``until``, or
+    ``--no-label`` inverted — is exactly the failure this catches, and it needs
+    no inference server to catch it.
+    """
+    _empty_case()
+    kb_dir = tmp_path / "runbooks"
+    kb_dir.mkdir()
+    recorded = _record_analyze(monkeypatch)
+
+    result = runner.invoke(
+        app,
+        [
+            "analyze", "demo",
+            "--i-know-what-im-doing",
+            "--no-label",
+            "--re-embed",
+            "--hint", "the customer restarted the box",
+            "--kb", str(kb_dir),
+            "--since", "2026-07-16T10:00:00",
+            "--until", "2026-07-16T18:00:00+02:00",
+            "--top-clusters", "7",
+        ],
     )
-    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
-    result = runner.invoke(app, ["analyze", "demo"])
     assert result.exit_code == 0, result.output
-    assert "Hypotheses: 1" in result.output
-    # The persisted hypothesis is citation-valid.
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
-        hyps = store.query_hypotheses()
-        assert len(hyps) == 1
-        assert hyps[0].citations_valid is True
-        assert store.get_meta("triage_degraded") == "0"
-    finally:
-        store.close()
+    assert recorded == {
+        "allow_public": True,
+        # --no-label is the negation of the `label` parameter, not a pass-through.
+        "label": False,
+        "re_embed": True,
+        # --hint is free operator text and is NEVER parsed as a time.
+        "hint": "the customer restarted the box",
+        "kb": kb_dir,
+        # Both moments arrive parsed and normalised to UTC. They are
+        # deliberately DIFFERENT instants (and the naive one is the earlier):
+        # two values that normalised alike would survive a since/until swap,
+        # which is the very mistake this test names.
+        "since": datetime(2026, 7, 16, 10, 0, tzinfo=UTC),
+        "until": datetime(2026, 7, 16, 16, 0, tzinfo=UTC),
+        "top_clusters": 7,
+    }
 
 
-def test_analyze_prints_embedding_split(
+def test_analyze_defaults_are_the_permissive_flags_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """DET-01/D-06: the split is always printed, first run included."""
-    messages = ["solo memory pressure warning", "smtp queue backing up"]
-    _seed_analyzable("demo", messages)
-    _patch_analyze_http(monkeypatch, _analyze_handler())
-    result = runner.invoke(app, ["analyze", "demo"])
-    assert result.exit_code == 0, result.output
-    assert f"Embeddings: {len(messages)} new, 0 reused" in result.output
+    """A bare ``analyze`` labels, reuses embeddings and refuses a public
+    endpoint — the safe defaults, none of them accidentally inverted."""
+    _empty_case()
+    recorded = _record_analyze(monkeypatch)
+
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
+    assert recorded["allow_public"] is False
+    assert recorded["label"] is True
+    assert recorded["re_embed"] is False
+    assert recorded["hint"] is None
+    assert recorded["kb"] is None
+    assert recorded["since"] is None
+    assert recorded["until"] is None
+    assert recorded["top_clusters"] == DEFAULT_TOP_CLUSTERS
 
 
-def test_analyze_second_run_reports_reuse(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    "code", [ExitCode.SUCCESS, ExitCode.ERROR, ExitCode.DEGRADED]
+)
+def test_analyze_exit_code_reaches_the_shell(
+    monkeypatch: pytest.MonkeyPatch, code: ExitCode
 ) -> None:
-    """DET-01: a second analyze with no re-ingest reports full reuse."""
-    messages = ["solo memory pressure warning", "smtp queue backing up"]
-    _seed_analyzable("demo", messages)
-    _patch_analyze_http(monkeypatch, _analyze_handler())
-
-    first = runner.invoke(app, ["analyze", "demo"])
-    assert first.exit_code == 0, first.output
-    assert "0 new" not in _embedding_line(first.output)
-
-    second = runner.invoke(app, ["analyze", "demo"])
-    assert second.exit_code == 0, second.output
-    assert "0 new" in _embedding_line(second.output)
-    assert f"{len(messages)} reused" in _embedding_line(second.output)
+    """ADR 0005: a process exit status must carry EVERY non-zero code, code 3
+    included — ``cli.py`` branches on ``if code:`` for exactly this reason, and
+    must not borrow ``is_failure``, which deliberately treats DEGRADED as
+    usable for the callers that keep running.
+    """
+    _empty_case()
+    _record_analyze(monkeypatch, code=code)
+    assert runner.invoke(app, ["analyze", "demo"]).exit_code == code
 
 
-def test_analyze_accepts_re_embed_flag(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """D-07: --re-embed bypasses the cache at the CLI boundary."""
-    messages = ["solo memory pressure warning", "smtp queue backing up"]
-    _seed_analyzable("demo", messages)
-    _patch_analyze_http(monkeypatch, _analyze_handler())
-
-    first = runner.invoke(app, ["analyze", "demo"])
-    assert first.exit_code == 0, first.output
-
-    forced = runner.invoke(app, ["analyze", "demo", "--re-embed"])
-    assert forced.exit_code == 0, forced.output
-    assert f"Embeddings: {len(messages)} new, 0 reused" in _embedding_line(
-        forced.output
-    )
-
-
-def test_analyze_exit_3_on_malformed_output(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Malformed generation output (twice) degrades — exit 3, not 0 and not 2."""
-    _seed_analyzable("demo", ["alpha", "beta"])
-    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content="not json at all"))
-    result = runner.invoke(app, ["analyze", "demo"])
-    assert result.exit_code == 3, result.output
-    assert "degraded" in result.output.lower()
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
-        assert store.get_meta("triage_degraded") == "1"
-        assert store.get_meta("triage_raw") is not None  # raw persisted
-    finally:
-        store.close()
-
-
-def test_analyze_exit_3_on_invalid_citation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A hypothesis citing an unseen id is FLAGGED and degrades — exit 3."""
-    _seed_analyzable("demo", ["alpha", "beta"])
-    hyp = json.dumps(
-        {
-            "hypotheses": [
-                {
-                    "title": "Fabricated",
-                    "narrative": "cites an event never shown",
-                    "confidence": "low",
-                    "confidence_reasoning": "made up",
-                    "supporting_event_ids": ["deadbeefdeadbeef"],  # not prompted
-                    "contradicting_evidence": None,
-                    "suggested_next_steps": [],
-                }
-            ],
-            "timeline_summary": "x",
-            "unexplained_signals": [],
-        }
-    )
-    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
-    result = runner.invoke(app, ["analyze", "demo"])
-    assert result.exit_code == 3, result.output
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
-        hyps = store.query_hypotheses()
-        assert hyps and hyps[0].citations_valid is False  # flagged, never dropped
-    finally:
-        store.close()
-
-
-def test_analyze_exit_1_on_missing_case(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_analyze_http(monkeypatch, _analyze_handler())
+def test_analyze_exit_1_on_missing_case() -> None:
+    """The store never opens, so ``run_analyze`` is never reached — this is
+    ``_case_store``'s mapping of ``open_case``'s failure onto exit 1."""
     result = runner.invoke(app, ["analyze", "ghost"])
     assert result.exit_code == 1
     assert "does not exist" in result.output
-
-
-def test_analyze_exit_1_on_public_endpoint_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _seed_analyzable("demo", ["alpha"])
-    monkeypatch.setenv("SIFT_EMBEDDINGS_BASE_URL", "http://8.8.8.8/v1")
-    _patch_analyze_http(monkeypatch, _analyze_handler())
-    result = runner.invoke(app, ["analyze", "demo"])
-    assert result.exit_code == 1
-    assert "refusing non-local inference endpoint" in result.output
 
 
 def test_analyze_help_documents_exit_code_contract() -> None:
@@ -1166,131 +810,18 @@ def test_analyze_help_documents_exit_code_contract() -> None:
     assert "incident-time" in low or "incident time" in low
 
 
-def test_analyze_exit_2_on_bad_since(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A bad --since is a usage error (2) — never confused with degraded (3)."""
-    _seed_analyzable("demo", ["alpha"])
-    _patch_analyze_http(monkeypatch, _analyze_handler())
-    result = runner.invoke(app, ["analyze", "demo", "--since", "not-a-time"])
+def test_analyze_exit_2_on_bad_since_before_the_store_opens() -> None:
+    """A bad --since is a usage error (2) — never confused with degraded (3).
+
+    Deliberately run against a case that does not exist: parsing happens before
+    the store is opened, so a malformed timestamp costs a usage error and
+    nothing else. Were the ordering ever reversed this would exit 1 ("case does
+    not exist") instead. What ``--since`` parses TO is tested directly in
+    tests/test_commands_parse.py.
+    """
+    result = runner.invoke(app, ["analyze", "ghost", "--since", "not-a-time"])
     assert result.exit_code == 2, result.output
     assert "not an ISO 8601 timestamp" in result.output
-
-
-# --- show hypotheses: sanitised render, citation flag, empty message ----------
-
-
-def _analyze_with_hyp(monkeypatch: pytest.MonkeyPatch, hyp: str) -> None:
-    """Seed one event and run analyze so the hypothesis cites a prompted id."""
-    _seed_analyzable("demo", ["solo memory pressure warning"])
-    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
-    assert runner.invoke(app, ["analyze", "demo"]).exit_code in (0, 3)
-
-
-def test_show_hypotheses_renders_after_analyze(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ids = _seed_analyzable("demo", ["solo memory pressure warning"])
-    hyp = json.dumps(
-        {
-            "hypotheses": [
-                {
-                    "title": "Memory exhaustion likely",
-                    "narrative": "the box ran out of memory",
-                    "confidence": "high",
-                    "confidence_reasoning": "clear signal",
-                    "supporting_event_ids": [ids[0]],
-                    "contradicting_evidence": None,
-                    "suggested_next_steps": ["add RAM"],
-                }
-            ],
-            "timeline_summary": "one event",
-            "unexplained_signals": [],
-        }
-    )
-    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
-    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
-    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
-    assert shown.exit_code == 0, shown.output
-    assert "Memory exhaustion likely" in shown.output
-    assert "OK" in shown.output  # citations-valid marker
-    assert ids[0] in shown.output  # the cited id is rendered
-
-
-def test_show_hypotheses_flags_invalid_citation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    hyp = json.dumps(
-        {
-            "hypotheses": [
-                {
-                    "title": "Fabricated cause",
-                    "narrative": "cites an unseen event",
-                    "confidence": "low",
-                    "confidence_reasoning": "made up",
-                    "supporting_event_ids": ["deadbeefdeadbeef"],
-                    "contradicting_evidence": None,
-                    "suggested_next_steps": [],
-                }
-            ],
-            "timeline_summary": "x",
-            "unexplained_signals": [],
-        }
-    )
-    _analyze_with_hyp(monkeypatch, hyp)
-    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
-    assert shown.exit_code == 0, shown.output
-    assert "FLAGGED" in shown.output  # invalid citation surfaced, never dropped
-    assert "degraded" in shown.stderr.lower()  # degraded banner on stderr
-
-
-def test_show_hypotheses_strips_control_bytes_from_hostile_title(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ids = _seed_analyzable("demo", ["solo memory pressure warning"])
-    # A model title carrying a C1 CSI byte (U+009B) and a bidi override (U+202E):
-    # T-04-03 sanitises the whole rendered line, so neither reaches the terminal.
-    hostile = "clean\x9b31mRED\u202e"
-    hyp = json.dumps(
-        {
-            "hypotheses": [
-                {
-                    "title": hostile,
-                    "narrative": "n",
-                    "confidence": "medium",
-                    "confidence_reasoning": "r",
-                    "supporting_event_ids": [ids[0]],
-                    "contradicting_evidence": None,
-                    "suggested_next_steps": [],
-                }
-            ],
-            "timeline_summary": "t",
-            "unexplained_signals": [],
-        }
-    )
-    _patch_analyze_http(monkeypatch, _analyze_handler(hyp_content=hyp))
-    assert runner.invoke(app, ["analyze", "demo"]).exit_code == 0
-    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
-    assert shown.exit_code == 0, shown.output
-    assert "\x9b" not in shown.output  # C1 CSI stripped
-    assert "\u202e" not in shown.output  # bidi override stripped
-    assert "clean31mRED" in shown.output  # printable text survives
-
-
-def test_show_hypotheses_empty_before_analyze(tmp_path: Path) -> None:
-    """An un-analysed case prints the empty message and exits 0 (no old stub)."""
-    _seed_analyzable("demo", ["alpha"])  # events but no analyze/hypotheses
-    shown = runner.invoke(app, ["show", "demo", "hypotheses"])
-    assert shown.exit_code == 0, shown.output
-    assert "No hypotheses" in shown.output
-    assert "sift analyze" in shown.output
-
-
-def test_show_hypotheses_rejects_filter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The empty filter allowlist fails a --filter loudly (exit 2), never silent."""
-    _seed_analyzable("demo", ["alpha"])
-    shown = runner.invoke(
-        app, ["show", "demo", "hypotheses", "--filter", "limit=5"]
-    )
-    assert shown.exit_code == 2, shown.output
 
 
 # --- plan 05-06: Phase-5 domain-adapter end-to-end ingest slices ----------
@@ -1761,101 +1292,3 @@ def test_list_does_not_migrate_the_cases_it_lists(tmp_path: Path) -> None:
         conn.close()
     assert version == 0, "listing migrated the case it was only meant to display"
     assert stale.stat().st_size == 0, "listing wrote to case.db"
-
-
-# --- D-10: the single generation-context resolution point -----------------
-
-
-def _ctx_probe_client(handler: _Handler) -> InferenceClient:
-    """A bare client for exercising `_resolve_generation_ctx`."""
-    http = httpx.Client(transport=httpx.MockTransport(handler))
-    ep = Endpoint(base_url="http://127.0.0.1:8080/v1", model=None)
-    return InferenceClient(ep, ep, http, backoff_base=0.0)
-
-
-def _ctx_props_handler(n_ctx: object) -> _Handler:
-    """Serve the generation server capability document carrying ``n_ctx``."""
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith(_CTX_PROPS_SUFFIX):
-            body = {} if n_ctx is None else {"n_ctx": n_ctx}
-            return httpx.Response(200, json=body)
-        return httpx.Response(404)
-
-    return handler
-
-
-def _ctx_absent_handler(request: httpx.Request) -> httpx.Response:
-    return httpx.Response(404)
-
-
-def test_resolve_generation_ctx_prefers_configured() -> None:
-    """A pinned generation.context is never overridden by the server."""
-    client = _ctx_probe_client(_ctx_props_handler(32768))
-    assert _resolve_generation_ctx(4096, client) == (4096, None)
-
-
-def test_resolve_generation_ctx_discovers_n_ctx() -> None:
-    """Unconfigured: a positive discovered window is used, with no warning."""
-    client = _ctx_probe_client(_ctx_props_handler(32768))
-    assert _resolve_generation_ctx(None, client) == (32768, None)
-
-
-def test_resolve_generation_ctx_warns_when_props_absent() -> None:
-    """The Lemonade case (LLM-04): estimated budget, disclosed."""
-    client = _ctx_probe_client(_ctx_absent_handler)
-    ctx, warning = _resolve_generation_ctx(None, client)
-    assert ctx == 8192
-    assert warning is not None
-    assert "estimated rather than discovered" in warning
-
-
-def test_resolve_generation_ctx_warns_when_n_ctx_unusable() -> None:
-    """A present document carrying no usable n_ctx is still an estimate."""
-    for unusable in (None, 0, -1, "big"):
-        client = _ctx_probe_client(_ctx_props_handler(unusable))
-        ctx, warning = _resolve_generation_ctx(None, client)
-        assert ctx == 8192, unusable
-        assert warning is not None, unusable
-        assert "estimated rather than discovered" in warning
-
-
-def test_analyze_exits_normally_without_props(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Emitting the estimated-budget warning breaks nothing on the analyze path.
-
-    The warning's content is pinned by the helper unit tests above; this only
-    guards that the shipped exit code is unchanged. `_analyze_handler` already
-    404s every unrecognised path, the capability document included.
-    """
-    _seed_analyzable("demo", ["solo memory pressure warning"])
-    _patch_analyze_http(monkeypatch, _analyze_handler())
-    result = runner.invoke(app, ["analyze", "demo"])
-    assert result.exit_code == 0, result.output
-
-
-def test_analyze_issues_exactly_one_props_request(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """D-10: one resolution point means one capability-document GET per run.
-
-    Stronger than a grep for `props()` call sites: `sift doctor` legitimately
-    has its own, so only counting real requests on the analyze path proves the
-    pipeline's own probe is genuinely short-circuited by `ctx_configured`.
-    """
-    seen: list[str] = []
-    inner = _analyze_handler()
-
-    def counting(request: httpx.Request) -> httpx.Response:
-        seen.append(request.url.path)
-        if request.url.path.endswith(_CTX_PROPS_SUFFIX):
-            return httpx.Response(200, json={"n_ctx": 32768})
-        return inner(request)
-
-    _seed_analyzable("demo", ["solo memory pressure warning"])
-    _patch_analyze_http(monkeypatch, counting)
-    result = runner.invoke(app, ["analyze", "demo"])
-    assert result.exit_code == 0, result.output
-    props_hits = [p for p in seen if p.endswith(_CTX_PROPS_SUFFIX)]
-    assert len(props_hits) == 1, props_hits

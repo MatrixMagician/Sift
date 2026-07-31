@@ -1,6 +1,7 @@
 # ADR 0019: Case commands live behind a typer-free `run_x` seam in `sift/commands/`
 
-**Status:** Accepted (pass 1 implemented; pass 2 — the test migration — pending)
+**Status:** Accepted (implemented — pass 1 moved the bodies, pass 2 migrated
+the tests)
 **Date:** 2026-07-31
 **Answers:** SPEC.md §5.8 (CLI) / §7 (repository layout) — where does a case
 command's implementation live, given that Sift now has three callers for it
@@ -115,6 +116,46 @@ all forced by the seam moving rather than by behaviour changing: ten
 code — `ExitCode`, `is_failure`, `open_case` — carries its own direct tests in
 `tests/test_commands_seam.py`, since the moved-bodies argument does not cover
 it.
+
+Pass 2 migrated the `show`, `analyze` and parsing suites, which is where the
+`CliRunner` tax was actually being paid:
+
+- `tests/test_commands_parse.py` — `parse_filters` / `parse_moment` / `to_utc`.
+  Every filter-key allowlist, severity-vocabulary and duplicate-key assertion
+  used to cost a case directory and an `ingest` run to make.
+- `tests/test_commands_show.py` — the four `run_show_*` bodies against a
+  directly seeded store.
+- `tests/test_analyze.py` — rewritten onto `run_analyze` with list sinks; the
+  `resolve_generation_ctx` unit tests moved here from `tests/test_cli.py` to
+  sit beside the branch they resolve.
+
+What stayed in `tests/test_cli.py` is the CLI's own surface: the
+new/ingest/show slice, target dispatch, the exit-2 filter and `--since`
+boundaries, exit-1 case opening, `--help`, non-TTY stdout, and the
+terminal-escape checks that prove hostile bytes never reach a real terminal.
+The analyze block there now fakes `run_analyze` rather than running the
+pipeline, which turns the twelve-flag mapping into one assertion — nine of
+those parameters previously had no CLI-level test, because reaching them meant
+driving the whole pipeline — and pins the code-3 propagation that the
+`is_failure` asymmetry above exists to protect.
+
+Line coverage of `sift/commands/` and `sift/cli.py` was measured before and
+after and is unchanged bar one line gained — but that measurement is a floor,
+not a proof. `sanitise()` and the render-time truncation slice sit on every
+rendered line, so an assertion about them can be dropped without moving the
+number at all. Three were, and the review caught them: the hypotheses-title
+sanitise, the message flatten-and-truncate, and the empty-clusters view. Each
+has an explicit test now. The lesson is the general one about a move like this:
+line coverage cannot tell you an assertion was relocated rather than deleted,
+so the removed tests have to be read against the new ones by hand.
+
+`tests/test_cli_{mcm,perfmon,eustack,report,validate}.py` were deliberately
+left on `CliRunner`. What they assert is a bundle written to
+`<case>/<command>/`, an exit code and a `--help` line — none of which a direct
+call makes easier to reach, since those bodies take no injected client and
+already run against a real seeded store. Migrating them would be churn, not
+leverage. If one of them grows a branch that is awkward to reach through the
+CLI, that is the moment to move it, not before.
 
 ## Consequences
 
