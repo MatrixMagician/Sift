@@ -1,4 +1,3 @@
-<!-- GSD:project-start source:PROJECT.md -->
 
 ## Project
 
@@ -18,9 +17,7 @@ Sift is a fully local, privacy-preserving incident triage engine. It ingests dia
 - **Language/docs**: British English in docs and user-facing strings; type hints everywhere; Apache-2.0
 - **Prompts**: All prompts are versioned template files (`sift/prompts/*.md`) — changing a prompt must not require touching Python
 
-<!-- GSD:project-end -->
 
-<!-- GSD:stack-start source:research/STACK.md -->
 
 ## Technology Stack
 
@@ -186,51 +183,77 @@ Sift is a fully local, privacy-preserving incident triage engine. It ingests dia
 - https://doc.courtbouillon.org/weasyprint/stable/first_steps.html — pango/harfbuzz system deps — MEDIUM
 - https://docs.reportlab.com/install/open_source_installation/ — pure-Python since 4.0 — MEDIUM
 
-<!-- GSD:stack-end -->
 
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
 
 ## Conventions
 
 Conventions not yet established. Will populate as patterns emerge during development.
-<!-- GSD:conventions-end -->
 
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
 ## Architecture
 
 Architecture not yet mapped. Follow existing patterns found in the codebase.
-<!-- GSD:architecture-end -->
 
-<!-- GSD:skills-start source:skills/ -->
 
 ## Project Skills
 
 No project skills found. Add skills to any of: `.claude/skills/`, `.agents/skills/`, `.cursor/skills/`, `.github/skills/`, or `.codex/skills/` with a `SKILL.md` index file.
-<!-- GSD:skills-end -->
 
-<!-- GSD:workflow-start source:GSD defaults -->
+## Workflow
 
-## GSD Workflow Enforcement
+Sift uses **Matt Pocock's engineering skills**, not a phase/plan/wave pipeline.
+The aim is a better product built with ordinary software-engineering discipline —
+deep modules, evidence-cited claims, tests that lock behaviour — with AI doing the
+legwork rather than running its own parallel process.
 
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+Per-repo configuration for these skills lives in `docs/agents/`; see **Agent
+skills** at the end of this file.
 
-Use these entry points:
+### Pick the skill that matches the work
 
-- `/gsd-quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd-debug` for investigation and bug fixing
-- `/gsd-execute-phase` for planned phase work
+| Work | Skill | Who starts it |
+|------|-------|---------------|
+| Something is broken, throwing, or slow | `diagnosing-bugs` | Claude |
+| Build a feature or fix a bug test-first | `tdd` | Claude |
+| Design a module's interface; find deepening opportunities | `codebase-design` | Claude |
+| Pin down domain terms; record a decision | `domain-modeling` | Claude |
+| Stress-test a plan, decision, or idea | `grilling` | Claude |
+| Answer a question against primary sources | `research` | Claude |
+| Throwaway spike to answer a design question | `prototype` | Claude |
+| Review a change | `code-review` | Claude |
+| Resolve a merge or rebase conflict | `resolving-merge-conflicts` | Claude |
+| Whole-repo architecture review | `/mattpocock-skills:improve-codebase-architecture` | **You — type it** |
+| Turn a request into issues | `/mattpocock-skills:to-tickets` | **You — type it** |
+| Turn an issue into a spec | `/mattpocock-skills:to-spec` | **You — type it** |
+| Work the issue queue | `/mattpocock-skills:triage` | **You — type it** |
+| Drive multi-session work with a map | `/mattpocock-skills:wayfinder` | **You — type it** |
+| Implement an agreed plan | `/mattpocock-skills:implement` | **You — type it** |
 
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
+**The right-hand column is load-bearing.** Every skill marked *You — type it* sets
+`disable-model-invocation: true` in its frontmatter: Claude cannot start it and
+must not offer to. When one is the right next step, Claude prepares its inputs
+and hands back the exact slash command to type.
 
-<!-- GSD:profile-start -->
+### Making changes
 
-## Developer Profile
+Direct edits are fine — there is no gate to pass first. What is expected instead:
 
-> Profile not yet configured. Run `/gsd-profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+- Non-trivial logic ships with a check that **fails without it**. Prove the test
+  is real by reverting the fix and watching it go red.
+- `uv run ruff check`, `uv run pyright` and `uv run pytest` are green before any
+  work is called done. Unchanged, and still the definition of finished.
+- A decision a future reader would otherwise re-litigate becomes a numbered ADR
+  in `docs/decisions/`, citing the SPEC section it resolves.
+- Claims about the codebase cite `file.py:line`. Verify before asserting —
+  a plausible-sounding claim about code that was never opened is the failure mode
+  these skills exist to prevent.
+
+### On the GSD artefacts
+
+`.planning/` and the GSD phase history stay as a **record of how the project was
+built** — they are not a live process. Don't add to them, and don't treat a stale
+`.planning/` state file as an instruction.
+
 
 ## Agent skills
 

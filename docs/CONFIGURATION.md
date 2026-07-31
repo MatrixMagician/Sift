@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Configuration
 
 Sift resolves every setting through one function, `load_config()` in

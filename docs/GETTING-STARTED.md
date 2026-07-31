@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Getting started with Sift
 
 This is the longer companion to the [README quickstart](../README.md). The

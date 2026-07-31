@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Testing
 
 Sift's test suite is the mechanism that keeps three load-bearing invariants honest:

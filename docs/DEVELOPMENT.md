@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Development
 
 How to work on Sift itself. For the process side — raising issues, branch and PR

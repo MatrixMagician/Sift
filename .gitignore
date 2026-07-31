@@ -10,12 +10,11 @@ dist/
 /CLAUDE.md
 /SPEC.md
 
-# Per-run scratch from GSD workflows (docs-update manifests, verifier JSON).
-# Refills on every run and is never durable planning state — unlike the rest
-# of .planning/, which is tracked on purpose.
+# Per-run scratch left by tooling. Never durable planning state — unlike the
+# rest of .planning/, which is tracked on purpose as a historical record.
 /.planning/tmp/
 
-# Generated knowledge-graph output (/gsd-graphify, /graphify). Rebuilt from the
+# Generated knowledge-graph output (/graphify). Rebuilt from the
 # codebase on demand, multi-megabyte, and churns on every build — derived
 # artefacts, not source.
 /.planning/graphs/
@@ -31,7 +30,12 @@ dist/
 # .vscode/ elsewhere in the tree could never be masked.
 /.vscode/
 
-# ── GSD baseline (auto-generated) ──
+# ── Retired GSD workflow tooling ──
+# Sift no longer uses GSD (see .claude/CLAUDE.md "Workflow"). These patterns
+# stay so that if the tooling is ever run here again — by habit or by a fleet-
+# wide script — its runtime state cannot land in the repo. .mcp.json is listed
+# because GSD wrote its MCP server + write-gate wiring there; this project's
+# MCP servers come from ~/.claude.json instead.
 .gsd
 .gsd-worktrees/
 .gsd-backups/

@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Contributing to Sift
 
 Thanks for considering a contribution. This document covers *process*: what a
