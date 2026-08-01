@@ -12,6 +12,15 @@ block in ``triage.md`` — ``hypothesise.py`` does not change. This mirrors the
 adapter registry's "new module + one registration line" contract
 (``adapters/__init__.py``).
 
+That cost is the cost to the PROMPT path, which is the only thing this registry
+describes. A ``sift <domain>`` bundle command is separate, optional work with
+its own module in ``commands/`` and its own Typer command: mcm, perfmon and
+eu-stack each have one because they are operator-facing forensics products, not
+because an analyser requires it. ADR 0021 records why the registry deliberately
+stops here rather than also describing the bundle surface — and
+``tests/test_analysers.py`` pins the one invariant that spans both paths, that a
+bundle command reads exactly the ``sources`` its entry declares.
+
 Declaring ``sources`` here is load-bearing for memory: the fact-block path
 reads only the union of the registered sources from the store
 (``CaseStore.query_events(sources=...)``), never the whole case — a multi-GB
