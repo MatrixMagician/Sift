@@ -10,22 +10,29 @@ Three assertions anchor the slice:
   * the assembled prompt CHANGES with ``kb_context`` (the KB block appears) and is
     BYTE-IDENTICAL without it (the golden no-KB hash below, captured pre-change);
   * ``prompted_ids`` is identical with and without KB — KB never enters it;
-  * an end-to-end ``analyze --kb`` run whose model cites a KB-derived id degrades
-    (exit 3, ``citations_valid=0`` persisted), never a clean success.
+  * a whole-pipeline ``--kb`` run whose model cites a KB-derived id degrades
+    (``ExitCode.DEGRADED``, ``citations_valid=0`` persisted), never a clean
+    success.
+
+ADR 0019: the pipeline runs call ``run_analyze`` directly rather than driving
+``sift analyze`` through ``CliRunner``. None of them is about Typer — the ``kb``
+argument is a ``run_analyze`` parameter, and the KB index/retrieve failure
+branch is one handler away from a direct call but needs a whole case directory
+and a subprocess-shaped round trip to reach through the CLI.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
-from typer.testing import CliRunner
 
-from sift.cli import app
+from sift.commands import ExitCode, run_analyze
 from sift.config import ClusteringConfig, load_config
 from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
@@ -33,10 +40,9 @@ from sift.models import Event, event_id
 from sift.pipeline import cluster, dedup, hypothesise
 from sift.pipeline._shared import short_hash
 from sift.pipeline.salience import rank_clusters
-from sift.store import CaseStore, case_db_path
+from sift.store import CaseStore, case_db_path, open_case
 
 Handler = Callable[[httpx.Request], httpx.Response]
-runner = CliRunner()
 _BASE = datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC)
 
 # Three orthogonal planted 8-dim vectors -> three noise singletons (mirrors
@@ -123,12 +129,19 @@ def _handler(
     hyp_content: str | None = None,
     prompts: list[str] | None = None,
     calls: list[str] | None = None,
+    kb_embed_raises: bool = False,
 ) -> Handler:
     """Serve /v1/embeddings + /v1/chat/completions; capture generation prompts.
 
     The triage (generation) call carries ``response_format``; its first user
     message content is appended to ``prompts`` so a test can assert the KB block
     is (or is not) present. ``hyp_content`` overrides the generation reply.
+
+    ``kb_embed_raises`` refuses the connection for the KB leg ALONE — it keys on
+    the runbook text, which only ``index_kb``'s chunk embed ever carries, so the
+    cluster embed that precedes it still succeeds. That is what isolates the KB
+    failure branch from the cluster-embed one it would otherwise be confused
+    with.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -137,6 +150,8 @@ def _handler(
             if calls is not None:
                 calls.append("embeddings")
             inputs = json.loads(request.content)["input"]
+            if kb_embed_raises and any("RUNBOOK" in text for text in inputs):
+                raise httpx.ConnectError("connection refused", request=request)
             data = [
                 {"index": i, "embedding": _VECTORS.get(text, [0.0] * 8)}
                 for i, text in enumerate(inputs)
@@ -266,7 +281,10 @@ def _patch_http(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
     monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
-def _seed_case(case: str) -> None:
+_CASE = "demo"
+
+
+def _seed_case(case: str = _CASE) -> None:
     store = CaseStore(case_db_path(load_config().data_dir, case))
     try:
         with store.transaction():
@@ -283,29 +301,52 @@ def _kb_dir(tmp_path: Path) -> Path:
     return kb
 
 
+def _analyze(kb: Path) -> tuple[ExitCode, list[str]]:
+    """Run the analyse body over the seeded case with ``kb`` as its KB dir.
+
+    Returns the exit code and the stdout sink's lines. Nothing swallows an
+    exception on the way out — an unexpected raise fails the test with its own
+    traceback, which is strictly stronger than the ``result.exception is None``
+    check a ``CliRunner`` invocation needed to make the same point.
+    """
+    config = load_config()
+    store = open_case(config.data_dir, _CASE)
+    out: list[str] = []
+    try:
+        code = run_analyze(store, config, label=False, kb=kb, echo=out.append)
+    finally:
+        store.close()
+    return code, out
+
+
+@contextmanager
+def _reopen() -> Generator[CaseStore]:
+    """Reopen the case to assert on what the run persisted."""
+    store = CaseStore(case_db_path(load_config().data_dir, _CASE))
+    try:
+        yield store
+    finally:
+        store.close()
+
+
 def test_analyze_kb_citation_is_flagged(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _seed_case("demo")
+    _seed_case()
     kb = _kb_dir(tmp_path)
     # The model "cites" a KB-derived id never shown as an exemplar -> FLAGGED.
     handler = _handler(hyp_content=_hset_body([_KB_CITE_ID]))
     _patch_http(monkeypatch, handler)
-    result = runner.invoke(
-        app, ["analyze", "demo", "--kb", str(kb), "--no-label"]
-    )
-    # A KB citation degrades the run (exit 3), never a clean success (D-01).
-    assert result.exit_code == 3, result.output
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
+    code, out = _analyze(kb)
+    # A KB citation degrades the run, never a clean success (D-01).
+    assert code is ExitCode.DEGRADED, out
+    with _reopen() as store:
         rows = store.query_hypotheses()
         assert rows
         offender = rows[0]
         assert offender.citations_valid is False
         assert _KB_CITE_ID in offender.supporting_event_ids
         assert store.get_meta("triage_degraded") == "1"
-    finally:
-        store.close()
 
 
 def test_analyze_kb_context_present_yet_noncitable_end_to_end(
@@ -315,26 +356,21 @@ def test_analyze_kb_context_present_yet_noncitable_end_to_end(
     a hypothesis citing a KB chunk is FLAGGED — ``cited ⊆ prompted ⊆ store`` holds
     transitively with KB active (D-01), the KB block never citable (D-02).
     """
-    _seed_case("demo")
+    _seed_case()
     kb = _kb_dir(tmp_path)
     prompts: list[str] = []
     handler = _handler(hyp_content=_hset_body([_KB_CITE_ID]), prompts=prompts)
     _patch_http(monkeypatch, handler)
-    result = runner.invoke(
-        app, ["analyze", "demo", "--kb", str(kb), "--no-label"]
-    )
-    assert result.exit_code == 3, result.output
+    code, out = _analyze(kb)
+    assert code is ExitCode.DEGRADED, out
     # KB context DID reach the real triage prompt (retrieved + threaded, D-02)…
     assert prompts
     assert any(_KB_RUNBOOK in prompt for prompt in prompts)
     # …yet the KB citation is FLAGGED, never presented as clean (D-01).
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
+    with _reopen() as store:
         rows = store.query_hypotheses()
         assert rows and rows[0].citations_valid is False
         assert _KB_CITE_ID in rows[0].supporting_event_ids
-    finally:
-        store.close()
 
 
 def test_analyze_kb_empty_dir_exits_cleanly(
@@ -344,17 +380,35 @@ def test_analyze_kb_empty_dir_exits_cleanly(
     short-circuits before creating the kb_vectors table, so retrieve_kb must
     treat the un-indexed KB as empty rather than raising a raw
     sqlite3.OperationalError (never-crash invariant)."""
-    _seed_case("demo")
+    _seed_case()
     empty_kb = tmp_path / "kb_empty"
     empty_kb.mkdir()
     (empty_kb / "notes.txt").write_text("not markdown", encoding="utf-8")
     _patch_http(monkeypatch, _handler(hyp_content=_VALID_HYPSET))
-    result = runner.invoke(
-        app, ["analyze", "demo", "--kb", str(empty_kb), "--no-label"]
-    )
-    # Clean completion (exit 0 for an empty valid hypset), never a traceback.
-    assert result.exit_code == 0, result.output
-    assert result.exception is None or isinstance(result.exception, SystemExit)
+    # A raw sqlite3.OperationalError would propagate out of the direct call and
+    # fail here as itself, rather than as an exit code the runner caught.
+    code, out = _analyze(empty_kb)
+    assert code is ExitCode.SUCCESS, out
+
+
+def test_analyze_kb_index_failure_exits_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-06-19: a KB embed failure is a sanitised exit 1, not a traceback and
+    not a silently KB-less run. The cluster embed has already succeeded by this
+    point (the handler refuses the runbook chunk alone), so this is the KB
+    branch failing on its own — the one path through ``run_analyze`` that the
+    CLI-driven suites never reached."""
+    _seed_case()
+    kb = _kb_dir(tmp_path)
+    _patch_http(monkeypatch, _handler(kb_embed_raises=True))
+    code, out = _analyze(kb)
+    assert code is ExitCode.ERROR, out
+    assert any("KB indexing/retrieval failed" in line for line in out), out
+    # The run stopped at the KB leg: nothing was generated or persisted.
+    with _reopen() as store:
+        assert store.query_hypotheses() == []
+        assert store.get_meta("triage_created_at") is None
 
 
 # --- MCM apply_block + no-MCM byte-identity (Plan 11-02, criterion 5) --------
@@ -394,19 +448,14 @@ def test_analyze_kb_valid_citation_is_clean(
 ) -> None:
     """With --kb active, citing a real exemplar id is still a clean success — KB
     enrichment does not disturb the golden path (D-02 additive)."""
-    _seed_case("demo")
+    _seed_case()
     kb = _kb_dir(tmp_path)
     prompts: list[str] = []
     handler = _handler(hyp_content=_hset_body([_ID_ALPHA]), prompts=prompts)
     _patch_http(monkeypatch, handler)
-    result = runner.invoke(
-        app, ["analyze", "demo", "--kb", str(kb), "--no-label"]
-    )
-    assert result.exit_code == 0, result.output
+    code, out = _analyze(kb)
+    assert code is ExitCode.SUCCESS, out
     assert any(_KB_RUNBOOK in prompt for prompt in prompts)  # KB still threaded
-    store = CaseStore(case_db_path(load_config().data_dir, "demo"))
-    try:
+    with _reopen() as store:
         rows = store.query_hypotheses()
         assert rows and all(r.citations_valid for r in rows)
-    finally:
-        store.close()

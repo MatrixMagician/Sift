@@ -145,6 +145,7 @@ def _handler(
     chat_content: str | None = None,
     hyp_content: str | None = None,
     embed_raises: bool = False,
+    generate_raises: bool = False,
     embed_model: str | None = None,
 ) -> Handler:
     """Serve /v1/embeddings + /v1/chat/completions (cluster labels AND triage).
@@ -155,7 +156,9 @@ def _handler(
     key. ``hyp_content`` overrides the generation reply (default: a valid empty
     HypothesisSet, so the run exits 0). ``embed_raises`` makes the embeddings
     endpoint refuse the connection (the interrupted-embed atomicity probe).
-    ``embed_model`` sets the model the embeddings server reports back. Every
+    ``embed_model`` sets the model the embeddings server reports back.
+    ``generate_raises`` refuses the connection for the GENERATION call alone,
+    so clustering completes and only hypothesis generation fails. Every
     unrecognised path 404s, the capability document included — which is what
     makes the estimated-context-budget branch reachable by default.
     """
@@ -182,6 +185,8 @@ def _handler(
                 # The hypothesise generation call — serve a HypothesisSet.
                 if calls is not None:
                     calls.append("generate")
+                if generate_raises:
+                    raise httpx.ConnectError("connection refused", request=request)
                 content = hyp_content if hyp_content is not None else _VALID_HYPSET
                 return httpx.Response(
                     200, json={"choices": [{"message": {"content": content}}]}
@@ -496,6 +501,35 @@ def test_analyze_exit_3_on_invalid_citation(
     with _reopen() as store:
         hyps = store.query_hypotheses()
         assert hyps and hyps[0].citations_valid is False
+
+
+def test_analyze_exit_1_when_generation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI-04: a generation transport failure is exit 1, NOT the exit 3 a
+    malformed reply earns — the run produced nothing to persist, so it must not
+    be reported as degraded-but-persisted. The clustering that already
+    succeeded is still summarised and still committed; only the triage leg
+    failed, and the message says which.
+    """
+    _seed_case("demo", [_ALPHA_A, _BETA_A])
+    # No retries/backoff so the ConnectError surfaces immediately (no sleeps).
+    monkeypatch.setenv("SIFT_GENERATION_RETRIES", "0")
+    monkeypatch.setenv("SIFT_GENERATION_BACKOFF_BASE", "0")
+    _patch_http(monkeypatch, _handler(generate_raises=True))
+    run = _analyze()
+    assert run.code is ExitCode.ERROR, run.out
+    assert any(
+        "hypothesis generation failed" in line and "no hypotheses were persisted"
+        in line
+        for line in run.out
+    ), run.out
+    # The cluster summary still printed — the failure is scoped to triage.
+    assert any(line.startswith("Clusters: ") for line in run.out), run.out
+    with _reopen() as store:
+        assert store.query_clusters()  # the clustering leg's writes survived
+        assert store.query_hypotheses() == []
+        assert store.get_meta("triage_degraded") != "1"
 
 
 def test_interrupted_embed_leaves_no_clusters(

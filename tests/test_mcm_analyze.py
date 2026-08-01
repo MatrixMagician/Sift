@@ -19,10 +19,9 @@ from pathlib import Path
 
 import httpx
 import pytest
-from typer.testing import CliRunner
 
 from sift.adapters.dsserrors import DsserrorsAdapter
-from sift.cli import app
+from sift.commands import ExitCode, run_analyze
 from sift.config import ClusteringConfig, McmThresholdsConfig, load_config
 from sift.llm.budget import PromptBudget
 from sift.llm.client import Endpoint, InferenceClient
@@ -30,11 +29,9 @@ from sift.pipeline import cluster, dedup, hypothesise
 from sift.pipeline.mcm import analyse_mcm
 from sift.pipeline.mcm_facts import render_mcm_facts
 from sift.pipeline.salience import rank_clusters
-from sift.store import CaseStore, case_db_path
+from sift.store import CaseStore, case_db_path, open_case
 
 Handler = Callable[[httpx.Request], httpx.Response]
-
-runner = CliRunner()
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mcm"
 
@@ -282,7 +279,12 @@ def test_mcm_and_kb_coexist(tmp_path: Path) -> None:
         store.close()
 
 
-# --- CLI-level: `sift analyze` threads config.mcm.thresholds (MCM-06, D-17) ---
+# --- run_analyze threads config.mcm.thresholds (MCM-06, D-17) ----------------
+#
+# ADR 0019: these two drive the whole analyse pipeline over a real dsserrors
+# case, and neither is about Typer — the thresholds reach the analyser through
+# ``AnalyserSettings.from_config``, inside ``run_analyze``. Driving them through
+# ``CliRunner`` bought a case directory and stdout grepping, nothing else.
 
 
 def _patch_http(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
@@ -296,13 +298,13 @@ def _patch_http(monkeypatch: pytest.MonkeyPatch, handler: Handler) -> None:
     monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
-def _seed_cli_case(case: str) -> str:
-    """Ingest the Hartford deny slice into the CLI's data dir; return denial_id.
+def _seed_case(case: str) -> str:
+    """Ingest the Hartford deny slice into the case data dir; return denial_id.
 
     Mirrors the `sift ingest` write path (events + template groups) so a later
-    `sift analyze` run clusters + hypothesises over a real dsserrors case. The
-    denial id is threshold-independent (detection does not read thresholds), so
-    it is stable regardless of any `[mcm.thresholds]` override under test.
+    analyse run clusters + hypothesises over a real dsserrors case. The denial
+    id is threshold-independent (detection does not read thresholds), so it is
+    stable regardless of any `[mcm.thresholds]` override under test.
     """
     store = CaseStore(case_db_path(load_config().data_dir, case))
     adapter = DsserrorsAdapter()
@@ -324,28 +326,42 @@ def _write_mcm_config(body: str) -> None:
     (cfg_dir / "config.toml").write_text(body, encoding="utf-8")
 
 
+def _analyze(case: str) -> tuple[ExitCode, list[str]]:
+    """Run the analyse body over ``case``; return its code and stdout lines.
+
+    ``load_config()`` is read here rather than passed in, so a ``config.toml``
+    written by the test reaches the analyser exactly as an operator's would.
+    """
+    config = load_config()
+    store = open_case(config.data_dir, case)
+    out: list[str] = []
+    try:
+        code = run_analyze(store, config, label=False, echo=out.append)
+    finally:
+        store.close()
+    return code, out
+
+
 def test_analyze_surfaces_mcm_facts_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A real `sift analyze` run over the dsserrors denial case surfaces the MCM
-    fact block and a hypothesis citing the MCM denial event is VALID (the
-    injection made the id citable) — a clean success, never a crash (D-17)."""
-    denial_id = _seed_cli_case("mcmcase")
+    """A full analyse run over the dsserrors denial case surfaces the MCM fact
+    block and a hypothesis citing the MCM denial event is VALID (the injection
+    made the id citable) — a clean success, never a crash (D-17)."""
+    denial_id = _seed_case("mcmcase")
     prompts: list[str] = []
     handler = _handler(
         hyp_content=_hset_body([denial_id], "MCM denial episode"), prompts=prompts
     )
     _patch_http(monkeypatch, handler)
-    result = runner.invoke(app, ["analyze", "mcmcase", "--no-label"])
-    # Exit-code contract honoured (0 success / 3 degraded), never a traceback.
-    assert result.exit_code in (0, 3), result.output
-    assert result.exception is None or isinstance(result.exception, SystemExit)
+    code, out = _analyze("mcmcase")
     # The MCM denial fact line reached the real triage prompt…
     assert prompts
     assert any(f"[evt:{denial_id}] MCM denial" in p for p in prompts)
-    # …and citing the MCM denial id is VALID (a clean exit 0), because injection
-    # unioned it into prompted_ids.
-    assert result.exit_code == 0, result.output
+    # …and citing the MCM denial id is VALID — a clean SUCCESS rather than the
+    # DEGRADED a flagged citation would produce — because injection unioned it
+    # into prompted_ids.
+    assert code is ExitCode.SUCCESS, out
     store = CaseStore(case_db_path(load_config().data_dir, "mcmcase"))
     try:
         rows = store.query_hypotheses()
@@ -358,19 +374,20 @@ def test_analyze_surfaces_mcm_facts_end_to_end(
 def test_analyze_threads_mcm_thresholds_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An `[mcm.thresholds]` operator override reaches the analyser THROUGH the
-    CLI: lowering the other-processes critical cut-point below the slice's 18.5%
-    flips that flag's tier warn→critical in the injected fact block — proving
-    `cli.analyze` threads `config.mcm.thresholds`, not a hard-coded default."""
+    """An `[mcm.thresholds]` operator override reaches the analyser through the
+    analyse body: lowering the other-processes critical cut-point below the
+    slice's 18.5% flips that flag's tier warn→critical in the injected fact
+    block — proving `run_analyze` threads `config.mcm.thresholds` (via
+    `AnalyserSettings.from_config`), not a hard-coded default."""
     _write_mcm_config(
         "[mcm.thresholds]\n"
         "other_processes_pct_physical = { warn = 5, critical = 15 }\n"
     )
-    _seed_cli_case("mcmcfg")
+    _seed_case("mcmcfg")
     prompts: list[str] = []
     _patch_http(monkeypatch, _handler(hyp_content=_VALID_HYPSET, prompts=prompts))
-    result = runner.invoke(app, ["analyze", "mcmcfg", "--no-label"])
-    assert result.exit_code == 0, result.output
+    code, out = _analyze("mcmcfg")
+    assert code is ExitCode.SUCCESS, out
     assert prompts
     prompt = prompts[0]
     # The override reached the analyser: the tier is now CRITICAL, not warn.
