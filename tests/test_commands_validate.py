@@ -155,3 +155,62 @@ def test_validate_locked_db_exits_one_no_traceback(
         lock.rollback()
         lock.close()
     assert verdicts() == []
+
+
+def test_validate_non_operational_storage_error_exits_one_no_traceback() -> None:
+    """A storage failure that is NOT an OperationalError still returns a code.
+
+    Same slice-proof level as the locked-database test above, and a genuinely
+    real failure rather than an injected one: a store some other path has
+    already closed raises ``sqlite3.ProgrammingError`` ("Cannot operate on a
+    closed database"), which is a ``sqlite3.Error`` but *not* an
+    ``OperationalError``. Against the narrower catch this propagates out of the
+    call and fails as a traceback of its own — which is what it did in the CLI
+    for every corrupt page, rejected constraint and closed store, while the
+    body's own comment claimed WR-02 compliance.
+
+    The DEFAULT is the point: nothing here monkeypatches ``record_validation``,
+    so the test cannot pass by agreeing with a mock about which exception the
+    write raises.
+    """
+    build_case()
+    store = open_case(load_config().data_dir, CASE)
+    store.close()
+    out: list[str] = []
+    code = run_validate(
+        store,
+        case=CASE,
+        spec=parse_target("hypothesis:0"),
+        verdict="confirmed",
+        echo=out.append,
+    )
+    assert code is ExitCode.ERROR
+    assert any(f"case {CASE!r}" in line for line in out), out
+    assert any(line.startswith("Error:") for line in out), out
+    assert verdicts() == []
+
+
+def test_validate_bad_verdict_state_raises_rather_than_returning() -> None:
+    """A caller contract violation is NOT mapped to an exit code (ADR 0019).
+
+    The other half of the widened catch, and the reason it is ``sqlite3.Error``
+    rather than a bare ``except Exception``. ``record_validation`` rejects an
+    unknown verdict state with ``ValueError``; both adapters constrain the
+    value before they get here (the CLI's "exactly one verdict flag" check, the
+    modal's three fixed states), so reaching this is a bug in the adapter. An
+    exit code would ship that bug as a runtime message instead of a crash.
+    """
+    build_case()
+    store = open_case(load_config().data_dir, CASE)
+    try:
+        with pytest.raises(ValueError, match="unknown verdict state"):
+            run_validate(
+                store,
+                case=CASE,
+                spec=parse_target("hypothesis:0"),
+                verdict="mostly-confirmed",
+                echo=lambda _line: None,
+            )
+    finally:
+        store.close()
+    assert verdicts() == []

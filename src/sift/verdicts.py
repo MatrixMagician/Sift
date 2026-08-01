@@ -14,8 +14,11 @@ the M002 learning contract — extend them, never rename them.
 
 Error classes map one-to-one onto the CLI exit-code convention (ADR 0005/0007)
 so T03 can branch on class alone: :class:`TargetSpecError` is a usage error
-(exit 2), :class:`UnknownTargetError` a semantic failure (exit 1). A locked
-database (sqlite3.OperationalError) bubbles unswallowed for the CLI to map.
+(exit 2), :class:`UnknownTargetError` a semantic failure (exit 1). Storage
+failures (``sqlite3.Error`` — a busy lock, a corrupt page, a rejected
+constraint, an already-closed store) bubble unswallowed for each caller to map:
+``run_validate`` returns exit 1, the TUI modal shows an inline message. The
+service swallows none of them, so neither mapping can be bypassed.
 """
 
 from collections.abc import Callable
