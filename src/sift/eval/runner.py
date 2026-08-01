@@ -1,14 +1,24 @@
 """Per-case orchestration: drive one golden case through the pipeline (EVAL-02).
 
-``run_case`` reuses the exact calls ``sift analyze`` makes — ``ingest.run_ingest``
-then ``dedup.rebuild_template_groups`` (inside it), ``cluster_and_label`` and
-``hypothesise`` — against a temp ``case.db`` under a tempfile-managed directory
-(never the user's real data dir, mirroring the conftest XDG isolation, T-07-06).
-Every metric is then a pure read of the persisted rows against the frozen
-``truth.yaml``. Determinism (D-06) runs the pipeline ``repeats`` times from the
-same ingested state on fresh db copies and compares the normalised JSON.
+``run_case`` calls the SHIPPED analyse body — ``ingest.run_ingest`` (which runs
+``dedup.rebuild_template_groups`` inside it), then ``commands.run_analyze`` —
+against a temp ``case.db`` under a tempfile-managed directory (never the user's
+real data dir, mirroring the conftest XDG isolation, T-07-06). Every metric is
+then a pure read of the persisted rows against the frozen ``truth.yaml``.
+Determinism (D-06) runs the pipeline ``repeats`` times from the same ingested
+state on fresh db copies and compares the normalised JSON.
 
-The harness owns no inference logic — it sequences existing pipeline functions
+Calling ``run_analyze`` rather than re-sequencing its parts is what makes the
+harness measure the pipeline Sift actually ships (ADR 0019). The re-implementation
+it replaced had drifted in three ways at once, each silently: it omitted
+``analyser_settings`` (so MCM and eu-stack analysers ran on default thresholds
+rather than the operator's), it never resolved ``generation.context`` (so a
+pinned window was ignored), and its client was built without ``tuned_embeddings``
+(so the embedding knobs differed too). None of the three was reachable by a test,
+because a second orchestration is not wrong in any single line — it is wrong by
+omission, and omissions have no line to assert on.
+
+The harness owns no inference logic — it sequences the shipped command bodies
 and reads rows back. This module is the only one in the package that touches the
 store or the client.
 
@@ -32,6 +42,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from sift.commands import ExitCode, is_failure, run_analyze
 from sift.eval.judge import judge_case
 from sift.eval.metrics import (
     CaseResult,
@@ -41,8 +52,7 @@ from sift.eval.metrics import (
     retrieval_hit_rate,
 )
 from sift.eval.truth import load_truth
-from sift.pipeline.cluster import cluster_and_label
-from sift.pipeline.hypothesise import DEFAULT_TOP_CLUSTERS, hypothesise
+from sift.pipeline.hypothesise import DEFAULT_TOP_CLUSTERS
 from sift.pipeline.ingest import run_ingest
 from sift.render.json_out import normalise_for_determinism, render_json
 from sift.store import CaseStore
@@ -78,26 +88,41 @@ def _cluster_exemplar_texts(store: CaseStore, top_clusters: int) -> list[str]:
     return texts
 
 
-def _run_pipeline(
-    db_path: Path, client: InferenceClient, config: SiftConfig, top_clusters: int
-) -> None:
-    """Cluster + label + hypothesise one ingested case.db (in place)."""
+def _analyse(
+    db_path: Path, config: SiftConfig, *, allow_public: bool, top_clusters: int
+) -> tuple[ExitCode, list[str]]:
+    """Run the shipped ``analyze`` body over one ingested case.db (in place).
+
+    Returns the CLI-04 exit code plus every echoed line, for the caller to map
+    onto a ``CaseResult`` — the same shape ``tui/app.py`` uses at this seam.
+
+    ``run_analyze`` builds and closes its OWN client per run, through the
+    ``llm.bringup.make_http_client`` seam offline tests bind to. That is the
+    point rather than an inefficiency: a client eval constructed itself is a
+    client eval could construct differently, which is exactly how the
+    ``tuned_embeddings`` drift happened. ``since``/``until``/``hint``/``kb``
+    stay unset — a golden case has no operator flags — and ``incident_time``
+    therefore derives from the case-end timestamp, as before.
+    """
+    lines: list[str] = []
     store = CaseStore(db_path)
     try:
-        cluster_and_label(store, client, config.clustering, label=True)
-        # A negative/quiet case still runs the full triage; incident_time=None
-        # lets salience derive the anchor from the case-end timestamp. The
-        # ctx/reserve knobs stay on hypothesise's own triage defaults (eval
-        # never imports the CLI).
-        hypothesise(
+        code = run_analyze(
             store,
-            client,
+            config,
+            allow_public=allow_public,
             top_clusters=top_clusters,
-            incident_time=None,
+            echo=lines.append,
+            echo_err=lines.append,
+            # The metric table is the only thing eval emits; a progress
+            # narration sink that discards is clearer than relying on the
+            # CLI default's own non-TTY suppression.
+            announce=lambda _message: None,
         )
     finally:
         # A clean close checkpoints the WAL on every path (Pitfall 4).
         store.close()
+    return code, lines
 
 
 def _eustack_verdict(bundle: EustackBundle, expect: ExpectEustack) -> bool:
@@ -206,12 +231,12 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
 
 def run_case(
     case_dir: Path,
-    client: InferenceClient,
     config: SiftConfig,
     *,
+    allow_public: bool = False,
+    judge_client: InferenceClient | None = None,
     repeats: int = 2,
     k: int = 3,
-    judge: bool = False,
 ) -> CaseResult:
     """Score one golden case end-to-end and return its ``CaseResult``.
 
@@ -220,11 +245,20 @@ def run_case(
     drive the keyword metrics. A transport/parse failure surfaces as a
     ``run_failed`` result rather than crashing the whole suite.
 
-    When ``judge`` is set, the first run's hypotheses are additionally graded
-    against ``truth.root_cause`` by the advisory LLM-as-judge (EVAL-04); the
-    score is attached to ``CaseResult.judge_score`` but NEVER enters any metric
-    or gate (D-08). ``judge_case`` degrades to ``None`` on any error, so it
-    cannot turn a scored case into a ``run_failed`` one."""
+    EVERY run's exit code is checked, not just the first. ``is_failure`` (ADR
+    0019) on any of them abandons the case: a case whose second run could not
+    reach the endpoint has not been measured, and scoring it off run 0 alone
+    would report a determinism figure built from fewer samples than declared.
+    ``DEGRADED`` deliberately falls through — it persisted its (flagged) output,
+    and ``citation_validity_rate`` is precisely the metric that scores it.
+
+    ``judge_client`` is read on one path only: when given, the first run's
+    hypotheses are additionally graded against ``truth.root_cause`` by the
+    advisory LLM-as-judge (EVAL-04). The score is attached to
+    ``CaseResult.judge_score`` but NEVER enters any metric or gate (D-08), and
+    ``judge_case`` degrades to ``None`` on any error, so it cannot turn a scored
+    case into a ``run_failed`` one. The analyse path does not use it — that
+    client is built inside ``run_analyze``."""
     name = case_dir.name
     truth = load_truth(case_dir / "truth.yaml")
     # D-19-06/D-19-16: dispatch BEFORE any client work, right after loading
@@ -259,7 +293,21 @@ def run_case(
                 for i in range(max(repeats, 1)):
                     run_db = tmp_dir / f"run{i}.db"
                     shutil.copyfile(seed_db, run_db)
-                    _run_pipeline(run_db, client, config, top_clusters)
+                    code, lines = _analyse(
+                        run_db,
+                        config,
+                        allow_public=allow_public,
+                        top_clusters=top_clusters,
+                    )
+                    if is_failure(code):
+                        # run_analyze already sanitised whatever it echoed
+                        # (WR-02), so the last line is reportable as-is.
+                        return CaseResult(
+                            name=name,
+                            expect_no_incident=truth.expect_no_incident,
+                            run_failed=True,
+                            error=lines[-1] if lines else "analyze failed",
+                        )
                     store = CaseStore(run_db)
                     try:
                         docs.append(
@@ -288,7 +336,7 @@ def run_case(
         negative_pass = negative_case_pass(hyps)
     # Advisory only (D-08): judge_case degrades to None on any error, so this can
     # never turn a scored case into a failure and is never read by the gate.
-    judged = judge_case(client, truth, hyps) if judge else None
+    judged = judge_case(judge_client, truth, hyps) if judge_client is not None else None
     return CaseResult(
         name=name,
         retrieval_hit_rate=retrieval_hit_rate(metric_texts, truth.required_evidence),

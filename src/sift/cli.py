@@ -860,6 +860,11 @@ def eval_(
 
     config = _config_with_model(data_dir, model)
 
+    # Built up front for TWO reasons, only one of which is the judge: this is
+    # also the suite's fail-fast SSRF guard (LLM-02). A public endpoint without
+    # the override must refuse ONCE, here, rather than as N separately failed
+    # cases — run_analyze builds its own client per run and would report the
+    # same refusal once per case with no suite-level message.
     try:
         http, client, _gen_ep, _emb_ep = _build_client(
             config, allow_public=i_know_what_im_doing
@@ -869,7 +874,13 @@ def eval_(
         raise typer.Exit(1) from None
     try:
         results = [
-            run_case(case_dir, client, config, judge=judge) for case_dir in case_dirs
+            run_case(
+                case_dir,
+                config,
+                allow_public=i_know_what_im_doing,
+                judge_client=client if judge else None,
+            )
+            for case_dir in case_dirs
         ]
     finally:
         http.close()

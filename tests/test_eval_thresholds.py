@@ -33,7 +33,6 @@ from sift.config import load_config
 from sift.eval.metrics import CaseResult, SuiteResult
 from sift.eval.runner import run_case
 from sift.eval.thresholds import gate, load_thresholds
-from sift.llm.client import Endpoint, InferenceClient
 
 runner = CliRunner()
 
@@ -449,43 +448,43 @@ def _eustack_case_dir(tmp_path: Path, *, truth_yaml: str) -> Path:
     return case_dir
 
 
-def _recording_client() -> tuple[InferenceClient, httpx.Client, list[str]]:
-    """An InferenceClient whose transport RECORDS every request path — the
-    zero-endpoint claim must be proven by observation, not code inspection."""
+def _bind_recording(monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], list[float]]:
+    """Bind a RECORDING transport at the client seam.
+
+    Returns ``(request_paths, factory_timeouts)``. The zero-endpoint claim must
+    be proven by observation, not code inspection — and since ``run_analyze``
+    now owns client construction (ADR 0019), an empty ``factory_timeouts`` is
+    the stronger observation: no client was built at all."""
     calls: list[str] = []
+    built: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.url.path)
         return httpx.Response(200, json={"data": []})
 
-    http = httpx.Client(transport=httpx.MockTransport(handler))
-    config = load_config({})
-    client = InferenceClient(
-        generation=Endpoint(
-            base_url=config.generation.base_url, model=config.generation.model
-        ),
-        embeddings=Endpoint(
-            base_url=config.embeddings.base_url, model=config.embeddings.model
-        ),
-        http=http,
-        allow_public=False,
-    )
-    return client, http, calls
+    def _factory(timeout: float) -> httpx.Client:
+        built.append(timeout)
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
+        )
+
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
+    return calls, built
 
 
-def test_eustack_case_scored_with_zero_client_contact(tmp_path: Path) -> None:
+def test_eustack_case_scored_with_zero_client_contact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     case_dir = _eustack_case_dir(tmp_path, truth_yaml=_EUSTACK_MATCHING_TRUTH)
     config = load_config({})
-    client, http, calls = _recording_client()
-    try:
-        result = run_case(case_dir, client, config)
-    finally:
-        http.close()
+    calls, built = _bind_recording(monkeypatch)
+    result = run_case(case_dir, config)
 
     assert result.is_eustack is True
     assert result.run_failed is False, result.error
     assert result.eustack_case_pass is True
     assert calls == []  # the zero-endpoint claim, proven by observation
+    assert built == []  # and no client was even constructed
     assert result.retrieval_hit_rate == 0.0
     assert result.hypothesis_hit_at_k == 0.0
     assert result.citation_validity_rate == 0.0
@@ -493,15 +492,12 @@ def test_eustack_case_scored_with_zero_client_contact(tmp_path: Path) -> None:
 
 
 def test_eustack_case_mismatched_figure_fails_without_run_failed(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     case_dir = _eustack_case_dir(tmp_path, truth_yaml=_EUSTACK_MISMATCHED_TRUTH)
     config = load_config({})
-    client, http, calls = _recording_client()
-    try:
-        result = run_case(case_dir, client, config)
-    finally:
-        http.close()
+    calls, _built = _bind_recording(monkeypatch)
+    result = run_case(case_dir, config)
 
     assert result.is_eustack is True
     assert result.eustack_case_pass is False  # a wrong figure IS a regression
@@ -518,16 +514,13 @@ def test_eustack_case_ingest_failure_surfaces_as_run_failed(
     error-tolerant parsing (adapters never raise on bad content by design)."""
     case_dir = _eustack_case_dir(tmp_path, truth_yaml=_EUSTACK_MATCHING_TRUTH)
     config = load_config({})
-    client, http, calls = _recording_client()
+    calls, _built = _bind_recording(monkeypatch)
 
     def _boom(*_args: object, **_kwargs: object) -> None:
         raise ValueError("simulated ingest failure")
 
     monkeypatch.setattr("sift.eval.runner.run_ingest", _boom)
-    try:
-        result = run_case(case_dir, client, config)
-    finally:
-        http.close()
+    result = run_case(case_dir, config)
 
     assert result.is_eustack is True
     assert result.run_failed is True

@@ -21,17 +21,18 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
 import pytest
 from _eval_fixtures import eval_handler
 
+from sift.commands import ExitCode
 from sift.config import SiftConfig, load_config
 from sift.eval.metrics import CaseResult, SuiteResult
 from sift.eval.runner import run_case
 from sift.eval.truth import load_truth
-from sift.llm.client import Endpoint, InferenceClient
 from sift.store import CaseStore
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -77,29 +78,29 @@ def _case_dirs() -> list[Path]:
     )
 
 
-def _offline_client(
-    config: SiftConfig, *, hyp_content: str = _EMPTY_HYPSET
-) -> tuple[InferenceClient, httpx.Client]:
-    """Build an InferenceClient wired to a MockTransport (no socket).
+def _bind_offline(
+    monkeypatch: pytest.MonkeyPatch, *, hyp_content: str = _EMPTY_HYPSET
+) -> None:
+    """Bind a MockTransport at the client seam, so no socket is ever opened.
+
+    ``run_case`` calls ``commands.run_analyze``, which builds its own client per
+    run through ``llm.bringup.make_http_client`` (ADR 0019) — so that factory is
+    where a fake belongs. CONTEXT.md calls it "the client seam: the single point
+    every test binds an ``httpx.MockTransport`` to"; these tests used to be the
+    exception, constructing an ``InferenceClient`` directly and handing it to
+    ``run_case``, which is precisely what let eval's client drift from the
+    shipped one.
 
     ``hyp_content`` overrides the generation reply so a test can drive a specific
     citation set (default: the empty HypothesisSet the negative case expects)."""
     handler = eval_handler(hyp_content=hyp_content)
-    http = httpx.Client(transport=httpx.MockTransport(handler))
-    client = InferenceClient(
-        generation=Endpoint(
-            base_url=config.generation.base_url, model=config.generation.model
-        ),
-        embeddings=Endpoint(
-            base_url=config.embeddings.base_url, model=config.embeddings.model
-        ),
-        http=http,
-        allow_public=False,
-        retries=config.generation.retries,
-        backoff_base=config.generation.backoff_base,
-        batch_size=config.embeddings.batch_size,
-    )
-    return client, http
+
+    def _factory(timeout: float) -> httpx.Client:
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
+        )
+
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
 
 
 def test_suite_is_exactly_the_eleven_cases() -> None:
@@ -136,13 +137,12 @@ def test_special_shapes_present() -> None:
     assert "-05:00" in joined
 
 
-def test_negative_case_passes_offline_and_is_excluded_from_positive_aggregate() -> None:
+def test_negative_case_passes_offline_and_is_excluded_from_positive_aggregate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = load_config({})
-    client, http = _offline_client(config)
-    try:
-        result = run_case(_SUITE / "negative-no-incident", client, config)
-    finally:
-        http.close()
+    _bind_offline(monkeypatch)
+    result = run_case(_SUITE / "negative-no-incident", config)
 
     assert result.run_failed is False, result.error
     assert result.expect_no_incident is True
@@ -159,6 +159,96 @@ def test_negative_case_passes_offline_and_is_excluded_from_positive_aggregate() 
     )
     suite = SuiteResult([perfect, result])
     assert suite.mean_hypothesis_hit_at_k() == 1.0
+
+
+# --- The harness measures the SHIPPED pipeline (ADR 0019) ---------------------
+#
+# These three pin the seam itself rather than any figure it produces. The drift
+# they exist to prevent was never a wrong line: run_analyze's own suite covers
+# analyser_settings (test_mcm_analyze.py), the resolved context and the tuned
+# embedding knobs perfectly well. What nothing covered was that eval REACHED
+# that body at all — so a private re-implementation could quietly omit any of
+# the three and every test stayed green. An omission has no line to assert on,
+# which is why the assertion has to be about the call.
+
+
+def _fake_analyze(
+    codes: list[ExitCode], seen: list[dict[str, object]]
+) -> Callable[..., ExitCode]:
+    """A run_analyze stand-in returning ``codes`` in order, recording its kwargs."""
+
+    def _fake(
+        store: object,
+        config: object,
+        **kwargs: object,
+    ) -> ExitCode:
+        seen.append({"config": config, **kwargs})
+        echo = kwargs.get("echo")
+        code = codes[len(seen) - 1] if len(seen) <= len(codes) else codes[-1]
+        if code is not ExitCode.SUCCESS and callable(echo):
+            echo(f"Error: simulated {code.name}")  # pyright: ignore[reportUnknownArgumentType]
+        return code
+
+    return _fake
+
+
+def test_run_case_drives_the_shipped_analyze_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_case calls commands.run_analyze, once per repeat, with the case config.
+
+    Reverting eval to its own cluster_and_label + hypothesise sequence makes this
+    go red, which is the only thing that would have caught the three-way drift.
+    """
+    seen: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "sift.eval.runner.run_analyze", _fake_analyze([ExitCode.SUCCESS], seen)
+    )
+    config = load_config({})
+    run_case(_SUITE / "negative-no-incident", config, repeats=2)
+
+    assert len(seen) == 2  # once per repeat, on its own fresh db copy
+    assert all(call["config"] is config for call in seen)
+    # The sinks are eval's, not the CLI's: nothing may reach the metric table.
+    assert all(callable(call["echo"]) for call in seen)
+    assert all(callable(call["announce"]) for call in seen)
+
+
+def test_analyze_failure_becomes_run_failed_with_its_own_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """is_failure(code) abandons the case, carrying run_analyze's last line."""
+    seen: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "sift.eval.runner.run_analyze", _fake_analyze([ExitCode.ERROR], seen)
+    )
+    result = run_case(_SUITE / "negative-no-incident", load_config({}), repeats=2)
+
+    assert result.run_failed is True
+    assert result.error == "Error: simulated ERROR"
+    # Abandoned on the FIRST failure -- the second repeat never ran.
+    assert len(seen) == 1
+
+
+def test_a_failure_on_a_later_repeat_still_fails_the_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every run's code is checked, not just run 0 (the determinism contract).
+
+    A case whose second run could not reach the endpoint has not been measured;
+    scoring it off run 0 alone would report a determinism figure built from
+    fewer samples than ``repeats`` declares.
+    """
+    seen: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "sift.eval.runner.run_analyze",
+        _fake_analyze([ExitCode.SUCCESS, ExitCode.ERROR], seen),
+    )
+    result = run_case(_SUITE / "negative-no-incident", load_config({}), repeats=2)
+
+    assert result.run_failed is True
+    assert result.error == "Error: simulated ERROR"
+    assert len(seen) == 2
 
 
 # --- MCM denial golden case (MCM-07, Plan 11-03) -----------------------------
@@ -225,7 +315,9 @@ def _mcm_hypset(cited_ids: list[str]) -> str:
     )
 
 
-def test_mcm_denial_case_discovered_and_scored_positive() -> None:
+def test_mcm_denial_case_discovered_and_scored_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`sift eval` discovers mcm-denial and scores it as a positive case (not
     run_failed); the required MCM evidence surfaces in the exemplars (MCM-07)."""
     assert _MCM_CASE in _case_dirs()
@@ -233,11 +325,8 @@ def test_mcm_denial_case_discovered_and_scored_positive() -> None:
     assert truth.expect_no_incident is False
 
     config = load_config({})
-    client, http = _offline_client(config)
-    try:
-        result = run_case(_MCM_CASE, client, config)
-    finally:
-        http.close()
+    _bind_offline(monkeypatch)
+    result = run_case(_MCM_CASE, config)
     assert result.run_failed is False, result.error
     assert result.expect_no_incident is False
     # required_evidence is matched against the cluster exemplars fed to the model;
@@ -277,11 +366,8 @@ def test_mcm_denial_citation_validity_is_mcm_sensitive(
     _texts, denial_id = _ingest_case(config, _MCM_CASE)
 
     # INJECTION ON: mcm (and perfmon) makes the denial id citable -> valid.
-    client, http = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
-    try:
-        on = run_case(_MCM_CASE, client, config)
-    finally:
-        http.close()
+    _bind_offline(monkeypatch, hyp_content=_mcm_hypset([denial_id]))
+    on = run_case(_MCM_CASE, config)
     assert on.run_failed is False, on.error
     assert on.citation_validity_rate == 1.0
 
@@ -294,11 +380,8 @@ def test_mcm_denial_citation_validity_is_mcm_sensitive(
 
     monkeypatch.setattr(analysers, "render_mcm_facts", _no_block)
     monkeypatch.setattr(analysers, "render_perfmon_facts", _no_block)
-    client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([denial_id]))
-    try:
-        off = run_case(_MCM_CASE, client2, config)
-    finally:
-        http2.close()
+    _bind_offline(monkeypatch, hyp_content=_mcm_hypset([denial_id]))
+    off = run_case(_MCM_CASE, config)
     assert off.run_failed is False, off.error
     assert off.citation_validity_rate < 1.0
 
@@ -347,7 +430,9 @@ def _citable_perfmon_id(config: SiftConfig, case_dir: Path) -> str:
     return perfmon_ids[0]
 
 
-def test_perfmon_denial_case_discovered_and_scored_positive() -> None:
+def test_perfmon_denial_case_discovered_and_scored_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`sift eval` discovers perfmon-denial and scores it as a positive case (not
     run_failed); the required denial evidence surfaces in the exemplars (PERF-08)."""
     assert _PERFMON_CASE in _case_dirs()
@@ -355,11 +440,8 @@ def test_perfmon_denial_case_discovered_and_scored_positive() -> None:
     assert truth.expect_no_incident is False
 
     config = load_config({})
-    client, http = _offline_client(config)
-    try:
-        result = run_case(_PERFMON_CASE, client, config)
-    finally:
-        http.close()
+    _bind_offline(monkeypatch)
+    result = run_case(_PERFMON_CASE, config)
     assert result.run_failed is False, result.error
     assert result.expect_no_incident is False
     # required_evidence is matched against the cluster exemplars fed to the model;
@@ -386,11 +468,8 @@ def test_perfmon_denial_citation_validity_is_perfmon_sensitive(
     perfmon_id = _citable_perfmon_id(config, _PERFMON_CASE)
 
     # INJECTION ON: render_perfmon_facts makes the perfmon id citable -> valid.
-    client, http = _offline_client(config, hyp_content=_mcm_hypset([perfmon_id]))
-    try:
-        on = run_case(_PERFMON_CASE, client, config)
-    finally:
-        http.close()
+    _bind_offline(monkeypatch, hyp_content=_mcm_hypset([perfmon_id]))
+    on = run_case(_PERFMON_CASE, config)
     assert on.run_failed is False, on.error
     assert on.citation_validity_rate == 1.0
 
@@ -402,11 +481,8 @@ def test_perfmon_denial_citation_validity_is_perfmon_sensitive(
         return "", set()
 
     monkeypatch.setattr(analysers, "render_perfmon_facts", _no_block)
-    client2, http2 = _offline_client(config, hyp_content=_mcm_hypset([perfmon_id]))
-    try:
-        off = run_case(_PERFMON_CASE, client2, config)
-    finally:
-        http2.close()
+    _bind_offline(monkeypatch, hyp_content=_mcm_hypset([perfmon_id]))
+    off = run_case(_PERFMON_CASE, config)
     assert off.run_failed is False, off.error
     assert off.citation_validity_rate < 1.0
 
@@ -416,45 +492,49 @@ def test_perfmon_denial_citation_validity_is_perfmon_sensitive(
 _EUSTACK_HEALTHY_CASE = _SUITE / "eustack-healthy"
 
 
-def _recording_client() -> tuple[InferenceClient, httpx.Client, list[str]]:
-    """An InferenceClient whose transport RECORDS every request path — the
-    D-19-16 no-endpoint claim proven by observation, not code inspection
-    (mirrors ``tests/test_eval_thresholds.py``'s own helper)."""
+def _bind_recording(monkeypatch: pytest.MonkeyPatch) -> tuple[list[str], list[float]]:
+    """Bind a RECORDING transport at the client seam.
+
+    Returns ``(request_paths, factory_timeouts)`` — the D-19-16 no-endpoint
+    claim proven by observation, not code inspection (mirrors
+    ``tests/test_eval_thresholds.py``'s own helper). Recording the FACTORY calls
+    too is stronger than recording requests alone now that ``run_analyze`` owns
+    client construction: an empty ``factory_timeouts`` proves no client was even
+    built, which is a claim the old helper could not make because the test
+    constructed the client itself."""
     calls: list[str] = []
+    built: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request.url.path)
         return httpx.Response(200, json={"data": []})
 
-    http = httpx.Client(transport=httpx.MockTransport(handler))
-    config = load_config({})
-    client = InferenceClient(
-        generation=Endpoint(
-            base_url=config.generation.base_url, model=config.generation.model
-        ),
-        embeddings=Endpoint(
-            base_url=config.embeddings.base_url, model=config.embeddings.model
-        ),
-        http=http,
-        allow_public=False,
-    )
-    return client, http, calls
+    def _factory(timeout: float) -> httpx.Client:
+        built.append(timeout)
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(timeout)
+        )
+
+    monkeypatch.setattr("sift.llm.bringup.make_http_client", _factory)
+    return calls, built
 
 
-def test_eustack_healthy_case_scores_pass_offline() -> None:
+def test_eustack_healthy_case_scores_pass_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """`sift eval` discovers eustack-healthy, scores it via the LLM-free path,
     and proves — by an OBSERVED empty request log — that it reached no
     inference endpoint at all (D-19-16)."""
     config = load_config({})
-    client, http, calls = _recording_client()
-    try:
-        result = run_case(_EUSTACK_HEALTHY_CASE, client, config)
-    finally:
-        http.close()
+    calls, built = _bind_recording(monkeypatch)
+    result = run_case(_EUSTACK_HEALTHY_CASE, config)
     assert result.run_failed is False, result.error
     assert result.is_eustack is True
     assert result.eustack_case_pass is True
     assert calls == []
+    # Stronger than calls == []: no http client was constructed at all, so the
+    # eu-stack dispatch happens before any client work (D-19-06).
+    assert built == []
 
 
 def test_eustack_healthy_raises_no_graded_flag() -> None:
