@@ -36,7 +36,6 @@ def _make_transport(
     n_parallel: int = 1,
     connect_error_ports: tuple[int, ...] = (),
     seen: list[str] | None = None,
-    gen_settings: dict[str, object] | None = None,
 ) -> httpx.MockTransport:
     """Build a MockTransport shaping /v1/models, /v1/embeddings, /props, /tokenize.
 
@@ -45,10 +44,10 @@ def _make_transport(
     dimension; an unreachable endpoint (``connect_error_ports`` → ConnectError); a
     multi-slot server (``n_parallel``). ``seen`` records ``"{port}{path}"`` per call
     so a test can prove fail-fast order (embeddings path never reached).
-    ``gen_settings`` is merged into the ``/props`` body as
-    ``default_generation_settings``, letting a test serve the real llama.cpp
-    shape (sampler knobs nested under ``params``) for the T-03-15 determinism
-    warnings.
+
+    There is no ``default_generation_settings`` knob: interpreting that payload
+    is the pure decision tested in ``tests/test_llm_props.py`` (ADR 0020), and
+    ``n_parallel`` alone is enough to make one warning cross the wire here.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -70,10 +69,7 @@ def _make_transport(
             ]
             return httpx.Response(200, json={"data": data})
         if path.endswith("/props"):
-            body: dict[str, object] = {"n_parallel": n_parallel}
-            if gen_settings is not None:
-                body["default_generation_settings"] = gen_settings
-            return httpx.Response(200, json=body)
+            return httpx.Response(200, json={"n_parallel": n_parallel})
         # /tokenize (and anything else) absent → 404, degraded gracefully.
         return httpx.Response(404)
 
@@ -181,10 +177,20 @@ def test_public_endpoint_allowed_with_override(
 
 
 def test_multi_slot_warns_but_passes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The wire-level witness for every determinism warning (ADR 0020).
+
+    The decision itself is tested in ``tests/test_llm_props.py`` against dict
+    literals. What only the assembled CLI can prove is the wiring: that
+    ``client.props()`` reaches ``determinism_warnings``, that the lines land on
+    STDERR so stdout stays scriptable, and that a warning does not fail the
+    run. Deleting the loop in ``cli.py``, or redirecting it to stdout, must go
+    red here -- no test in the pure suite would notice either.
+    """
     _patch_http(monkeypatch, _make_transport(n_parallel=4))
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0, result.output
-    assert "n_parallel=4" in result.output  # determinism WARNING (non-fatal)
+    assert "n_parallel=4" in result.stderr  # determinism WARNING (non-fatal)
+    assert "n_parallel=4" not in result.stdout  # stdout stays scriptable
     assert "doctor: all checks passed" in result.output
 
 
@@ -224,86 +230,3 @@ def test_doctor_against_live_server(monkeypatch: pytest.MonkeyPatch) -> None:
             "this check against a multi-model server"
         )
     assert result.exit_code == 0, result.output
-
-
-# --- T-03-15: the determinism warnings must fire on the REAL llama.cpp shape --
-#
-# Regression guard. The seed branch previously read
-# default_generation_settings["seed"] and tested `seed < 0`, but llama.cpp nests
-# sampler knobs under a "params" sub-dict and reports a random seed as
-# UINT32_MAX (4294967295), never as a negative int. The warning was therefore
-# unreachable on every real llama.cpp build, and a non-deterministic endpoint
-# went unreported -- which is how a `sift eval` determinism_stability of 0.00
-# came to look like a Sift regression rather than an endpoint setting.
-
-# The verbatim shape served by a real llama.cpp /props (trimmed to the keys
-# under test), captured from the operator's Lemonade-managed server.
-_LLAMACPP_PROPS: dict[str, object] = {
-    "params": {"seed": 4294967295, "temperature": 0.800000011920929, "top_k": 40},
-    "n_ctx": 32768,
-}
-
-
-def test_random_seed_warns_on_llamacpp_uint32_sentinel(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A random seed reported as UINT32_MAX under params must warn."""
-    _patch_http(monkeypatch, _make_transport(gen_settings=_LLAMACPP_PROPS))
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0, result.output  # non-fatal warning
-    assert "seed is random" in result.output
-    assert "4294967295" in result.output
-
-
-def test_nonzero_temperature_warns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """temperature > 0 makes identical prompts diverge; say so."""
-    _patch_http(monkeypatch, _make_transport(gen_settings=_LLAMACPP_PROPS))
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0, result.output
-    assert "temperature is 0.8" in result.output
-
-
-def test_deterministic_server_warns_about_neither(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A fixed seed at temperature 0 is silent -- the warnings must discriminate."""
-    _patch_http(
-        monkeypatch,
-        _make_transport(gen_settings={"params": {"seed": 42, "temperature": 0.0}}),
-    )
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0, result.output
-    assert "seed is random" not in result.output
-    assert "temperature is" not in result.output
-
-
-def test_negative_seed_still_warns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The original `seed < 0` contract is preserved, not replaced."""
-    _patch_http(
-        monkeypatch,
-        _make_transport(gen_settings={"params": {"seed": -1, "temperature": 0.0}}),
-    )
-    result = runner.invoke(app, ["doctor"])
-    assert "seed is random" in result.output
-
-
-def test_unnested_seed_still_warns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A server exposing the knobs un-nested is still read (both shapes)."""
-    _patch_http(
-        monkeypatch,
-        _make_transport(gen_settings={"seed": 4294967295, "temperature": 0.7}),
-    )
-    result = runner.invoke(app, ["doctor"])
-    assert "seed is random" in result.output
-    assert "temperature is 0.7" in result.output
-
-
-def test_absent_generation_settings_warns_nothing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Lemonade serves no props document at all: degrade quietly (LLM-04)."""
-    _patch_http(monkeypatch, _make_transport())
-    result = runner.invoke(app, ["doctor"])
-    assert result.exit_code == 0, result.output
-    assert "seed is random" not in result.output
-    assert "temperature is" not in result.output

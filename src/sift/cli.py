@@ -13,7 +13,7 @@ import sys
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated
 
 import httpx
 import typer
@@ -36,6 +36,7 @@ from sift.commands import (
 from sift.commands import parse_moment as _parse_moment_or_raise
 from sift.config import SiftConfig, load_config
 from sift.llm.bringup import build_client as _build_client
+from sift.llm.props import determinism_warnings
 from sift.pipeline.hypothesise import (
     DEFAULT_TOP_CLUSTERS as _DEFAULT_TOP_CLUSTERS,
 )
@@ -52,11 +53,6 @@ from sift.store import (
 from sift.verdicts import TargetSpecError, parse_target
 
 app = typer.Typer(no_args_is_help=True)
-
-# llama.cpp reports "seed a random value each request" as UINT32_MAX in /props
-# rather than as a negative int, so a `seed < 0` test alone can never detect it
-# (T-03-15). Named so the determinism check reads as intent, not as magic.
-_RANDOM_SEED_SENTINEL = 0xFFFFFFFF
 
 
 def _version_string() -> str:
@@ -1002,61 +998,12 @@ def doctor(
             raise typer.Exit(1) from None
         print(f"sqlite-vec OK: vec_version {_sanitise(version)}")
 
-        # 7. Determinism WARNING (non-fatal): a multi-slot server or a random
-        # seed breaks reproducibility (T-03-15). /props is feature-detected and
-        # returns {} when absent (Lemonade), so an empty props warns nothing.
-        props = client.props()
-        n_parallel = props.get("n_parallel")
-        if (
-            isinstance(n_parallel, int)
-            and not isinstance(n_parallel, bool)
-            and n_parallel > 1
-        ):
-            print(
-                f"Warning: server reports n_parallel={n_parallel} (multi-slot); "
-                "results may be non-deterministic — run a single slot for "
-                "reproducible triage",
-                file=sys.stderr,
-            )
-        gen_settings = props.get("default_generation_settings")
-        if isinstance(gen_settings, dict):
-            settings = cast("dict[str, object]", gen_settings)
-            # llama.cpp nests the sampler knobs under a "params" sub-dict and
-            # reports a random seed as UINT32_MAX (4294967295 == -1 unsigned),
-            # never as a negative int. Read both shapes, and treat either
-            # sentinel as random: the earlier `seed < 0` test against the
-            # un-nested key could not fire on any real llama.cpp build, so this
-            # warning was silently dead and a non-deterministic endpoint went
-            # unreported (measured against llama.cpp b7000-era /props).
-            params = settings.get("params")
-            source = (
-                cast("dict[str, object]", params)
-                if isinstance(params, dict)
-                else settings
-            )
-            seed = source.get("seed")
-            if (
-                isinstance(seed, int)
-                and not isinstance(seed, bool)
-                and (seed < 0 or seed == _RANDOM_SEED_SENTINEL)
-            ):
-                print(
-                    f"Warning: server seed is random ({seed}); set a fixed seed "
-                    "for reproducible triage",
-                    file=sys.stderr,
-                )
-            temperature = source.get("temperature")
-            if (
-                isinstance(temperature, int | float)
-                and not isinstance(temperature, bool)
-                and temperature > 0
-            ):
-                print(
-                    f"Warning: server temperature is {temperature} (> 0); "
-                    "identical prompts can yield different triage output — load "
-                    "the model at temperature 0 for reproducible triage",
-                    file=sys.stderr,
-                )
+        # 7. Determinism WARNINGS (non-fatal): a multi-slot server, a random
+        # seed or a non-zero temperature each break reproducibility (T-03-15).
+        # The decision itself is pure and lives in llm/props.py (ADR 0020);
+        # stderr keeps stdout scriptable.
+        for warning in determinism_warnings(client.props()):
+            print(warning, file=sys.stderr)
 
         print("doctor: all checks passed")
     finally:
