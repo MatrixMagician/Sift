@@ -42,7 +42,11 @@ The convention: **name which one**. The recurring ones have canonical names:
   `sift/commands/` (ADR 0019). The Typer CLI and the Textual TUI sit either
   side of it.
 - **the client seam** — `llm.bringup.make_http_client`, the single point every
-  test binds an `httpx.MockTransport` to.
+  test binds an `httpx.MockTransport` to. True of the eval suite only since
+  2026-08-01: those tests used to construct an `InferenceClient` themselves and
+  hand it to `run_case`, which is how eval's client came to be built without
+  `tuned_embeddings` while the shipped path had it (ADR 0019). A test that binds
+  below the seam cannot notice the seam drifting.
 - **the ranking seam** — `store.iter_event_rows`, the one query every ranking
   stage reads, and therefore where `EXCLUDED_FROM_RANKING` takes effect.
 

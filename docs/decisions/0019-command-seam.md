@@ -268,10 +268,37 @@ each one names was broken in `src/` and the test watched to go red.
   in code; exposing them in the UI is separate work with its own design
   decisions.
 - Exit-code knowledge stops being 46 literals plus a copy in `tui/app.py`.
-- `eval/runner.py` can call `run_analyze` rather than re-implementing the
-  orchestration — the drift recorded separately (it omits `analyser_settings`,
-  so `hypothesise` silently falls back to default thresholds) becomes fixable
-  by deletion rather than by patch.
+- `eval/runner.py` calls `run_analyze` rather than re-implementing the
+  orchestration (**done, 2026-08-01**; `_run_pipeline` deleted). The drift was
+  *three*, not the one recorded here, and the other two were found only once the
+  two orchestrations were placed side by side:
+  - `analyser_settings` omitted, so MCM and eu-stack analysers ran on default
+    thresholds rather than the operator's — the one this bullet originally named;
+  - `generation.context` never resolved, so a **pinned** window was ignored
+    (`_ctx_tokens`' own `/props` probe still ran, so discovery worked and only
+    the operator's explicit override was lost — which is exactly the precedence
+    D-10 exists to protect);
+  - the client built without `tuned_embeddings`, so `embeddings.max_input_chars`
+    and `embeddings.context` stayed on `InferenceClient`'s defaults. This one is
+    structural: eval could only get the knobs wrong because it built its own
+    client, which is why `run_analyze` keeps owning bring-up rather than
+    accepting an injected client.
+
+  None of the three was reachable by a test. `run_analyze`'s own suite covers
+  all three settings correctly (`test_mcm_analyze.py::test_analyze_threads_mcm_thresholds_override`
+  goes red if `analyser_settings` is dropped); what nothing covered was that
+  *eval reached that body at all*. A second orchestration is not wrong in any
+  single line — it is wrong by omission, and an omission has no line to assert
+  on. The replacement tests therefore pin the **call**, not the figures:
+  `test_run_case_drives_the_shipped_analyze_body` and the two exit-code tests
+  beside it. Reverting eval to a private sequence turns eight tests red.
+
+  `run_case`'s `client` parameter became `judge_client`, Optional, since after
+  the change it is read on one path only — the same "advertise only what the
+  body does" rule this ADR applies to `echo_err` and `announce`. `cli.py` keeps
+  building one client up front regardless: it is the suite's fail-fast SSRF
+  guard (a public endpoint must refuse once, not as N failed cases) as well as
+  the judge's client.
 - Eight test files monkeypatch `"sift.cli._make_http_client"` by string path
   and must be repointed at `"sift.llm.bringup.make_http_client"`.
 - Two seams must survive the move intact: `analysers.py:144` resolves
