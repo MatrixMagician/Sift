@@ -12,6 +12,8 @@ from collections.abc import Callable
 from sift.commands._bundle import BundleFormat, print_top_flag, write_bundle
 from sift.commands._exit import ExitCode
 from sift.config import SiftConfig
+from sift.pipeline.eustack import load_rules
+from sift.pipeline.eustack_progression import analyse_eustack_bundle
 from sift.render._util import sanitise
 from sift.store import CaseStore, case_db_path
 
@@ -30,12 +32,17 @@ def run_eustack(
     the ADR 0007 exit code — 0 written (including an empty case), 1 write
     failure.
     """
-    # Imported INSIDE the body deliberately: a function-local ``from ... import``
-    # resolves the module attribute at call time, so the eval suite's
-    # ``monkeypatch.setattr("sift.pipeline.eustack.load_rules", ...)`` seam
-    # still bites. Hoisting these to module level would silently break it.
-    from sift.pipeline.eustack import load_rules
-    from sift.pipeline.eustack_progression import analyse_eustack_bundle
+    # Deferred because it is the only import here NOT already loaded at CLI
+    # startup: ``cli`` -> ``hypothesise`` -> ``analysers`` pulls the whole
+    # pipeline half in regardless, so deferring THAT saves nothing, while
+    # ``render.eustack_report`` is absent from ``sys.modules`` after
+    # ``import sift.cli`` and costs ~2 ms. Measured, not assumed.
+    #
+    # This block previously also held ``load_rules``, justified as preserving
+    # the ``monkeypatch.setattr("sift.pipeline.eustack.load_rules", ...)`` seam.
+    # That was false here: no test patches ``load_rules`` while driving
+    # ``run_eustack``, and hoisting it leaves the suite green. The seam is real
+    # only in ``eval/runner.py``, which says so there.
     from sift.render.eustack_report import (
         changed_signature_count,
         render_eustack_json,

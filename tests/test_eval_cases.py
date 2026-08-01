@@ -537,6 +537,40 @@ def test_eustack_healthy_case_scores_pass_offline(
     assert built == []
 
 
+def test_neutered_load_rules_reaches_the_eustack_scorer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A patched ``load_rules`` is observed by ``_run_eustack_case`` (issue #4).
+
+    ``eval/runner.py`` resolves ``load_rules`` late, through the module
+    attribute, so this monkeypatch bites. That discipline was documented at
+    three call sites and is load-bearing at exactly ONE — this one — which is
+    the whole finding behind issue #4: the other two asserted it falsely, and
+    hoisting either of them leaves the suite green.
+
+    ``test_eustack_gate_is_analyser_sensitive`` already depends on this seam,
+    but only as machinery: it patches ``load_rules`` in order to prove the eval
+    GATE bites, so a broken seam surfaces there as "the gate stopped working"
+    rather than as "the patch stopped arriving". This test names the seam
+    itself, in one assertion, with no gate and no CliRunner in the way.
+    """
+    seen: list[str | None] = []
+    from sift.pipeline.eustack import load_rules as real_load_rules
+
+    def _recording_load_rules(rules_path: str | None = None) -> object:
+        seen.append(rules_path)
+        return real_load_rules(rules_path)
+
+    monkeypatch.setattr("sift.pipeline.eustack.load_rules", _recording_load_rules)
+    result = run_case(_EUSTACK_HEALTHY_CASE, load_config({}))
+
+    assert result.run_failed is False, result.error
+    # The patch arrived. Bind load_rules at import time in eval/runner.py and
+    # this is [] while the case still scores, which is exactly the silent
+    # breakage the comment there warns about.
+    assert len(seen) == 1, seen
+
+
 def test_eustack_healthy_raises_no_graded_flag() -> None:
     """D-19-15: hang_detected reads false AND no flag reaches warn/critical —
     two genuinely independent claims under D-19-17 (a fixture can reproduce

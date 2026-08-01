@@ -215,6 +215,15 @@ def _run_eustack_case(case_dir: Path, config: SiftConfig) -> CaseResult:
 
     # Resolved late through the module attribute (not a top-level from-import)
     # so tests can monkeypatch the ``load_rules`` seam on sift.pipeline.eustack.
+    #
+    # This is the ONE site where that discipline is load-bearing, and it is
+    # measured: binding ``load_rules`` at module import time here turns
+    # ``test_eustack_gate_is_analyser_sensitive`` red, because the neutered
+    # rules would never reach this call. ``commands/eustack.py`` and
+    # ``analysers._build_eustack`` used to carry the same warning; neither is
+    # driven by a test that patches ``load_rules``, so both said so falsely and
+    # no longer claim it. ``test_neutered_load_rules_reaches_the_eustack_scorer``
+    # pins this one rather than leaving it to a comment.
     from sift.pipeline import eustack, eustack_progression  # noqa: PLC0415
 
     rules, rules_hash = eustack.load_rules(config.eustack.rules_path)

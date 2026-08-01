@@ -150,8 +150,11 @@ def _build_perfmon(
 def _build_eustack(
     events: list[Event], settings: AnalyserSettings, shared: dict[str, object]
 ) -> FactBlock:
-    # ``eustack.load_rules`` is resolved through the module attribute (not a
-    # from-import) so the eval suite's rule-neutering monkeypatch seam works.
+    # Attribute access rather than a from-import is incidental here, not
+    # load-bearing: no test patches ``load_rules`` while driving this builder,
+    # and a module-level from-import leaves the suite green. The rule-neutering
+    # monkeypatch seam this used to claim to preserve lives in
+    # ``eval/runner.py``, which is where the constraint is documented.
     rules, rules_hash = eustack.load_rules(settings.eustack_rules_path)
     bundle = analyse_eustack_bundle(
         events, rules, rules_hash, settings.eustack_thresholds
