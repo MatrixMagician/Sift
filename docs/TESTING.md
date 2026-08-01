@@ -10,8 +10,8 @@ is about running, reading, and extending that suite.
   `pyproject.toml`).
 - **Setup:** `uv sync` — nothing else. No servers, no fixtures to download, no
   network. The whole default suite runs offline: `uv run pytest --collect-only`
-  reports 666 tests collected, of which 8 are deselected by the default marker
-  filter, leaving 658 in the default run.
+  reports 1110 tests collected, of which 11 are deselected by the default marker
+  filter, leaving 1099 in the default run.
 - **Config:** `[tool.pytest.ini_options]` in `pyproject.toml`. `testpaths = ["tests"]`
   and `addopts = "-m 'not perf and not live and not packaging'"`.
 
@@ -73,13 +73,13 @@ matching `extraPaths` execution environments for pyright).
 | Pipeline | `test_dedup.py`, `test_cluster.py`, `test_salience.py`, `test_kb_retrieval.py`, `test_kb_analyze.py`, `test_budget.py` | masking/templating, HDBSCAN clustering, ranking, KB retrieval, token budgeting |
 | LLM boundary | `test_llm_client.py`, `test_hypothesise.py` | endpoint guards, retries, llama.cpp `response_format` shape, schema + citation enforcement |
 | Rendering | `test_render_markdown.py`, `test_render_json.py`, `test_render_pdf.py`, `test_report_determinism.py`, `test_cli_report.py` | report output and byte-identity |
-| Case commands (the ADR 0019 seam) | `test_commands_seam.py`, `test_commands_parse.py`, `test_commands_show.py`, `test_commands_analyze.py` | `ExitCode`/`open_case`, `parse_filters`/`parse_moment`, the four `run_show_*` bodies, `run_analyze`'s branches — all called directly, no `CliRunner` |
+| Case commands (the ADR 0019 seam) | `test_commands_seam.py`, `test_commands_parse.py`, `test_commands_show.py`, `test_commands_analyze.py`, `test_commands_validate.py`, `test_commands_report.py` | `ExitCode`/`open_case`, `parse_filters`/`parse_moment`, the four `run_show_*` bodies, `run_analyze`'s branches, `run_validate`'s unknown-target/locked-database/history branches, `run_report`'s unwritable-`--out` branch — all called directly, no `CliRunner` |
 | CLI & end-to-end | `test_cli.py`, `test_doctor.py`, `test_acceptance.py` | flag wiring, exit-code propagation, `--help`, non-TTY stdout, sanitisation, whole-pipeline acceptance |
 | Eval harness | `test_eval_truth.py`, `test_eval_harness.py`, `test_eval_thresholds.py`, `test_eval_judge.py`, `test_eval_cases.py` | truth loading, metrics, gate/exit codes, advisory judge, the committed golden cases |
 | Guards | `test_conftest_network_guard.py`, `test_packaging.py` | the socket guard itself; packaging smoke |
 | Perf | `tests/perf/` | `generate_synthetic.py` plus the `perf`-marked 100 MB gate |
 
-Two shared helper modules sit alongside the tests. They are plain modules, imported
+Four shared helper modules sit alongside the tests. They are plain modules, imported
 by name (`from _report_fixtures import ...`), deliberately **not** conftest fixtures —
 `tests/conftest.py` is owned by the first plan and stays minimal:
 
@@ -87,6 +87,10 @@ by name (`from _report_fixtures import ...`), deliberately **not** conftest fixt
   analysed `case.db` offline, then plants exact hypotheses and `triage_*` run-meta via
   the public store API so renderers can be tested against controllable citations,
   FLAGGED verdicts and the degraded flag.
+- `tests/_validate_fixtures.py` — `build_case()` / `verdicts()`: the seeded case both
+  halves of the `validate` split resolve their targets against (one cluster, two
+  template groups, one hypothesis). It exists because ADR 0019 pass 3 split
+  `test_cli_validate.py` in two, and the builder had to stay single-sourced.
 - `tests/_eval_fixtures.py` — `single_case_suite()`, `eval_handler()`, `patch_http()`,
   `GOOD_HYPSET`: the offline eval-harness rig.
 - `tests/_perfmon_fixtures.py` — `write_collision_csv()`, `write_drift_csv()`,
@@ -134,9 +138,28 @@ the move buys reachability — a branch that is awkward or expensive to reach
 through the CLI. Purity is not a reason. That is why
 `test_cli_{mcm,perfmon,eustack}.py` stay: what they assert is a bundle written
 under `<case>/<command>/`, which a direct call reaches no more easily.
-`test_cli_{validate,report}.py` are mixed files whose seam-side halves are a
-tracked follow-up, along with the `run_analyze` tests still living in
-`test_kb_analyze.py` and `test_mcm_analyze.py` — see ADR 0019 and issue #3.
+
+`test_cli_{validate,report}.py` were mixed files; pass 3 moved their seam-side
+halves out (see ADR 0019). What is left in each is the CLI's own surface —
+`validate`'s exit-2 flag and spec checks, `report`'s `--format` enum, and for
+each the fact that a non-zero code from the body reaches the shell.
+
+**`test_commands_*` means "calls the seam" — the converse was never claimed.**
+`test_kb_analyze.py` and `test_mcm_analyze.py` call `run_analyze` directly
+while keeping their names, because they are KB and MCM slices that happen to
+need the whole pipeline, and their fixtures (the golden no-KB prompt hash, the
+Hartford deny slice) belong beside the assertions that read them. Do not go
+looking for a `CliRunner` in a file just because it is not named
+`test_commands_*`.
+
+**Check the caller's coverage after a migration, not just the callee's.** A
+test moved off `CliRunner` takes with it whatever CLI-side coverage it was
+providing incidentally. Moving `validate`'s exit-1 branches to the seam left
+nothing exercising `cli.py`'s `if code: raise typer.Exit(code)` for that
+command, because every remaining `CliRunner` test there ended in 0 or 2 —
+invisible in `commands/` coverage, obvious in `cli.py`'s. The replacement
+(`test_cli_validate.py::test_validate_body_failure_code_reaches_the_shell`)
+fakes the body and asserts the process status alone.
 
 ## Shared fixtures (`tests/conftest.py`)
 

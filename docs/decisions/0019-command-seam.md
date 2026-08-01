@@ -1,7 +1,7 @@
 # ADR 0019: Case commands live behind a typer-free `run_x` seam in `sift/commands/`
 
 **Status:** Accepted (implemented — pass 1 moved the bodies, pass 2 migrated
-the tests)
+the show/analyze/parsing tests, pass 3 the four suites pass 2 left behind)
 **Date:** 2026-07-31
 **Answers:** SPEC.md §5.8 (CLI) / §7 (repository layout) — where does a case
 command's implementation live, given that Sift now has three callers for it
@@ -202,19 +202,59 @@ paragraph wrongly gave one blanket reason for all five:
   at `cli.py:618`, and `parse_target` runs before the store opens) while the
   exit-1 branches — unknown target, locked database — are `run_validate`'s. In
   `test_cli_report.py` the `--format` enum is Typer's and the unwritable-`--out`
-  exit 1 is `run_report`'s. Their seam-side halves belong with the follow-up
-  below; they are staying put only because pass 2's scope has closed.
-- **`test_kb_analyze.py` (4 tests) and `test_mcm_analyze.py` (2) are
-  mis-shelved.** They drive `run_analyze` through `CliRunner` — a degraded
+  exit 1 is `run_report`'s. Their seam-side halves moved in pass 3.
+- **`test_kb_analyze.py` (4 tests) and `test_mcm_analyze.py` (2) were
+  mis-shelved.** They drove `run_analyze` through `CliRunner` — a degraded
   citation, an exit code on an empty `--kb` directory, `analyser_settings`
-  threading. None of that is about Typer, and the `--kb` failure path is the
-  only branch of `commands/analyze.py` the suite still does not cover. Pass 2
-  did not touch them and this ADR was, until now, silent about them, which
-  would have let a reader conclude the analyze suite was fully migrated.
+  threading. None of that is about Typer. Pass 2 did not touch them and this
+  ADR was, until pass 3, silent about them, which would have let a reader
+  conclude the analyze suite was fully migrated.
 
-The follow-up is tracked as issue #3 rather than left as a note here — a
-deferral recorded only in a decision document is a to-do nobody works. Its
-precondition is the end-to-end smoke test above.
+Pass 3 (issue #3) finished those three bullets' second and third items. It was
+tracked as an issue rather than left as a note here, because a deferral
+recorded only in a decision document is a to-do nobody works; its precondition
+was the end-to-end smoke test above.
+
+- `test_kb_analyze.py` and `test_mcm_analyze.py` call `run_analyze` directly.
+  Both files keep their names: `test_commands_*` means "calls the seam", but
+  the converse was never claimed — these are KB and MCM slices that happen to
+  need the whole pipeline, and their fixtures (the golden no-KB prompt hash,
+  the Hartford deny slice) belong with the assertions that read them.
+- `test_cli_validate.py` split, with the case builder both halves need
+  extracted to `tests/_validate_fixtures.py` so the split did not fork it.
+  `tests/test_commands_validate.py` takes the unknown-target, locked-database
+  and append-only-history branches; the exit-2 flag checks, the malformed-spec
+  ordering and the absent-case exit 1 stay on `CliRunner`.
+
+  Two `validate` tests fall outside that split and stay on `CliRunner` under
+  *migration is earned*: each verdict flag's mapping to its stored state is
+  flag wiring by definition, and the `--confirm --note` success path is the
+  only test proving `run_validate`'s single `echo` line survives Click's output
+  path to real stdout — the report/analyze equivalent of
+  `test_analyze_end_to_end_through_the_cli`.
+- `tests/test_commands_report.py` takes the unwritable-`--out` branch; the
+  `--format` enum stays.
+
+Two things the issue's own plan got wrong, both worth the next reader's
+attention:
+
+- **The `--kb` failure path was not the only uncovered branch in
+  `commands/analyze.py`.** The generation-failure path (`outcome.failed` →
+  exit 1, the branch that distinguishes "produced nothing" from the exit 3 of
+  "produced something unvalidatable") was uncovered too. Both are now tested
+  at the seam and the module is at 100% line and branch coverage.
+- **Migrating a test off `CliRunner` can delete CLI coverage the test was
+  providing incidentally** — the mirror image of pass 2's lesson. Moving
+  validate's exit-1 branches to the seam left nothing exercising
+  `cli.py`'s `if code: raise typer.Exit(code)` for that command, because the
+  only remaining CLI tests all ended in 0 or 2. The replacement
+  (`test_validate_body_failure_code_reaches_the_shell`) fakes `run_validate`
+  and asserts the status alone, which is the translation-layer half the seam
+  test cannot reach. Check the *caller's* coverage after a migration, not just
+  the callee's.
+
+Every test that moved was mutation-checked rather than trusted: the behaviour
+each one names was broken in `src/` and the test watched to go red.
 
 ## Consequences
 
