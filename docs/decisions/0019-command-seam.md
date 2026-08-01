@@ -77,6 +77,26 @@ mirroring the TUI's existing screen-per-target structure. Out of scope:
 sink and returns a code; nothing raises across the seam. `cli.py` translates
 the code to `typer.Exit`, the TUI reads it directly.
 
+"Failure" here means an **outage**, not a contract violation — a distinction
+this ADR originally left implicit, and which was measured on `run_validate`
+(2026-08-01) rather than assumed:
+
+- **Storage errors return.** `sqlite3.Error` in all its forms — a busy lock, a
+  corrupt page, a rejected CHECK constraint, a store another path already
+  closed — is one outcome to the operator ("the write did not land"), it is
+  actionable, and WR-02 forbids showing it as a traceback. `run_validate`
+  caught only `OperationalError`, so the other three crossed the seam as
+  tracebacks while its own comment claimed WR-02 compliance.
+- **Contract violations raise.** A caller passing an invalid verdict state or a
+  malformed spec is a bug in the *adapter*, not something the operator can act
+  on. Mapping it to an exit code would ship the bug as a runtime message. Both
+  adapters constrain these values before the seam precisely so it cannot
+  happen; if one stops, the crash is the point.
+
+The rule for a new `except` clause on a command body: catch it if the operator
+could have caused it and could fix it; let it raise if only a caller could have
+caused it.
+
 **Exit codes become a vocabulary.** `ExitCode(IntEnum)` in `commands/_exit.py`
 with the four ADR meanings. `run_x` returns `ExitCode`, so pyright rejects a
 command inventing a fifth code.
