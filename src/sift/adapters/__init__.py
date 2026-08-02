@@ -13,6 +13,7 @@ from sift.adapters.dssperfmon import DssperfmonAdapter
 from sift.adapters.eustack import EustackAdapter
 from sift.adapters.genericlog import GenericLogAdapter
 from sift.adapters.journald import JournaldAdapter
+from sift.adapters.wake import WakeAdapter
 
 SNIFF_THRESHOLD = 0.5
 
@@ -22,6 +23,7 @@ REGISTRY: dict[str, Adapter] = {
     "dsserrors": DsserrorsAdapter(),
     "eustack": EustackAdapter(),
     "dssperfmon": DssperfmonAdapter(),
+    "wake": WakeAdapter(),
 }
 
 
