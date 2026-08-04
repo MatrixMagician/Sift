@@ -1136,14 +1136,27 @@ def test_signature_passthrough_reads_eustack_analysis_directly() -> None:
     """EUS-06: SaturationAnalysis has no field holding a signature list — a
     future field addition duplicating EustackAnalysis.signatures fails this
     test rather than passing silently. EustackAnalysis stays frozen,
-    extra="forbid", field set unchanged from Phase 15 (D-10)."""
+    extra="forbid", and its field set is unchanged from Phase 15 apart from
+    the additive, defaulted ``pu`` on each SignatureGroup (ADR 0022, D-10)."""
     assert set(SaturationAnalysis.model_fields) == {
         "pools",
         "lock_sites",
         "lock_finding_note",
         "dependencies",
+        # ADR 0022's processing-unit axis: an aggregate keyed on PU name, and
+        # its ownership-blind note. Neither is a signature list — the guard
+        # below is what actually enforces EUS-06, and it holds for both.
+        "pu_health",
+        "pu_finding_note",
         "flags",
     }
+    # The load-bearing half of EUS-06, stated structurally rather than as a
+    # frozen field-name list: no field of SaturationAnalysis may carry
+    # SignatureGroup, whatever it is called.
+    for name, field in SaturationAnalysis.model_fields.items():
+        assert "SignatureGroup" not in str(field.annotation), (
+            f"SaturationAnalysis.{name} duplicates EustackAnalysis.signatures"
+        )
 
     assert EustackAnalysis.model_config.get("frozen") is True
     assert EustackAnalysis.model_config.get("extra") == "forbid"

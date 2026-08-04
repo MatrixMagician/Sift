@@ -137,6 +137,21 @@ class EustackThresholdsConfig(BaseModel):
     no real hung-server capture exists, and the healthy capture matches the
     lock rule zero times, so its defaults (warn=5.0, critical=20.0) are round,
     conservative placeholders exercised only by the D-11 synthetic fixture.
+
+    ``pu_lock_blocked_count`` (ADR 0022) grades how many of ONE processing
+    unit's threads are waiting at a lock site, complementing
+    ``lock_convergence_count``'s per-SITE view: a queue whose threads are
+    spread thinly over several sites trips no per-site threshold while the
+    queue itself is wedged. Its defaults mirror ``lock_convergence_count``
+    (warn=5.0, critical=20.0) and rest on the same absent calibration.
+
+    Deliberately absent: a per-processing-unit BLOCKED-SHARE threshold. On the
+    healthy reference eval case the Query Engine measures 100% blocked, being
+    three threads parked in ``CDSSQueryEngine::WaitUntilFinished`` waiting on
+    the warehouse — a queue doing its job. Waiting on an external dependency
+    has no defensible zero point, so grading that share would report
+    ``critical`` on a healthy server, and the figure is reported in the
+    processing-unit table without a threshold instead.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -144,6 +159,7 @@ class EustackThresholdsConfig(BaseModel):
     unclassified_thread_pct: ThresholdPair = ThresholdPair(warn=5.0, critical=15.0)
     no_resolvable_frame_pct: ThresholdPair = ThresholdPair(warn=5.0, critical=15.0)
     lock_convergence_count: ThresholdPair = ThresholdPair(warn=5.0, critical=20.0)
+    pu_lock_blocked_count: ThresholdPair = ThresholdPair(warn=5.0, critical=20.0)
 
 
 class EustackConfig(BaseModel):

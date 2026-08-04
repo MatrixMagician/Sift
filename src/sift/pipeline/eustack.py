@@ -95,6 +95,57 @@ class Rule(BaseModel):
         return value
 
 
+class PuRule(BaseModel):
+    """One curated ``[[pu]]`` row: a processing-unit (Intelligence Server work
+    queue) and the dispatch frame that identifies it (ADR 0022).
+
+    Orthogonal to ``Rule``: a ``Rule`` answers *what is this thread doing*, a
+    ``PuRule`` answers *which queue is it doing it for*. Deliberately a
+    separate model rather than optional fields on ``Rule`` — the two axes have
+    different match semantics (file order versus stack depth), so one model
+    carrying both would have to document two contradictory precedence rules.
+
+    ``index`` is the plugin's own PU number, carried as PROVENANCE only so a
+    finding can be traced back to the utility an engineer may already know. It
+    is never precedence, never an array position, and never bounds-checked
+    against ten (see ADR 0022 and the ``[[pu]]`` header comment in
+    ``eustack_roles.toml``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int
+    name: str
+    subsystem: str
+    match: MatchKind = "exact"  # D-09: omitting `match` means exact, never contains.
+    pattern: str
+    description: str
+
+    @field_validator("name", "subsystem", "description")
+    @classmethod
+    def _text_nonempty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("pu name, subsystem and description must not be empty")
+        return value
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern_nonempty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("pu pattern must not be empty")
+        return value
+
+    @field_validator("pattern")
+    @classmethod
+    def _pattern_must_be_normalised(cls, value: str) -> str:
+        canonical = normalise(value)
+        if canonical != value:
+            raise ValueError(
+                f"pu pattern {value!r} is not normalised; use {canonical!r}"
+            )
+        return value
+
+
 class RulesMeta(BaseModel):
     """The `[meta]` table — provenance for a rules file with no git history
     of its own once loaded via `[eustack] rules_path` (D-11)."""
@@ -116,6 +167,10 @@ class ThreadRoleRules(BaseModel):
     # Default () so a [meta]-only file is valid: every signature then
     # classifies unclassified, a legitimate diagnostic state, not an error.
     rule: tuple[Rule, ...] = ()
+    # Default () for the same reason, and additionally so a rules file written
+    # before the PU axis existed still loads: every signature then carries
+    # pu=None, which reads as "no PU axis configured" rather than an error.
+    pu: tuple[PuRule, ...] = ()
 
     @model_validator(mode="after")
     def _no_duplicate_rules(self) -> ThreadRoleRules:
@@ -127,6 +182,48 @@ class ThreadRoleRules(BaseModel):
                     f"duplicate rule (match={r.match!r}, pattern={r.pattern!r})"
                 )
             seen.add(key)
+        return self
+
+    @model_validator(mode="after")
+    def _no_duplicate_pu_rules(self) -> ThreadRoleRules:
+        """Two ``[[pu]]`` rows matching identically would make attribution
+        depend on row order — precisely what depth-wins matching exists to
+        avoid — so the ambiguity is rejected at load time rather than resolved
+        silently. A duplicate ``name`` across DIFFERENT patterns is legal and
+        deliberate: one queue can have several dispatch frames, and they
+        aggregate into one reported row.
+        """
+        seen: set[tuple[MatchKind, str]] = set()
+        for p in self.pu:
+            key = (p.match, p.pattern)
+            if key in seen:
+                raise ValueError(
+                    f"duplicate pu rule (match={p.match!r}, pattern={p.pattern!r})"
+                )
+            seen.add(key)
+        return self
+
+    @model_validator(mode="after")
+    def _pu_name_index_agree(self) -> ThreadRoleRules:
+        """One PU name always carries one index, and one index always carries
+        one name. Both directions matter: reporting is keyed on ``name``, so a
+        name with two indices would render one row whose provenance is
+        ambiguous, and an index reused by two names would break the trace back
+        to the utility's own numbering that ``index`` exists to provide.
+        """
+        by_name: dict[str, int] = {}
+        by_index: dict[int, str] = {}
+        for p in self.pu:
+            if by_name.setdefault(p.name, p.index) != p.index:
+                raise ValueError(
+                    f"pu name {p.name!r} carries conflicting indices "
+                    f"{by_name[p.name]} and {p.index}"
+                )
+            if by_index.setdefault(p.index, p.name) != p.name:
+                raise ValueError(
+                    f"pu index {p.index} carries conflicting names "
+                    f"{by_index[p.index]!r} and {p.name!r}"
+                )
         return self
 
 
@@ -311,6 +408,80 @@ def enclosing_application_frame(
     return None
 
 
+class PuAttribution(BaseModel):
+    """Which processing unit a signature serves, and the frame that says so.
+
+    ``frame_index`` is the DEEPEST matching frame's index — the evidence for
+    the attribution, so "why is this thread attributed to Evaluation?" is
+    answerable from the output alone, exactly as ``Classification.frame_index``
+    does for the role axis.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    index: int
+    name: str
+    subsystem: str
+    description: str
+    pattern: str
+    frame_index: int
+
+
+def attribute_pu(
+    signature: tuple[str, ...], rules: ThreadRoleRules
+) -> PuAttribution | None:
+    """Attribute one signature to a processing unit: DEEPEST-frame-wins,
+    ties broken by ``[[pu]]`` file order (ADR 0022).
+
+    Frames run leaf-first (``#0`` is where the thread currently is) toward the
+    thread entry point, so the DEEPEST match — the highest index — is the
+    outermost dispatch frame, which is the queue that actually owns the
+    thread. Everything shallower is work that queue called into.
+
+    This is the deliberate divergence from the utility this mapping came from,
+    whose ``TaskMap::Lookup`` returns the lowest PU index that appears anywhere
+    in the block. Measured on the v1.3 reference capture, three signatures
+    carry ``CDSSSQLEngineServer`` at frames #2/#8/#11 and
+    ``MSIEvaluationTask::Run`` at #25/#18/#33: the utility calls all three SQL
+    Engine; they are Evaluation threads that called a SQL-engine helper. Depth
+    is a property of the stack, so it stays sound as rows are added; index
+    order is a property of the file, so it must be curated to stay sound.
+
+    Unresolvable frames (``_is_resolvable``, reused rather than
+    re-implemented) are never match candidates, exactly as on the role axis.
+    Returns ``None`` when no ``[[pu]]`` row matches anywhere — the honest
+    "this thread serves no queue we can name" state, which for a healthy
+    server is the correct answer for most infrastructure threads and is never
+    collapsed into a catch-all bucket the way the utility's sentinel index 10
+    collapses both "no match" and "PU out of range".
+    """
+    best: PuAttribution | None = None
+    for index, frame in enumerate(signature):
+        if not _is_resolvable(frame):
+            continue
+        for pu in rules.pu:
+            if pu.match == "exact":
+                hit = frame == pu.pattern
+            elif pu.match == "prefix":
+                hit = frame.startswith(pu.pattern)
+            else:  # "contains"
+                hit = pu.pattern in frame
+            if hit:
+                # Strictly greater, so the FIRST matching row at a given depth
+                # wins the tie and the walk stays a single pass.
+                if best is None or index > best.frame_index:
+                    best = PuAttribution(
+                        index=pu.index,
+                        name=pu.name,
+                        subsystem=pu.subsystem,
+                        description=pu.description,
+                        pattern=pu.pattern,
+                        frame_index=index,
+                    )
+                break
+    return best
+
+
 def classify_signature(
     signature: tuple[str, ...], rules: ThreadRoleRules
 ) -> Classification:
@@ -396,6 +567,10 @@ class SignatureGroup(BaseModel):
     pattern: str | None
     frame_index: int | None
     reason: Reason | None
+    # The orthogonal PU axis (ADR 0022). Defaulted so every existing
+    # construction site — tests included — stays valid, and so `None` keeps
+    # its single meaning: no [[pu]] row matched this signature.
+    pu: PuAttribution | None = None
 
 
 class EustackAnalysis(BaseModel):
@@ -445,6 +620,7 @@ def analyse_eustack(
                 pattern=classification.pattern,
                 frame_index=classification.frame_index,
                 reason=classification.reason,
+                pu=attribute_pu(signature, rules),
             )
         )
     # Explicit total order: thread count descending, ties broken ascending on
@@ -594,6 +770,173 @@ class DependencyWait(BaseModel):
     signature_count: int
 
 
+# --- Processing-unit health (ADR 0022) ---
+#
+# The PU axis crossed with the role axis: for each Intelligence Server work
+# queue, how many of its threads are stuck at a lock, waiting on something
+# external, parked idle, or running. This is the cross-tabulation that answers
+# "which type of PU's threads are locked or slow", which neither axis answers
+# alone.
+
+# The label for threads no [[pu]] row matched. A real category (most
+# infrastructure threads on a healthy server serve no named queue), never a
+# failure, and typed as a distinct `pu_name is None` row rather than this
+# string so it can never collide with a queue genuinely called "unattributed".
+UNATTRIBUTED_PU: str = "unattributed"
+
+# D-05's prohibition applies verbatim to this axis too: a PU can be reported
+# as having threads waiting at a lock site, never as holding or being blocked
+# BY another PU. Carried on the analysis so a renderer cannot omit it.
+PU_FINDING_NOTE: str = (
+    "Processing-unit attribution names the work queue a thread serves, read "
+    "from its deepest dispatch frame. Thread counts per role are observations "
+    "of one moment; eu-stack output carries no lock-acquisition edges and no "
+    "queue-depth or wait-time figures, so no ordering between queues can be "
+    "established from this data alone."
+)
+
+
+class PuHealth(BaseModel):
+    """One processing unit's thread population, split by role.
+
+    The row an engineer reads to answer "is the Query Engine wedged?": every
+    role bucket is present and zero-filled, so a reader never meets a missing
+    key and a zero is always visibly a measured zero.
+
+    ``blocked_threads`` is deliberately the SUM of ``blocked-on-lock`` and
+    ``blocked-on-external`` rather than a third independent tally: the two are
+    reported separately in their own fields, and a reader who wants "not
+    progressing for any reason" would otherwise add them by hand and risk
+    including ``idle-parked``, which is healthy.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    # None is the single unattributed row (mirrors PoolOccupancy.subsystem's
+    # None convention exactly).
+    pu_name: str | None
+    pu_index: int | None
+    description: str | None
+    total_threads: int
+    signature_count: int
+    threads_by_role: dict[Role, int]
+    blocked_on_lock_threads: int
+    blocked_on_external_threads: int
+    blocked_threads: int
+    idle_threads: int
+    running_threads: int
+    # Share of this PU's threads that are blocked for any reason, 0-100. The
+    # figure the pu_blocked_pct flag grades, computed once here so the flag
+    # and the table can never disagree.
+    blocked_pct: float
+    # Where this PU's lock-waiting threads converge, if any — the same
+    # enclosing-application-frame walk analyse_saturation uses, so the PU
+    # table and the lock-site table can never name different sites for the
+    # same threads.
+    lock_sites: tuple[LockSite, ...] = ()
+
+
+def analyse_pu_health(analysis: EustackAnalysis) -> tuple[PuHealth, ...]:
+    """Cross-tabulate the PU axis against the role axis (ADR 0022).
+
+    Pure and deterministic over ``EustackAnalysis.signatures``, read-only,
+    with the same discipline as ``analyse_saturation``: insertion-ordered
+    ``defaultdict`` accumulation, no ``set`` iteration on the output path, and
+    an explicit total sort key.
+
+    Rows are ordered by blocked threads descending FIRST, not by total threads:
+    this table exists to surface the queue in trouble, and a queue with 4 000
+    healthy idle workers should not outrank one with 12 threads stuck at a
+    lock. Ties fall back to total threads descending, then attributed rows
+    ahead of the single unattributed row, then name ascending — total, so the
+    output is byte-identical on re-run.
+    """
+    totals: defaultdict[str | None, int] = defaultdict(int)
+    signature_counts: defaultdict[str | None, int] = defaultdict(int)
+    by_role: defaultdict[str | None, defaultdict[Role, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+    meta: dict[str | None, tuple[int | None, str | None]] = {}
+    lock_totals: defaultdict[str | None, defaultdict[str, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+    lock_signature_counts: defaultdict[str | None, defaultdict[str, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
+
+    for group in analysis.signatures:
+        key = group.pu.name if group.pu is not None else None
+        meta.setdefault(
+            key,
+            (group.pu.index, group.pu.description)
+            if group.pu is not None
+            else (None, None),
+        )
+        totals[key] += group.thread_count
+        signature_counts[key] += 1
+        by_role[key][group.role] += group.thread_count
+        if group.role == "blocked-on-lock":
+            # Reuses analyse_saturation's own walk and sentinel rather than a
+            # second derivation, so the two tables cannot disagree.
+            assert group.frame_index is not None, (
+                "blocked-on-lock groups always carry a matched frame_index"
+            )
+            found = enclosing_application_frame(group.frames, group.frame_index)
+            site = found if found is not None else UNKNOWN_LOCK_SITE
+            lock_totals[key][site] += group.thread_count
+            lock_signature_counts[key][site] += 1
+
+    rows: list[PuHealth] = []
+    for key, total in totals.items():
+        roles: dict[Role, int] = {
+            role: by_role[key].get(role, 0) for role in _ALL_ROLES
+        }
+        blocked_on_lock = roles["blocked-on-lock"]
+        blocked_on_external = roles["blocked-on-external"]
+        blocked = blocked_on_lock + blocked_on_external
+        pu_index, description = meta.get(key, (None, None))
+        sites = [
+            LockSite(
+                site=site,
+                thread_count=count,
+                signature_count=lock_signature_counts[key][site],
+            )
+            for site, count in lock_totals[key].items()
+        ]
+        sites.sort(key=lambda s: (-s.thread_count, s.site))
+        rows.append(
+            PuHealth(
+                pu_name=key,
+                pu_index=pu_index,
+                description=description,
+                total_threads=total,
+                signature_count=signature_counts[key],
+                threads_by_role=roles,
+                blocked_on_lock_threads=blocked_on_lock,
+                blocked_on_external_threads=blocked_on_external,
+                blocked_threads=blocked,
+                idle_threads=roles["idle-parked"],
+                running_threads=roles["running"],
+                # `total` is structurally non-zero — a key exists only when a
+                # signature carried it — so no division guard is needed.
+                blocked_pct=round(blocked / total * 100, 1),
+                lock_sites=tuple(sites),
+            )
+        )
+    # The `pu_name is None` term keeps None out of a direct comparison against
+    # str (a TypeError in Python 3) as well as fixing the unattributed row's
+    # position last within its rank.
+    rows.sort(
+        key=lambda r: (
+            -r.blocked_threads,
+            -r.total_threads,
+            r.pu_name is None,
+            r.pu_name or "",
+        )
+    )
+    return tuple(rows)
+
+
 class SaturationAnalysis(BaseModel):
     """Phase 16's aggregate surface over ``EustackAnalysis`` (D-10): a NEW
     frozen model consuming Phase 15's output read-only. Phase 17 renders both
@@ -612,6 +955,11 @@ class SaturationAnalysis(BaseModel):
     lock_sites: tuple[LockSite, ...] = ()
     lock_finding_note: str = LOCK_FINDING_NOTE
     dependencies: tuple[DependencyWait, ...] = ()
+    # The PU x role cross-tabulation (ADR 0022). Defaulted so every existing
+    # construction site stays valid; an empty tuple means either no threads or
+    # no [[pu]] rows configured, both of which the renderer states plainly.
+    pu_health: tuple[PuHealth, ...] = ()
+    pu_finding_note: str = PU_FINDING_NOTE
     flags: tuple[SaturationFlag, ...]
 
 
@@ -723,6 +1071,11 @@ def analyse_saturation(
     # the subsystem name. Never Counter.most_common(), never set iteration.
     dependencies.sort(key=lambda d: (-d.thread_count, d.subsystem))
 
+    # --- Processing-unit health (ADR 0022) ---
+    # Computed before the flag pass so the pu_blocked_pct flags can read the
+    # already-computed blocked_pct rather than re-deriving it.
+    pu_health = analyse_pu_health(analysis)
+
     # Fixed, authored check order (mcm.compute_flags' precedent): unclassified
     # share, then no-resolvable-frame share, then lock convergence.
     flags: list[SaturationFlag] = []
@@ -829,10 +1182,62 @@ def analyse_saturation(
             )
         )
 
+    # One flag per processing unit with threads waiting at a lock site,
+    # iterating pu_health in its already-sorted order so the flag sub-list
+    # inherits that order without a second sort key. The unattributed row is
+    # SKIPPED: it is not a work queue, so "the unattributed PU has threads at
+    # a lock" names nothing an engineer can act on, and those threads are
+    # already counted by the per-site lock_convergence_count flags.
+    #
+    # LOCK-blocked threads, never blocked-on-external, and a COUNT, never the
+    # blocked_pct share. Both restrictions were forced by measurement rather
+    # than chosen: on the healthy reference eval case the Query Engine is 100%
+    # blocked-on-external — three threads parked in
+    # CDSSQueryEngine::WaitUntilFinished, which is a Query Engine thread doing
+    # exactly its job — so a graded share flag reads `critical` on a server
+    # with nothing wrong with it. Waiting on the warehouse is a queue's normal
+    # working state and has no defensible zero point, which is the same reason
+    # D-07 refuses to grade per-pool occupancy. Waiting at a lock does have
+    # one: nothing.
+    #
+    # Not redundant with lock_convergence_count, which grades one SITE: a
+    # queue whose threads are spread over four sites at five threads each
+    # trips no per-site threshold while twenty of one queue's threads are
+    # nonetheless stuck. The two dimensions answer "is this lock hot?" and
+    # "is this queue wedged?" respectively.
+    for pu_row in pu_health:
+        if pu_row.pu_name is None or not pu_row.blocked_on_lock_threads:
+            continue
+        pu_severity = cast(
+            "FlagSeverity",
+            _grade(
+                float(pu_row.blocked_on_lock_threads),
+                thresholds.pu_lock_blocked_count.warn,
+                thresholds.pu_lock_blocked_count.critical,
+            ),
+        )
+        flags.append(
+            SaturationFlag(
+                dimension="pu_lock_blocked_count",
+                severity=pu_severity,
+                value=float(pu_row.blocked_on_lock_threads),
+                unit="threads",
+                warn=thresholds.pu_lock_blocked_count.warn,
+                critical=thresholds.pu_lock_blocked_count.critical,
+                message=(
+                    f"{pu_row.blocked_on_lock_threads} of the {pu_row.pu_name} "
+                    f"processing unit's {pu_row.total_threads} threads are "
+                    "waiting at a lock site."
+                ),
+            )
+        )
+
     return SaturationAnalysis(
         pools=tuple(pools),
         lock_sites=tuple(lock_sites),
         lock_finding_note=LOCK_FINDING_NOTE,
         dependencies=tuple(dependencies),
+        pu_health=pu_health,
+        pu_finding_note=PU_FINDING_NOTE,
         flags=tuple(flags),
     )

@@ -20,6 +20,7 @@ from sift.adapters.eustack import (
     iter_frames,
 )
 from sift.models import Event
+from sift.pipeline.eustack import normalise
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eustack"
 
@@ -234,6 +235,16 @@ def test_no_emitted_severity_outside_check_set() -> None:
 
 
 def test_iter_frames_yields_index_and_full_symbol() -> None:
+    """The frame index is the frame's POSITION in the block, and the symbol
+    has had its grammar's location tail removed.
+
+    Tail-stripping moved into ``adapters.threaddump``'s per-grammar ``symbol``
+    rule when pstack support landed: it is inherently format-specific (an
+    eu-stack ``- <lib> <src>:<line>`` tail, a gdb ``at <file>:<line>``, a
+    Solaris ``+ <offset>``), so a single splitter could not strip it and a
+    single normaliser could not either. ``normalise()`` is idempotent over the
+    result, so the classifier is unaffected.
+    """
     raw = (
         "TID 715821:\n"
         "#0  0x00007f0000000001 alpha\n"
@@ -244,10 +255,11 @@ def test_iter_frames_yields_index_and_full_symbol() -> None:
     assert frames == [
         (0, "alpha"),
         (1, "beta"),
-        # The lib/source tail survives verbatim — stripping it is the
-        # normaliser's job, not the splitter's.
-        (2, "gamma - libcastor.so worker.cpp:412"),
+        (2, "gamma"),
     ]
+    # normalise() over an already-stripped symbol is a no-op, so the
+    # classifier sees exactly what it saw before the grammar refactor.
+    assert normalise("gamma") == "gamma"
 
 
 def test_iter_frames_on_capped_raw_yields_fewer_frames() -> None:

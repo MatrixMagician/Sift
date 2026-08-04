@@ -1,15 +1,19 @@
-"""eustack adapter: MicroStrategy EU-stack / native thread-dump files.
+"""eustack adapter: MicroStrategy thread-dump files (eu-stack and pstack).
 
-[ASSUMED shape] The 05-02 human-verify checkpoint was resolved
-"proceed-on-assumed-shapes": the confirmed format is native elfutils
-``eu-stack`` output — ``TID <n>:`` thread headers followed by
-``#<N>  0x<ADDR>  <symbol>[ - <lib> <source>:<line>]`` frames — which carries
-**no lock / blocked-on info**. The "lock info in attrs" portion of INGST-09 is
-therefore satisfied by asserting *absence* (nothing fabricated). If a real
-sanitised dump later turns out to be a JVM-style thread dump (with
-``waiting to lock`` / ``locked`` lines), lock extraction is a localised
-addition — the grouping rule (a thread-header line starts a new event, frames
-accrue until the next header or a safety cap) is format-independent.
+Handles native elfutils ``eu-stack`` output (``TID <n>:`` headers with
+``#<N>  0x<ADDR>  <symbol>`` frames), Solaris ``pstack`` output (``lwp#``
+headers with ``<addr> <symbol> + <offset>`` frames) and Linux ``pstack`` /
+gdb ``thread apply all bt`` output (``Thread <n> (... LWP <n>)`` headers with
+``#<N>  0x<ADDR> in <symbol>`` frames). None of the three carries lock or
+blocked-on metadata the way a JVM thread dump does, so lock state is inferred
+from frames by ``pipeline.eustack``'s rules and nothing is fabricated here.
+
+Every format-specific detail — how a thread header is spelled, where the
+thread id lives, what a frame line looks like, what location noise to strip —
+lives in ``adapters.threaddump`` as a ``DumpGrammar``, never inline here. The
+adapter's own rule is format-independent and unchanged: a thread-header line
+starts a new event, frames accrue until the next header or a safety cap.
+Adding a format is a new grammar, not an adapter edit.
 
 Reuses ``base.ConfigurableAdapter`` (``input_root``/``tz_overrides``/
 ``last_stats``), the shared ``base.match_iso_ts``/``base.tz_override_for`` UTC
@@ -37,6 +41,15 @@ from sift.adapters.base import (
     tz_override_for,
 )
 from sift.adapters.genericlog import MAX_EVENT_BYTES, MAX_EVENT_LINES, byte_lines
+from sift.adapters.threaddump import (
+    GRAMMARS,
+    DumpGrammar,
+    eu_symbol,  # the eu-stack grammar's symbol rule, aliased as _condense_symbol below
+    grammar_for_header,
+)
+from sift.adapters.threaddump import (
+    iter_frames as iter_frames,  # re-exported: pipeline.eustack imports it from here
+)
 from sift.models import Event, event_id
 
 # Record-accumulation safety caps: on breach the open thread closes and a
@@ -48,44 +61,28 @@ from sift.models import Event, event_id
 # Condensed message: the first few frame symbols (SPEC "condensed top frames").
 CONDENSED_FRAMES = 5
 
-# Anchored, linear-scan regexes — no ReDoS.
-# Native eu-stack thread header: "TID <n>:".
-_TID_RE = re.compile(r"^TID (\d+):")
-# Frame: "#<N>  0x<ADDR>  <symbol>[ - <lib> <source>:<line>]".
-_FRAME_RE = re.compile(r"^#(\d+)\s+0x([0-9A-Fa-f]+)\s+(.+)$")
 # The optional single dump-time header timestamp (ISO 8601, offset -> exact)
 # is matched by the shared base.match_iso_ts.
 
-# Sniff signature: both a TID header AND an eu-stack frame must appear in the
-# head, so a bare "TID" mention in prose can never be mistaken for a dump.
-_SNIFF_TID_RE = re.compile(r"^TID \d+:", re.MULTILINE)
-_SNIFF_FRAME_RE = re.compile(r"^#\d+\s+0x", re.MULTILINE)
+# Sniff signature: a thread header AND a frame line of the SAME grammar must
+# both appear in the head, so a bare "TID" mention in prose, or a stray
+# "Thread 1 (...)" line in a log, can never be mistaken for a dump.
+_SNIFF_HEADERS: tuple[tuple[DumpGrammar, re.Pattern[str]], ...] = tuple(
+    (grammar, re.compile(grammar.header.pattern, re.MULTILINE))
+    for grammar in GRAMMARS
+)
+_SNIFF_FRAMES: tuple[tuple[DumpGrammar, re.Pattern[str]], ...] = tuple(
+    (grammar, re.compile(grammar.frame.pattern, re.MULTILINE)) for grammar in GRAMMARS
+)
 
 
-def _condense_symbol(frame_body: str) -> str:
-    """The bare symbol name for the condensed message — drop any
-    ``- <lib> <source>:<line>`` suffix so the message stays signal, not noise.
-    """
-    return frame_body.split(" - ", 1)[0].strip()
-
-
-# Shared with sift.pipeline.eustack (D-08): the classifier reuses this helper
-# rather than growing its own copy of _FRAME_RE, so the two never drift apart
-# on what counts as a frame line (the same rule this file already applies to
-# byte_lines, imported from genericlog above).
-def iter_frames(raw: str) -> Iterator[tuple[int, str]]:
-    """Split a raw eu-stack thread block into ``(frame_index, frame_body)``
-    pairs, in file order, over the full block depth.
-
-    The frame body is the FULL text after the address — including any
-    ``- <lib> <source>:<line>`` tail, verbatim. Stripping that tail is the
-    normaliser's job (``sift.pipeline.eustack.normalise``), not the
-    splitter's.
-    """
-    for line in raw.splitlines():
-        match = _FRAME_RE.match(line)
-        if match is not None:
-            yield int(match.group(1)), match.group(3)
+# The eu-stack grammar's own symbol rule, re-exported under the name
+# ``pipeline.eustack.normalise`` imports. An ALIAS, not a second
+# implementation: the adapter, the grammar table and the normaliser therefore
+# cannot drift apart on what an eu-stack symbol is (D-08). normalise() stays
+# idempotent over an already-extracted symbol because dropping a
+# ``- <lib> <source>:<line>`` tail that is not there is a no-op.
+_condense_symbol = eu_symbol
 
 
 def _match_ts(text: str, override_tz: str | None) -> tuple[datetime, str] | None:
@@ -114,6 +111,10 @@ class _Record:
     is_thread: bool = False
     is_fallback: bool = False
     thread: str | None = None
+    # The grammar whose header opened this record. Carried per record rather
+    # than per file so a concatenation of captures in different formats parses,
+    # and so a thread's frames are always read with the grammar that opened it.
+    grammar: DumpGrammar | None = None
     line_end: int = 0
     byte_len: int = 0
     # Bytes of an otherwise-fallback preamble that carried genuinely-parsed
@@ -127,7 +128,7 @@ class _Record:
 
 
 class EustackAdapter(ConfigurableAdapter):
-    """MicroStrategy EU-stack / native thread-dump adapter (INGST-09).
+    """MicroStrategy thread-dump adapter: eu-stack and pstack (INGST-09).
 
     Inherits ``input_root``/``tz_overrides``/``last_stats`` from
     ``ConfigurableAdapter`` — per-run config travels on the instance because
@@ -137,9 +138,25 @@ class EustackAdapter(ConfigurableAdapter):
     name = "eustack"
 
     def sniff(self, path: Path) -> float:
+        """0.8 when the head holds a thread header AND a frame line of the
+        SAME grammar, 0.0 otherwise.
+
+        Requiring both of one grammar is what keeps a log line mentioning
+        ``Thread 1 (worker)`` or a prose ``TID`` from scoring: neither is
+        accompanied by that grammar's frame lines. Confidence does not vary by
+        grammar — a Solaris pstack is exactly as certainly a thread dump as an
+        eu-stack capture, and a graded score would only make adapter selection
+        depend on which format a customer's tooling emits.
+        """
         head = read_head(path).decode("utf-8", errors="replace")
-        if _SNIFF_TID_RE.search(head) and _SNIFF_FRAME_RE.search(head):
-            return 0.8
+        matched_headers = {
+            grammar.name for grammar, pattern in _SNIFF_HEADERS if pattern.search(head)
+        }
+        if not matched_headers:
+            return 0.0
+        for grammar, pattern in _SNIFF_FRAMES:
+            if grammar.name in matched_headers and pattern.search(head):
+                return 0.8
         return 0.0
 
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
@@ -177,6 +194,15 @@ class EustackAdapter(ConfigurableAdapter):
                 attrs={
                     "byte_offset": str(rec.offset),
                     "byte_len": str(rec.byte_len),
+                    # Which grammar read this thread, so an engineer inspecting
+                    # a surprising signature can see whether the file was read
+                    # as they expected. Absent on preamble/fallback records,
+                    # which no grammar opened.
+                    **(
+                        {"dump_format": rec.grammar.name}
+                        if rec.grammar is not None
+                        else {}
+                    ),
                 },
                 raw=raw,
             )
@@ -197,10 +223,15 @@ class EustackAdapter(ConfigurableAdapter):
                 line_no += 1
                 decoded = bline.decode("utf-8", errors="replace")
                 text = decoded.rstrip("\r\n")
-                tid_match = _TID_RE.match(text)
-                if tid_match is not None:
+                header_grammar = grammar_for_header(text)
+                if header_grammar is not None:
                     # Thread-header line = record-start: closes the open event
-                    # (Pitfall 5 also force-closes an unterminated block).
+                    # (Pitfall 5 also force-closes an unterminated block). The
+                    # grammar that recognised the header is carried on the
+                    # record, so this thread's frames are read with the same
+                    # grammar that opened it — never re-detected per line, and
+                    # never leaked into the next thread's block.
+                    thread_id = header_grammar.match_header(text)
                     if current is not None:
                         yield finish(current)
                     current = _Record(
@@ -210,7 +241,8 @@ class EustackAdapter(ConfigurableAdapter):
                         ts_confidence=dump_ts_confidence,
                         severity="unknown",  # thread dumps carry no severity
                         is_thread=True,
-                        thread=tid_match.group(1),
+                        thread=thread_id,
+                        grammar=header_grammar,
                     )
                     add_line(current, text, decoded, len(bline))
                 elif current is not None:
@@ -233,10 +265,16 @@ class EustackAdapter(ConfigurableAdapter):
                             is_fallback=True,
                         )
                     add_line(current, text, decoded, len(bline))
-                    if current.is_thread and len(current.frames) < CONDENSED_FRAMES:
-                        frame_match = _FRAME_RE.match(text)
+                    if (
+                        current.is_thread
+                        and current.grammar is not None
+                        and len(current.frames) < CONDENSED_FRAMES
+                    ):
+                        frame_match = current.grammar.frame.match(text)
                         if frame_match is not None:
-                            symbol: str = _condense_symbol(frame_match.group(3))
+                            symbol: str = current.grammar.symbol(
+                                frame_match.group(current.grammar.body_group)
+                            )
                             current.frames.append(symbol)
                     elif dump_ts is None and not current.is_thread:
                         # Scan the preamble (before the first thread) for the

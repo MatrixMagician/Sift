@@ -194,3 +194,106 @@ role = "idle-parked"
 subsystem = "kafka"
 match = "contains"
 pattern = 'rd_kafka_thread_main'
+
+# ---------------------------------------------------------------------------
+# Processing-unit (PU) mapping — the SECOND, orthogonal axis (ADR 0022).
+#
+# A role says WHAT a thread is doing (idle-parked, blocked-on-lock, running);
+# a PU says WHICH Intelligence Server work queue it is doing it FOR. The two
+# are independent: a `blocked-on-lock` thread in the Query Engine PU and a
+# `blocked-on-lock` thread in the Command PU are the same role and completely
+# different incidents. Crossing the axes is the point — "which type of PU's
+# threads are locked or slow" is only answerable with both.
+#
+# Provenance: the queue names and their identifying frames are recovered from
+# the MicroStrategy Support Utility Notepad++ plugin v1.25 (its compiled-in
+# ten-entry PUMap/signature tables, and the `taskmap` file its TaskMap::Lookup
+# reads). Sift re-implements the CONCEPT, not the mechanism — see ADR 0022
+# for the three deliberate divergences: matching is deepest-frame-wins rather
+# than lowest-PU-index-wins, `index` is provenance only and never precedence,
+# and there is no network taskmap, no ten-entry cap and no sentinel index.
+#
+# `match` defaults to `exact` (D-09), same as [[rule]]; every pattern must be
+# in normalise() canonical form; duplicate (match, pattern) pairs are rejected.
+#
+# ORDER IN THIS FILE IS NOT PRECEDENCE for [[pu]] rows — unlike [[rule]].
+# Stack DEPTH is: the deepest matching frame wins, because a PU-identifying
+# frame is a thread's dispatch ancestor and the deepest one is the queue that
+# actually owns the thread. Measured on the v1.3 reference capture: three
+# signatures contain both `CDSSSQLEngineServer` (a SQL helper called at frame
+# #2) and `MSIEvaluationTask::Run` (the dispatch ancestor at frame #25). The
+# plugin's lowest-index rule calls those threads SQL Engine; they are
+# Evaluation threads that called a SQL helper. Depth is the sound rule and it
+# needs no curated ordering to stay sound as rows are added.
+
+[[pu]]
+index = 0
+name = "Command PU"
+subsystem = "command"
+match = "contains"
+pattern = 'MSIDSSCommand::Process'
+description = "Executing a client command"
+
+[[pu]]
+index = 1
+name = "SQL Engine"
+subsystem = "sql-engine"
+match = "contains"
+pattern = 'CDSSSQLEngineServer'
+description = "SQL generation for a report or cube"
+
+[[pu]]
+index = 2
+name = "Query Engine"
+subsystem = "query-engine"
+match = "contains"
+pattern = 'CDSSQueryEngineServer'
+description = "Executing SQL against the warehouse"
+
+[[pu]]
+index = 3
+name = "Analytical Engine"
+subsystem = "analytical-engine"
+match = "contains"
+pattern = 'CDSSAnalyticalEngineServer'
+description = "Analytical calculation over a result set"
+
+[[pu]]
+index = 4
+name = "Resolution"
+subsystem = "resolution"
+match = "contains"
+pattern = 'DSSResolutionServerTask::Run'
+description = "Resolving object definitions"
+
+[[pu]]
+index = 5
+name = "Delivery (NCSPU)"
+subsystem = "delivery"
+match = "contains"
+pattern = 'DSSPersistResultTask::Run'
+description = "Persisting or delivering a subscription result"
+
+[[pu]]
+index = 6
+name = "Browsing"
+subsystem = "browsing"
+match = "contains"
+pattern = 'DSSObjectServerTask::Run'
+description = "Object browsing and metadata retrieval"
+
+[[pu]]
+index = 7
+name = "Document Data Preparation"
+subsystem = "document-data-prep"
+match = "contains"
+pattern = 'DSSDocumentDataPreparationTask::Run'
+description = "Preparing datasets for a document or dossier"
+
+[[pu]]
+index = 8
+name = "Evaluation"
+subsystem = "evaluation"
+match = "contains"
+pattern = 'MSIEvaluationTask::Run'
+description = "Evaluating a view, dossier or Report Services document"
