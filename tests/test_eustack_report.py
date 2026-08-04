@@ -36,6 +36,8 @@ from sift.pipeline.eustack_vocabulary import PROHIBITED_OWNERSHIP_TERMS
 from sift.render import eustack_report
 from sift.render._util import csv_safe as _perfmon_csv_safe
 from sift.render.eustack_report import (
+    EUSTACK_CSV_BASE_HEADER,
+    EUSTACK_CSV_DELTA_HEADER,
     render_eustack_json,
     render_eustack_markdown,
     write_eustack_signatures_csv,
@@ -131,12 +133,19 @@ def _synthetic_dump(
 
 
 def test_csv_header_carries_one_column_per_dump(tmp_path: Path) -> None:
+    """The per-dump columns sit between the base columns and the delta pair.
+
+    Both boundaries are derived from the shipped header constants rather than
+    hardcoded indices, so adding a base column (as ADR 0022's processing-unit
+    pair did) cannot silently shift what this test reads.
+    """
     bundle = _bundle_for("dump_charlie.txt", "dump_bravo.txt", "dump_alpha.txt")
     csv_path = tmp_path / "sig.csv"
     write_eustack_signatures_csv(bundle, csv_path)
     header = next(csv.reader(csv_path.open(encoding="utf-8")))
-    assert len(header) == 8 + 3 + 2
-    assert tuple(header[8:11]) == (
+    base = len(EUSTACK_CSV_BASE_HEADER)
+    assert len(header) == base + 3 + len(EUSTACK_CSV_DELTA_HEADER)
+    assert tuple(header[base : base + 3]) == (
         "dump_charlie.txt",
         "dump_bravo.txt",
         "dump_alpha.txt",
@@ -258,7 +267,8 @@ def test_dumps_table_and_progression_table_preserve_resolved_order(
     csv_path = tmp_path / "sig.csv"
     write_eustack_signatures_csv(bundle, csv_path)
     header = next(csv.reader(csv_path.open(encoding="utf-8")))
-    assert tuple(header[8:10]) == resolved_order
+    base = len(EUSTACK_CSV_BASE_HEADER)
+    assert tuple(header[base : base + 2]) == resolved_order
 
     # _field Markdown-escapes underscores (mirrors test_cli_perfmon.py's own
     # HAZARD_NON_OVERLAP.replace("_", r"\_") convention) -- undo that before

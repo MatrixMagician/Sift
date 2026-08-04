@@ -116,6 +116,12 @@ class SignatureProgression(BaseModel):
     reason: Reason | None
     matched_frame: str | None
     leaf_frame: str | None
+    # The ADR 0022 processing-unit axis, projected for display exactly as the
+    # role axis is: the queue's name and the frame that identified it, never
+    # the whole PuAttribution. Defaulted so a caller constructing this model
+    # without the PU axis stays valid.
+    pu_name: str | None = None
+    pu_frame: str | None = None
     counts: tuple[int, ...]
     step_deltas: tuple[int, ...]
     overall_delta: int
@@ -281,6 +287,15 @@ def compute_progression(
             else None
         )
         leaf_frame = classification.frames[0] if classification.frames else None
+        # Same most-recent-dump-where-present rule as every other display
+        # field above, so the PU axis can never disagree with the role axis
+        # about which dump a vanished signature is described from.
+        pu_name = classification.pu.name if classification.pu is not None else None
+        pu_frame = (
+            classification.frames[classification.pu.frame_index]
+            if classification.pu is not None
+            else None
+        )
 
         progressions.append(
             SignatureProgression(
@@ -292,6 +307,8 @@ def compute_progression(
                 reason=classification.reason,
                 matched_frame=matched_frame,
                 leaf_frame=leaf_frame,
+                pu_name=pu_name,
+                pu_frame=pu_frame,
                 counts=counts,
                 step_deltas=step_deltas,
                 overall_delta=overall_delta,

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
         DependencyWait,
         LockSite,
         PoolOccupancy,
+        PuHealth,
         Role,
         SaturationAnalysis,
         SaturationFlag,
@@ -54,6 +55,11 @@ _ABSENT = "—"
 EUSTACK_CSV_BASE_HEADER: tuple[str, ...] = (
     "role",
     "subsystem",
+    # ADR 0022: the processing unit and the dispatch frame that identified it,
+    # placed beside role/subsystem because the three together are what an
+    # engineer filters and pivots this CSV on.
+    "processing_unit",
+    "processing_unit_frame",
     "matched_pattern",
     "frame_index",
     "reason",
@@ -78,6 +84,19 @@ _NO_PROGRESSION_SINGLE_DUMP = (
     "_This case holds one dump; no progression was computed._"
 )
 _NO_PROGRESSION_UNCHANGED = "_No signature's thread count changed across dumps._"
+
+# ADR 0022: the label for the row of threads no [[pu]] rule matched. Rendered
+# rather than left blank because "most infrastructure threads serve no named
+# queue" is a finding, and an empty cell reads as missing data.
+_UNATTRIBUTED_LABEL = "(no processing unit)"
+
+# A dump with no threads at all, or a rules file with no [[pu]] rows, yields
+# no processing-unit rows. Stated plainly rather than as an empty table
+# (mirrors _NO_DUMPS' house style).
+_NO_PU_ATTRIBUTION = (
+    "_No processing-unit attribution was computed — the rules file defines no "
+    "processing units, or this dump holds no threads._"
+)
 
 # WR-02: ``## Signatures`` carries the all-dump UNION (``ProgressionAnalysis.
 # signatures``, D-04/D-09's "no cap, keep vanished signatures" requirement),
@@ -182,18 +201,19 @@ def _progression_table(progression: ProgressionAnalysis) -> list[str]:
         lines.append("")
         return lines
     lines.append(
-        "| Role | Subsystem | Matched frame | Leaf frame | Counts "
-        "| Step deltas | Overall delta | Status |"
+        "| Role | Processing unit | Subsystem | Matched frame | Leaf frame "
+        "| Counts | Step deltas | Overall delta | Status |"
     )
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for s in changed:
         subsystem = s.subsystem if s.subsystem is not None else _ABSENT
         leaf_frame = s.leaf_frame if s.leaf_frame is not None else _ABSENT
+        pu_name = s.pu_name if s.pu_name is not None else _ABSENT
         counts = " -> ".join(str(c) for c in s.counts)
         step_deltas = ";".join(str(d) for d in s.step_deltas)
         status = "appeared" if s.appeared else "vanished" if s.vanished else "changed"
         lines.append(
-            f"| {_field(s.role)} | {_field(subsystem)} "
+            f"| {_field(s.role)} | {_field(pu_name)} | {_field(subsystem)} "
             f"| {_field(_matched_frame_with_index(s))} | {_field(leaf_frame)} "
             f"| {_field(counts)} | {_field(step_deltas)} | {s.overall_delta} "
             f"| {status} |"
@@ -291,8 +311,62 @@ def _flag_table(flags: tuple[SaturationFlag, ...]) -> list[str]:
     return lines
 
 
+def _pu_table(
+    pu_health: tuple[PuHealth, ...], pu_finding_note: str
+) -> list[str]:
+    """The processing-unit health table (ADR 0022): which Intelligence Server
+    work queue each thread serves, crossed with what its threads are doing.
+
+    Rendered FIRST within ``## Saturation``, ahead of the pool, lock-site and
+    dependency tables, because it is the table that answers the operator's
+    actual opening question — which queue is in trouble — and the three below
+    it answer follow-ups. Rows arrive already ordered lock-blocked-first from
+    ``analyse_pu_health``; no re-sort here.
+
+    Each row's lock sites are rendered as an indented sub-list beneath it
+    rather than as another column, so a queue waiting at several sites stays
+    readable and the site strings (long, fully-qualified C++ symbols) are not
+    squeezed into a cell.
+    """
+    lines = ["### Processing units", ""]
+    lines.append(_field(pu_finding_note))
+    lines.append("")
+    if not pu_health:
+        lines.append(_NO_PU_ATTRIBUTION)
+        lines.append("")
+        return lines
+    lines.append(
+        "| Processing unit | Total | Lock-blocked | Dependency-blocked | Idle "
+        "| Running | Unclassified | Signatures |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    for row in pu_health:
+        name = row.pu_name if row.pu_name is not None else _UNATTRIBUTED_LABEL
+        lines.append(
+            f"| {_field(name)} | {row.total_threads} "
+            f"| {row.blocked_on_lock_threads} | {row.blocked_on_external_threads} "
+            f"| {row.idle_threads} | {row.running_threads} "
+            f"| {row.threads_by_role['unclassified']} | {row.signature_count} |"
+        )
+    lines.append("")
+    for row in pu_health:
+        if not row.lock_sites:
+            continue
+        name = row.pu_name if row.pu_name is not None else _UNATTRIBUTED_LABEL
+        lines.append(f"Lock sites for {_field(name)}:")
+        lines.append("")
+        for site in row.lock_sites:
+            lines.append(
+                f"- {_field(site.site)} — {site.thread_count} threads, "
+                f"{site.signature_count} signatures"
+            )
+        lines.append("")
+    return lines
+
+
 def _saturation_section(saturation: SaturationAnalysis) -> list[str]:
     lines = ["## Saturation", ""]
+    lines.extend(_pu_table(saturation.pu_health, saturation.pu_finding_note))
     lines.extend(_pool_table(saturation.pools))
     lines.extend(_lock_table(saturation.lock_sites, saturation.lock_finding_note))
     lines.extend(_dependency_table(saturation.dependencies))
@@ -309,10 +383,10 @@ def _signature_table(signatures: tuple[SignatureProgression, ...]) -> list[str]:
         lines.append("")
         return lines
     lines.append(
-        "| Role | Subsystem | Pattern | Frame index | Reason | Matched frame "
-        "| Leaf frame | Thread count |"
+        "| Role | Processing unit | Subsystem | Pattern | Frame index | Reason "
+        "| Matched frame | Leaf frame | Thread count |"
     )
-    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- |")
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for s in signatures:
         subsystem = s.subsystem if s.subsystem is not None else _ABSENT
         pattern = s.pattern if s.pattern is not None else _ABSENT
@@ -320,9 +394,11 @@ def _signature_table(signatures: tuple[SignatureProgression, ...]) -> list[str]:
         reason = s.reason if s.reason is not None else _ABSENT
         matched_frame = s.matched_frame if s.matched_frame is not None else _ABSENT
         leaf_frame = s.leaf_frame if s.leaf_frame is not None else _ABSENT
+        pu_name = s.pu_name if s.pu_name is not None else _ABSENT
         thread_count = s.counts[-1] if s.counts else _ABSENT
         lines.append(
-            f"| {_field(s.role)} | {_field(subsystem)} | {_field(pattern)} "
+            f"| {_field(s.role)} | {_field(pu_name)} | {_field(subsystem)} "
+            f"| {_field(pattern)} "
             f"| {frame_index} | {_field(reason)} | {_field(matched_frame)} "
             f"| {_field(leaf_frame)} | {thread_count} |"
         )
@@ -390,6 +466,8 @@ def write_eustack_signatures_csv(bundle: EustackBundle, path: Path) -> None:
             row: list[object] = [
                 _csv_safe(s.role),
                 _csv_safe(s.subsystem) if s.subsystem is not None else "",
+                _csv_safe(s.pu_name) if s.pu_name is not None else "",
+                _csv_safe(s.pu_frame) if s.pu_frame is not None else "",
                 _csv_safe(s.pattern) if s.pattern is not None else "",
                 s.frame_index if s.frame_index is not None else "",
                 _csv_safe(s.reason) if s.reason is not None else "",
