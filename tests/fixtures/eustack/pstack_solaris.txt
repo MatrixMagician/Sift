@@ -1,0 +1,56 @@
+-- derived, sanitised Solaris pstack fixture -- this is NOT a raw capture --
+-- hand-authored to exercise the solaris-pstack grammar and the processing-unit axis --
+-- shape follows Solaris pstack(1): "-----  lwp# N / thread# N  -----" headers, --
+-- unnumbered frames of "<hex addr> <symbol> (<args>) + <hex offset>" --
+-- 8 threads: 3 Query Engine (2 at a lock site, 1 on the warehouse), --
+-- 2 Command PU idle, 2 Evaluation idle, 1 unattributed infrastructure thread --
+2026-07-30T09:15:00+00:00
+-----------------  lwp# 11 / thread# 11  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ fffffd7ffe6250fc __lll_lock_wait (0x4c1a5c1, 2) + 5c
+ 0000000004b1a5c1 MSynch::CriticalSectionImpl::Lock (void) + 91
+ 0000000004a02133 CDSSQueryEngine::AcquireConnection (void*) + 2b3
+ 0000000004a01977 CDSSQueryEngineServer::ProcessRequest (void*) + 107
+ 0000000004a01888 MSIThreadPoolTask::Run (void) + 18
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 12 / thread# 12  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ fffffd7ffe6250fc __lll_lock_wait (0x4c1a5c1, 2) + 5c
+ 0000000004b1a5c1 MSynch::CriticalSectionImpl::Lock (void) + 91
+ 0000000004a02133 CDSSQueryEngine::AcquireConnection (void*) + 2b3
+ 0000000004a01977 CDSSQueryEngineServer::ProcessRequest (void*) + 107
+ 0000000004a01888 MSIThreadPoolTask::Run (void) + 18
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 13 / thread# 13  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ fffffd7ffe6250fc cond_wait_queue (0x1, 0x2) + 5c
+ 0000000004b1a5c1 MSynch::EventImpl::Wait (unsigned int) + 91
+ 0000000004a02133 CDSSQueryEngine::WaitUntilFinished (void*) + 2b3
+ 0000000004a01977 CDSSQueryEngineServer::ProcessRequest (void*) + 107
+ 0000000004a01888 MSIThreadPoolTask::Run (void) + 18
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 14 / thread# 14  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ 0000000004b1a5c2 MSICommandQTask::GetNextCommand (void) + 12
+ 0000000004a01999 MSIDSSCommand::Process (void*) + 9
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 15 / thread# 15  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ 0000000004b1a5c2 MSICommandQTask::GetNextCommand (void) + 12
+ 0000000004a01999 MSIDSSCommand::Process (void*) + 9
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 16 / thread# 16  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ 0000000004b1a5c3 MSIQTask::GetNextPreferredJob (int) + 33
+ 0000000004a01aaa MSIEvaluationTask::Run (void) + 1a
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 17 / thread# 17  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ 0000000004b1a5c3 MSIQTask::GetNextPreferredJob (int) + 33
+ 0000000004a01aaa MSIEvaluationTask::Run (void) + 1a
+ 0000000004b1b000 MSIThread::Run (void) + 40
+-----------------  lwp# 18 / thread# 18  --------------------
+ fffffd7ffe62b2ba lwp_park (0, 0, 0) + a
+ fffffd7ffe6250fc cond_wait_queue (0x1, 0x2) + 5c
+ 0000000004b1c000 shi_waitForEventPageCache (void) + 20
+ 0000000004b1c100 shi_pageCacheThread (void*) + 30
