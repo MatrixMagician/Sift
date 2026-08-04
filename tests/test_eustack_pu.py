@@ -871,3 +871,49 @@ def test_a_tenth_queue_is_addable_exactly_as_the_file_documents() -> None:
         attribute_pu(("MSIDSSCommand::Process()",), extended).name  # pyright: ignore[reportOptionalMemberAccess]
         == attribute_pu(("MSIDSSCommand::Process()",), _RULES).name  # pyright: ignore[reportOptionalMemberAccess]
     )
+
+
+def test_a_bom_does_not_hide_a_whole_thread_dump(tmp_path: Path) -> None:
+    """A UTF-8 BOM sits on the first line, where it defeats every anchored
+    header pattern.
+
+    Left in place, a dump saved through a Windows workflow sniffs 0.0, falls to
+    genericlog, and reports full parse coverage with zero threads — a silently
+    missing analysis, the same failure class as the sniff/parse asymmetry. This
+    predates the processing-unit axis but blocks it on a realistic artefact,
+    since the taskmap and these dumps come from the same Windows tooling.
+
+    Byte accounting is asserted alongside, because the BOM is stripped AFTER
+    the offsets are taken: ``event_id`` is ``sha256(source_file, byte_offset)``,
+    so stripping before would shift every offset and silently break
+    re-ingestion idempotency.
+    """
+    body = "TID 1:\n#0  0x1 pthread_cond_wait\n#1  0x2 MSIDSSCommand::Process()\n"
+    path = tmp_path / "dump.txt"
+    raw = b"\xef\xbb\xbf" + body.encode("utf-8")
+    path.write_bytes(raw)
+
+    adapter = EustackAdapter()
+    adapter.input_root = tmp_path
+    assert adapter.sniff(path) >= 0.5
+    events = list(adapter.parse(path, "case"))
+    threads = [e for e in events if e.thread is not None]
+    assert len(threads) == 1
+    assert threads[0].thread == "1"
+    # The BOM never reaches the signature, so a BOM'd and a plain capture of
+    # the same stack group together rather than forming two signatures.
+    assert signature_of(threads[0].raw) == (
+        "pthread_cond_wait",
+        "MSIDSSCommand::Process()",
+    )
+
+    analysis = analyse_eustack(events, _RULES, _RULES_HASH)
+    assert analysis.signatures[0].pu is not None
+    assert analysis.signatures[0].pu.name == "Command PU"
+
+    # Every byte of the file is accounted for, BOM included, and each event's
+    # recorded span indexes the raw stream correctly.
+    assert sum(int(e.attrs["byte_len"]) for e in events) == len(raw)
+    first = threads[0]
+    start = int(first.attrs["byte_offset"])
+    assert raw[start : start + int(first.attrs["byte_len"])].endswith(b"()\n")

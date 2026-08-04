@@ -235,6 +235,33 @@ is combined with the shipped role rules, loaded, and used to attribute threads �
 a queue the 2022 table has never heard of. Without that round trip, the command would be a
 text generator whose output happens to look plausible.
 
+### Windows-sourced artefacts must survive their encoding
+
+Both artefacts this axis depends on come from Windows tooling: the taskmap is cached and
+edited under `%ProgramData%`, and thread dumps are routinely collected, zipped and mailed
+through the same support workflow. Probing real encodings rather than assuming UTF-8 found
+three failures, two of which corrupted silently:
+
+- **A UTF-8 BOM in the taskmap.** It lands on the first line — whichever kind that is.
+  Ahead of `LUT:` it loses the revision without a word; ahead of the first `:PU:` header it
+  drops that queue, and on a header-first file (no `LUT:` line at all) drops the entire
+  import, so the command reports "is this a taskmap file?" about a file that plainly is one.
+- **A UTF-8 BOM in a thread dump.** The same first-line position defeats every anchored
+  header pattern, so the dump sniffs 0.0, falls through to `genericlog`, and reports *full
+  parse coverage with zero threads* — the same silently-missing-analysis failure class as
+  the sniff/parse asymmetry above. This predates the processing-unit axis but blocks it on a
+  realistic artefact, so it is fixed here rather than noted.
+- **UTF-16.** Decoded as UTF-8 it becomes NUL-riddled mojibake parsing to zero entries.
+  That at least fails loudly, but "is this a taskmap file?" points at the wrong problem, so
+  the BOM is detected and the encoding named with a conversion command.
+
+The adapter strips the BOM **after** the byte accounting, never before: `event_id` is
+`sha256(source_file, byte_offset)`, so stripping earlier would shift every offset in the
+file and silently break re-ingestion idempotency. That is `genericlog`'s own Pitfall 7 rule,
+applied here; its `_detect_encoding` already solved this properly for plain logs, which is
+why the eu-stack adapter's simpler UTF-8 assumption stood out as an oversight rather than a
+decision.
+
 ### The ownership prohibition extends unchanged
 
 ADR 0015's permanent non-goal is a property of the data, not of an axis: neither eu-stack nor pstack

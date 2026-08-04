@@ -157,7 +157,7 @@ class EustackAdapter(ConfigurableAdapter):
         eu-stack capture, and a graded score would only make adapter selection
         depend on which format a customer's tooling emits.
         """
-        head = read_head(path).decode("utf-8", errors="replace")
+        head = read_head(path).decode("utf-8", errors="replace").removeprefix("\ufeff")
         matched_headers = {
             grammar.name for grammar, pattern in _SNIFF_HEADERS if pattern.search(head)
         }
@@ -231,6 +231,15 @@ class EustackAdapter(ConfigurableAdapter):
                 offset += len(bline)  # every byte counted, newline too
                 line_no += 1
                 decoded = bline.decode("utf-8", errors="replace")
+                if line_no == 1:
+                    # A UTF-8 BOM sits on the first line and would otherwise
+                    # defeat every anchored header pattern, so a dump saved on
+                    # Windows would yield zero threads and fall to genericlog
+                    # with full reported coverage. Stripped AFTER the byte
+                    # accounting above, so byte_offset/byte_len and therefore
+                    # event_id stay computed over the raw stream (genericlog's
+                    # own Pitfall 7 rule, applied here).
+                    decoded = decoded.removeprefix("\ufeff")
                 text = decoded.rstrip("\r\n")
                 header_grammar = grammar_for_header(text)
                 if header_grammar is not None:

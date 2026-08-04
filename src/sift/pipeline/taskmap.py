@@ -89,6 +89,13 @@ def parse_taskmap(text: str) -> Taskmap:
 
     A task entry appearing before any ``:PU:`` header has no queue to belong to
     and is skipped rather than invented a home for.
+
+    A leading UTF-8 BOM is stripped. The taskmap is cached and edited on
+    Windows, so a BOM is a realistic shape rather than a hypothetical one, and
+    it lands on the FIRST line — the one carrying either ``LUT:`` or the first
+    ``:PU:`` header. Left in place it makes ``"LUT:"`` fail to match (losing
+    the revision silently) and ``startswith(":")`` fail (which drops the first
+    queue, and with a header-first file drops the whole import).
     """
     result = Taskmap()
     current_index = -1
@@ -96,6 +103,8 @@ def parse_taskmap(text: str) -> Taskmap:
 
     for line_no, raw in enumerate(text.splitlines(), start=1):
         line = raw.strip("\r\n").rstrip()
+        if line_no == 1:
+            line = line.lstrip("\ufeff")
         if not line.strip():
             continue
         lut_match = _LUT_RE.match(line)

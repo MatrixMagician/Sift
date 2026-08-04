@@ -287,3 +287,54 @@ def test_cli_reports_an_unreadable_path(tmp_path: Path) -> None:
     result = runner.invoke(app, ["taskmap", str(tmp_path / "absent")])
     assert result.exit_code == 1
     assert "cannot read taskmap" in result.output
+
+
+# ------------------------------------------------------------- encodings ---
+#
+# The taskmap is cached and edited on Windows, so a UTF-8 BOM and UTF-16 are
+# realistic shapes rather than hypothetical ones. Both were found by probing
+# real-world encodings, and both failed in ways that would have wasted an
+# engineer's afternoon.
+
+
+@pytest.mark.parametrize("first_line", ["LUT:37\r\n", ""])
+def test_utf8_bom_does_not_break_the_import(
+    first_line: str, tmp_path: Path
+) -> None:
+    """A BOM lands on the FIRST line, whichever kind that is.
+
+    Ahead of ``LUT:`` it makes the revision line fail to match, losing the
+    revision silently. Ahead of the first ``:PU:`` header it makes the
+    ``startswith(':')`` test fail, which drops that queue — and on a
+    header-first file (no ``LUT:`` line at all) drops the entire import, so the
+    command reports "is this a taskmap file?" about a file that is one.
+    """
+    body = (
+        first_line
+        + ":Command PU:\r\n"
+        + "MSIDSSCommand::Process,Executing a client command\r\n"
+    )
+    path = tmp_path / "taskmap"
+    path.write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+
+    parsed = parse_taskmap(path.read_text(encoding="utf-8"))
+    assert parsed.pu_names == ["Command PU"]
+    assert len(parsed.entries) == 1
+    assert parsed.lut == (37 if first_line else None)
+
+    result = runner.invoke(app, ["taskmap", str(path)])
+    assert result.exit_code == 0, result.output
+    assert "name = 'Command PU'" in result.stdout
+
+
+def test_utf16_is_diagnosed_rather_than_read_as_mojibake(tmp_path: Path) -> None:
+    """UTF-16 decoded as UTF-8 becomes NUL-riddled mojibake that parses to zero
+    entries. Reporting that as "is this a taskmap file?" would send an engineer
+    looking for the wrong problem, so the encoding is named and a fix given."""
+    path = tmp_path / "taskmap"
+    path.write_bytes(_TASKMAP_BODY.encode("utf-16"))
+    result = runner.invoke(app, ["taskmap", str(path)])
+    assert result.exit_code == 1
+    assert "UTF-16" in result.output
+    assert "iconv" in result.output
+    assert "is this a taskmap file?" not in result.output

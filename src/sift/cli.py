@@ -814,10 +814,24 @@ def taskmap(
     from sift.pipeline.taskmap import parse_taskmap, to_pu_rows
 
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        data = path.read_bytes()
     except OSError as exc:
         typer.secho(f"cannot read taskmap {path}: {exc}", fg="red", err=True)
         raise typer.Exit(1) from None
+
+    # A taskmap is cached and edited on Windows, so UTF-16 is a realistic
+    # shape. Decoded as UTF-8 it becomes NUL-riddled mojibake that parses to
+    # zero entries, which would be reported as "is this a taskmap file?" — a
+    # misleading message for a file that IS one. Detect the BOM and say so.
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        typer.secho(
+            f"{path} is UTF-16 encoded; convert it to UTF-8 first "
+            "(for example: iconv -f UTF-16 -t UTF-8)",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(1)
+    text = data.decode("utf-8", errors="replace")
 
     parsed = parse_taskmap(text)
     if not parsed.entries:
