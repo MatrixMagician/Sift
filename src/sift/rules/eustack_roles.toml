@@ -208,13 +208,33 @@ pattern = 'rd_kafka_thread_main'
 # Provenance: the queue names and their identifying frames are recovered from
 # the MicroStrategy Support Utility Notepad++ plugin v1.25 (its compiled-in
 # ten-entry PUMap/signature tables, and the `taskmap` file its TaskMap::Lookup
-# reads). Sift re-implements the CONCEPT, not the mechanism — see ADR 0022
-# for the three deliberate divergences: matching is deepest-frame-wins rather
-# than lowest-PU-index-wins, `index` is provenance only and never precedence,
-# and there is no network taskmap, no ten-entry cap and no sentinel index.
+# reads). All nine rows below were verified byte-for-byte against the shipped
+# DLL and are pinned by test_pu_rules_reproduce_the_utilitys_table_verbatim —
+# so a queue NAME here is spelled exactly as the utility spells it, and an
+# engineer reading both tools' output never has to reconcile two spellings.
+#
+# Sift re-implements the CONCEPT, not the mechanism — see ADR 0022 for the
+# four deliberate divergences: matching is deepest-frame-wins rather than
+# lowest-PU-index-wins; `index` is provenance only and never precedence; there
+# is no network taskmap, no ten-entry cap and no sentinel index; and a gdb
+# thread is identified by its LWP rather than by gdb's own session-local
+# counter.
+#
+# ADDING A QUEUE. The utility's tenth entry is the sentinel "Not Yet
+# Implemented", and its own version-skew warning ("The current PUMap contains
+# additional PUs that this version of the plugin cannot support") shows the
+# network taskmap is expected to grow past nine. This file is where that
+# growth belongs for Sift, and it has no cap. A new row needs: an `index`
+# unused by any other name (use the utility's number when it has one, else the
+# next free number above 8 — 9 is deliberately left empty, being the
+# sentinel's position); a fully-qualified dispatch frame as `pattern`; and a
+# `description` naming the work, since it is shown to the operator and to the
+# model. Add a golden-case `truth.yaml` figure alongside, or the new queue
+# ships ungated exactly as this whole axis nearly did.
 #
 # `match` defaults to `exact` (D-09), same as [[rule]]; every pattern must be
-# in normalise() canonical form; duplicate (match, pattern) pairs are rejected.
+# in normalise() canonical form; duplicate (match, pattern) pairs are rejected,
+# as is one name carrying two indices or one index carrying two names.
 #
 # ORDER IN THIS FILE IS NOT PRECEDENCE for [[pu]] rows — unlike [[rule]].
 # Stack DEPTH is: the deepest matching frame wins, because a PU-identifying

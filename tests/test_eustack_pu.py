@@ -821,3 +821,53 @@ def test_utility_sentinel_is_not_a_queue() -> None:
     assert all(rule.pattern != "Not Yet Implemented" for rule in _RULES.pu)
     # And nothing occupies index 9, the sentinel's position.
     assert all(rule.index != 9 for rule in _RULES.pu)
+
+
+def test_a_tenth_queue_is_addable_exactly_as_the_file_documents() -> None:
+    """The utility caps its PUMap at ten and renders anything above nine as
+    "Out of Bounds", while its own version-skew warning shows the network
+    taskmap is expected to outgrow that. Sift has no cap, and this test walks
+    the procedure the rules file's own ADDING A QUEUE note gives, so the
+    instructions are executable rather than aspirational.
+
+    Index 10 is used deliberately: it is the utility's sentinel-and-overflow
+    value, the exact number that would render as "Out of Bounds" there.
+    """
+    import importlib.resources
+    import tomllib
+
+    shipped = (
+        importlib.resources.files("sift.rules")
+        .joinpath("eustack_roles.toml")
+        .read_text(encoding="utf-8")
+    )
+    extended = ThreadRoleRules.model_validate(
+        tomllib.loads(
+            shipped
+            + "\n[[pu]]\n"
+            'index = 10\n'
+            'name = "Subscription Delivery"\n'
+            'subsystem = "subscription"\n'
+            'match = "contains"\n'
+            "pattern = 'MSISubscriptionTask::Run'\n"
+            'description = "Executing a scheduled subscription"\n'
+        )
+    )
+    assert len(extended.pu) == len(_RULES.pu) + 1
+
+    attribution = attribute_pu(
+        ("pthread_cond_wait", "MSISubscriptionTask::Run", "MSIThread::Run"),
+        extended,
+    )
+    assert attribution is not None
+    assert attribution.name == "Subscription Delivery"
+    assert attribution.index == 10
+    assert attribution.frame_index == 1
+
+    # The existing queues are untouched by the addition: a new row cannot
+    # reorder outcomes, because depth rather than file position decides.
+    assert attribute_pu(("MSIDSSCommand::Process()",), extended) is not None
+    assert (
+        attribute_pu(("MSIDSSCommand::Process()",), extended).name  # pyright: ignore[reportOptionalMemberAccess]
+        == attribute_pu(("MSIDSSCommand::Process()",), _RULES).name  # pyright: ignore[reportOptionalMemberAccess]
+    )
