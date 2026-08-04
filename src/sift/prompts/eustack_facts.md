@@ -12,11 +12,21 @@ below originates in code, never authored here. A quoted population figure
 names a bounded exemplar sample, never the full population; the parenthetical
 beside it states both the exemplar count and the true population size.
 
-These facts cover thread-role composition, per-pool occupancy, lock-site
-convergence and external-wait concentration, followed by a capped listing of
-the most populous stack signatures. When more signatures exist than the
-listing shows, the block states plainly how many further signatures are not
-shown, rather than truncating silently.
+These facts cover thread-role composition, per-processing-unit health,
+per-pool occupancy, lock-site convergence and external-wait concentration,
+followed by a capped listing of the most populous stack signatures. When more
+signatures exist than the listing shows, the block states plainly how many
+further signatures are not shown, rather than truncating silently.
+
+A processing unit is the Intelligence Server work queue a thread serves,
+named from the deepest dispatch frame in its stack. It is reported as a
+separate axis from the thread's role: the role says what the thread is doing,
+the processing unit says which queue it is doing it for. A thread that no
+rule attributes to a named queue is reported under its own explicit heading,
+which is an ordinary outcome for infrastructure threads rather than a
+failure. Waiting at a lock site and waiting on an external dependency are
+reported as separate figures and must not be merged, because they lead to
+different conclusions.
 
 When the case carries more than one dump, this block also reports the
 resolved dump sequence and, for signatures whose population changed, a

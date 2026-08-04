@@ -285,11 +285,67 @@ def _dependency_lines(
     return lines
 
 
+def _pu_lines(
+    bundle: EustackBundle,
+    per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
+    ids: set[str],
+) -> tuple[list[str], dict[str | None, tuple[str, ...]]]:
+    """Processing-unit health lines (ADR 0022), plus the per-PU exemplar map
+    (reused by ``_flag_lines`` for ``pu_lock_blocked_count`` flags so that
+    figure is never re-derived from a second pass).
+
+    One line per queue, carrying the full role split rather than a single
+    headline figure: "the Query Engine has twelve threads at a lock" and "the
+    Query Engine has twelve threads waiting on the warehouse" lead to
+    completely different hypotheses, and a merged "twelve blocked" figure
+    would let the model pick either.
+
+    The unattributed row is INCLUDED here, unlike in the flag pass: as a
+    reported figure it is informative (it says how much of the dump serves no
+    queue this rules file names), whereas as a graded flag it names nothing
+    actionable. ``pu_finding_note`` is emitted once ahead of the lines, and
+    only when at least one line rendered, so the caveat never floats over an
+    empty section — the same shape ``_lock_site_lines`` uses.
+    """
+    exemplars_by_pu: dict[str | None, tuple[str, ...]] = {}
+    pu_lines: list[str] = []
+    for row in bundle.saturation.pu_health:
+        frame_tuples = [
+            group.frames
+            for group in bundle.analysis.signatures
+            if (group.pu.name if group.pu is not None else None) == row.pu_name
+        ]
+        exemplars = _union_exemplars(frame_tuples, per_dump_sig_ids)
+        exemplars_by_pu[row.pu_name] = exemplars
+        if not exemplars:
+            # No line without an [evt:] token — an uncited figure is forbidden.
+            continue
+        prefix = _cite_prefix(exemplars, ids)
+        label = (
+            sanitise(row.pu_name)
+            if row.pu_name is not None
+            else "no attributed processing unit"
+        )
+        pu_lines.append(
+            f"{prefix} eu-stack processing unit {label}: {row.total_threads:,} "
+            f"threads across {row.signature_count:,} signatures — "
+            f"{row.blocked_on_lock_threads:,} waiting at a lock site, "
+            f"{row.blocked_on_external_threads:,} waiting on an external "
+            f"dependency, {row.idle_threads:,} parked idle, "
+            f"{row.running_threads:,} running. "
+            f"{_sampling_sentence(len(exemplars), row.total_threads)}"
+        )
+    if not pu_lines:
+        return [], exemplars_by_pu
+    return [bundle.saturation.pu_finding_note, *pu_lines], exemplars_by_pu
+
+
 def _flag_lines(
     bundle: EustackBundle,
     per_dump_sig_ids: list[dict[tuple[str, ...], list[str]]],
     pool_exemplars: dict[str | None, tuple[str, ...]],
     lock_site_exemplars: dict[str, tuple[str, ...]],
+    pu_exemplars: dict[str | None, tuple[str, ...]],
     ids: set[str],
 ) -> list[str]:
     """One graded line per ``SaturationFlag``, giving each flag the exemplar
@@ -326,6 +382,17 @@ def _flag_lines(
 
     lines: list[str] = []
     lock_sites_in_order = iter(bundle.saturation.lock_sites)
+    # ADR 0022: analyse_saturation emits one pu_lock_blocked_count flag per
+    # named PU with lock-blocked threads, in pu_health order — so the same
+    # lockstep-iterator idiom the lock_convergence_count branch uses applies
+    # here, and for the same reason: matching on `value` would be ambiguous
+    # under a thread-count tie between two queues. Filtered by the identical
+    # predicate analyse_saturation applies, so the two cannot drift.
+    pu_rows_in_order = iter(
+        row
+        for row in bundle.saturation.pu_health
+        if row.pu_name is not None and row.blocked_on_lock_threads
+    )
     for flag in bundle.saturation.flags:
         if flag.dimension == "unclassified_thread_pct":
             exemplars = pool_exemplars.get(None, ())
@@ -339,6 +406,16 @@ def _flag_lines(
                 lock_site_exemplars.get(site.site, ()) if site is not None else ()
             )
             population = site.thread_count if site is not None else 0
+        elif flag.dimension == "pu_lock_blocked_count":
+            pu_row = next(pu_rows_in_order, None)
+            exemplars = (
+                pu_exemplars.get(pu_row.pu_name, ()) if pu_row is not None else ()
+            )
+            # The PU's OWN total, not its lock-blocked count: the exemplars
+            # were drawn from the queue's whole signature population, so
+            # quoting the smaller figure would overstate how much of the
+            # cited set the sample covers.
+            population = pu_row.total_threads if pu_row is not None else 0
         else:
             # WR-02: an unrecognised dimension must never disappear silently
             # (CLAUDE.md "nothing disappears silently") — fail loudly so a
@@ -359,6 +436,10 @@ def _flag_lines(
         )
     assert next(lock_sites_in_order, None) is None, (
         "lock_convergence_count flag count must equal len(lock_sites)"
+    )
+    assert next(pu_rows_in_order, None) is None, (
+        "pu_lock_blocked_count flag count must equal the number of named "
+        "processing units with lock-blocked threads"
     )
     return lines
 
@@ -393,6 +474,15 @@ def _signature_listing_lines(
             parts.append(f" matched frame {sanitise(group.frames[group.frame_index])}.")
         if group.reason is not None:
             parts.append(f" reason {sanitise(group.reason)}.")
+        if group.pu is not None:
+            # The queue and the frame that named it, so the model can tie a
+            # signature to the processing-unit lines above without inferring
+            # the link from frame text.
+            parts.append(
+                f" processing unit {sanitise(group.pu.name)}, identified at "
+                f"frame {sanitise(group.frames[group.pu.frame_index])} "
+                f"({sanitise(group.pu.description)})."
+            )
         parts.append(f" {_sampling_sentence(len(exemplars), group.thread_count)}")
         lines.append("".join(parts))
 
@@ -552,6 +642,9 @@ def render_eustack_facts(
             f"{_sampling_sentence(len(exemplars), threads)}"
         )
 
+    pu_lines, pu_exemplars = _pu_lines(bundle, per_dump_sig_ids, ids)
+    lines.extend(pu_lines)
+
     pool_lines, pool_exemplars = _pool_lines(bundle, per_dump_sig_ids, ids)
     lines.extend(pool_lines)
 
@@ -561,7 +654,14 @@ def render_eustack_facts(
     lines.extend(_dependency_lines(bundle, per_dump_sig_ids, ids))
 
     lines.extend(
-        _flag_lines(bundle, per_dump_sig_ids, pool_exemplars, lock_site_exemplars, ids)
+        _flag_lines(
+            bundle,
+            per_dump_sig_ids,
+            pool_exemplars,
+            lock_site_exemplars,
+            pu_exemplars,
+            ids,
+        )
     )
 
     lines.extend(_signature_listing_lines(bundle, per_dump_sig_ids, ids))
