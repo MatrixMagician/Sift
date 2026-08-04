@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from sift.adapters import detect
 from sift.adapters.eustack import EustackAdapter
 from sift.adapters.threaddump import (
     GDB_PSTACK_GRAMMAR,
@@ -917,3 +918,53 @@ def test_a_bom_does_not_hide_a_whole_thread_dump(tmp_path: Path) -> None:
     first = threads[0]
     start = int(first.attrs["byte_offset"])
     assert raw[start : start + int(first.attrs["byte_len"])].endswith(b"()\n")
+
+
+@pytest.mark.parametrize("compression", ["gzip", "zstd", "gzip-with-bom"])
+def test_compressed_pstack_reaches_the_processing_unit_table(
+    compression: str, tmp_path: Path
+) -> None:
+    """Support artefacts arrive compressed, so the realistic shape is a
+    gzipped or zstd-compressed pstack — sometimes with a BOM as well.
+
+    Detection sniffs DECOMPRESSED content (``base.read_head``), so this also
+    proves the new grammars are reached through that path and not only on
+    plain files. The three concerns compose rather than merely coexisting:
+    compression, encoding and a non-eu-stack grammar all apply at once here,
+    which is exactly how a real capture arrives.
+    """
+    import gzip
+
+    import zstandard
+
+    body = (
+        b"-----  lwp# 41 / thread# 41  -----\n"
+        b" 0000000000000001 __lll_lock_wait (0x1, 2) + a\n"
+        b" 0000000000000002 MSynch::CriticalSectionImpl::Lock (void) + 91\n"
+        b" 0000000000000003 CDSSQueryEngineServer::ProcessRequest (void*) + 107\n"
+    )
+
+    if compression == "zstd":
+        path = tmp_path / "pstack.txt.zst"
+        path.write_bytes(zstandard.ZstdCompressor().compress(body))
+    else:
+        payload = b"\xef\xbb\xbf" + body if compression.endswith("bom") else body
+        path = tmp_path / "pstack.txt.gz"
+        with gzip.open(path, "wb") as fh:
+            fh.write(payload)
+
+    # Real detection, not a forced override: the adapter must win the sniff.
+    assert detect(path, path.name, {}).name == "eustack"
+
+    adapter = EustackAdapter()
+    adapter.input_root = tmp_path
+    events = list(adapter.parse(path, "case"))
+    analysis = analyse_eustack(events, _RULES, _RULES_HASH)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+
+    rows = {row.pu_name: row for row in saturation.pu_health}
+    assert "Query Engine" in rows, compression
+    assert rows["Query Engine"].blocked_on_lock_threads == 1
+    assert rows["Query Engine"].lock_sites[0].site == (
+        "MSynch::CriticalSectionImpl::Lock"
+    )
