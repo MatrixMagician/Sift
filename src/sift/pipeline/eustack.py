@@ -825,9 +825,10 @@ class PuHealth(BaseModel):
     blocked_threads: int
     idle_threads: int
     running_threads: int
-    # Share of this PU's threads that are blocked for any reason, 0-100. The
-    # figure the pu_blocked_pct flag grades, computed once here so the flag
-    # and the table can never disagree.
+    # Share of this PU's threads that are blocked for any reason, 0-100.
+    # Reported, never graded: a queue waiting on the warehouse is doing its
+    # job, so this figure has no defensible zero point (see analyse_saturation
+    # and the config docstring for the measurement that settled it).
     blocked_pct: float
     # Where this PU's lock-waiting threads converge, if any — the same
     # enclosing-application-frame walk analyse_saturation uses, so the PU
@@ -1072,8 +1073,8 @@ def analyse_saturation(
     dependencies.sort(key=lambda d: (-d.thread_count, d.subsystem))
 
     # --- Processing-unit health (ADR 0022) ---
-    # Computed before the flag pass so the pu_blocked_pct flags can read the
-    # already-computed blocked_pct rather than re-deriving it.
+    # Computed before the flag pass so the pu_lock_blocked_count flags can walk
+    # these rows in lockstep rather than re-deriving their figures.
     pu_health = analyse_pu_health(analysis)
 
     # Fixed, authored check order (mcm.compute_flags' precedent): unclassified

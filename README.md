@@ -2,11 +2,11 @@
 
 Sift is a fully local, privacy-preserving incident triage engine. It ingests
 diagnostic artefacts from production systems — MicroStrategy DSSErrors logs,
-EU-stack thread dumps, journald exports, generic application logs — and uses a
-locally hosted LLM to cluster related events, summarise incident timelines, and
-generate ranked root-cause hypotheses with citations back to the source
-evidence. Every claim in a report cites a verifiable event ID; nothing leaves
-your machine except calls to the local inference endpoint you configure.
+thread dumps (eu-stack and pstack), journald exports, generic application logs —
+and uses a locally hosted LLM to cluster related events, summarise incident
+timelines, and generate ranked root-cause hypotheses with citations back to the
+source evidence. Every claim in a report cites a verifiable event ID; nothing
+leaves your machine except calls to the local inference endpoint you configure.
 
 This quickstart takes you from a clean checkout to your first triage report on
 Fedora. Read it top to bottom the first time — the backend setup (step 2) is

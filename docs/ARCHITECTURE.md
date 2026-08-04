@@ -3,7 +3,7 @@
 ## System overview
 
 Sift turns a directory of raw diagnostic artefacts (MicroStrategy `DSSErrors` logs,
-`DSSPerformanceMonitor` PDH-CSV counter dumps, EU-stack thread dumps, journald exports, generic
+`DSSPerformanceMonitor` PDH-CSV counter dumps, thread dumps (eu-stack and pstack), journald exports, generic
 application logs) into a ranked, evidence-cited triage report — entirely offline. It is a Typer
 CLI (`sift`) over a five-stage batch pipeline, with all
 state held in a single per-case SQLite database (`case.db`). The only network traffic is to a
