@@ -27,9 +27,9 @@ adapters/     pipeline/    pipeline/       pipeline/      render/          eval/
  dsserrors     dedup.py    retrieve.py    analysers.py    json_out.py      metrics.py
  dssperfmon    salience.py                mcm.py           mcm_report.py    judge.py
  eustack                                  mcm_facts.py     perfmon_report.py thresholds.py
- journald                                 perfmon.py       eustack_report.py
- genericlog                               perfmon_facts.py pdf.py
-                                          eustack.py
+ threaddump                               perfmon.py       eustack_report.py
+ journald                                 perfmon_facts.py pdf.py
+ genericlog                               eustack.py
                                           eustack_facts.py
                                           eustack_progression.py
    │              │           │               │              │             │
@@ -85,10 +85,26 @@ episode with counter value-at-denial, slope-per-second and peak over the episode
 falls back to a per-source-file full-sample-range scope so it never implies a correlation it did not
 perform. `pipeline/perfmon_facts.py` (`render_perfmon_facts`) renders that analysis as citable
 `[evt:…]` fact lines the same way `mcm_facts` does. The v1.3 eu-stack family follows the same
-shape: `pipeline/eustack.py` (thread-role classification + saturation analysis over rules loaded
-by `load_rules`), `pipeline/eustack_progression.py` (`analyse_eustack_bundle`, multi-dump
+shape: `pipeline/eustack.py` (thread-role classification, processing-unit attribution and
+saturation analysis over rules loaded by `load_rules`),
+`pipeline/eustack_progression.py` (`analyse_eustack_bundle`, multi-dump
 ordering and progression) and `pipeline/eustack_facts.py` (`render_eustack_facts`). None of the
 analysers opens a socket or calls the LLM.
+
+Thread-dump analysis carries **two orthogonal axes** over one signature: a thread's *role* (what it
+is doing) and its *processing unit* (which Intelligence Server work queue it is doing it for). Both
+come from the same versioned `rules/eustack_roles.toml` — `[[rule]]` rows and `[[pu]]` rows — and
+neither overrides the other; `analyse_pu_health` cross-tabulates them, which is what makes "which
+queue is wedged" answerable. Role matching is first-match-in-file-order (ADR 0015); PU attribution
+is deepest-frame-wins (ADR 0022), because a queue's dispatch frame sits below the work it calls
+into.
+
+Format handling is factored out into `adapters/threaddump.py`, a table of `DumpGrammar` records
+(eu-stack, Solaris pstack, gdb pstack). A grammar owns the thread-header pattern, the frame
+pattern and the symbol-extraction rule; everything downstream of the split is format-independent,
+so adding AIX `dbx` or WinDBG is a new grammar plus a registration and touches no analyser or
+renderer. Detection is per thread block, so a concatenation of captures in different formats still
+parses.
 
 ## The canonical Event model and `event_id` determinism
 
@@ -223,7 +239,8 @@ Sniffing always sees decompressed bytes: `base.open_bytes` detects gzip and zstd
 single shared path (`to_utc`, `tz_override_for`), so `ts_confidence` is `exact` for
 timezone-aware inputs and `inferred` where an override or UTC assumption was applied.
 
-The five registered adapters are `genericlog`, `journald`, `dsserrors`, `eustack` and the v1.2
+The five registered adapters are `genericlog`, `journald`, `dsserrors`, `eustack` (thread dumps in
+any of the three `adapters/threaddump.py` grammars) and the v1.2
 `dssperfmon` (PDH-CSV counter dumps). `dssperfmon` is the one adapter whose events are held out of
 ranking — the exclusion lives in `store.py`, not in the adapter, so the adapter stays a plain
 `sniff`/`parse` module like the rest. Adding adapter #6 still requires exactly a new module plus one

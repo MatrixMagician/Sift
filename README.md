@@ -226,7 +226,7 @@ generic log parser rather than being dropped. Five adapters ship today:
 | --- | --- |
 | `dsserrors` | MicroStrategy Intelligence Server `DSSErrors` logs, including multi-line MCM memory-contract blocks |
 | `dssperfmon` | MicroStrategy `DSSPerformanceMonitor` PDH-CSV exports — one sample row per event, each individually citable |
-| `eustack` | EU-stack thread dumps (one dump block = one event) |
+| `eustack` | Thread dumps — elfutils `eu-stack`, Solaris `pstack`, and gdb/Linux `pstack` (one thread block = one event) |
 | `journald` | systemd journal exports |
 | `genericlog` | Any other plain-text application log — the fallback |
 
@@ -283,6 +283,52 @@ When present, these computed perfmon figures are also fed into `sift analyze` as
 **cited** evidence: hypotheses may cite a counter reading by event ID, but the
 figures are built before generation, so the model can neither alter nor invent
 them. A case with no perfmon data produces a byte-identical prompt to before.
+
+### Thread dumps: which processing unit is stuck
+
+For a hung or sluggish Intelligence Server, `sift eustack` turns a directory of
+thread dumps into a report you can read in one screen:
+
+```bash
+sift eustack my-incident
+```
+
+It classifies every thread on two independent axes. The **role** axis says what a
+thread is doing — parked idle, waiting at a lock, waiting on an external
+dependency, or running. The **processing unit** axis says which Intelligence
+Server work queue it is doing it for — Query Engine, Command PU, Evaluation,
+Resolution and so on — read from the deepest dispatch frame in its stack.
+
+Crossing the two is the point. "Fifteen threads are blocked" is true of the whole
+server and actionable for none of it; "eleven of the Query Engine's eleven
+threads are waiting on the warehouse, and two of the Command PU's are waiting at
+`MSynch::CriticalSectionImpl::Lock`" names the subsystem to look at:
+
+| Processing unit | Total | Lock-blocked | Dependency-blocked | Idle | Running |
+| --- | --- | --- | --- | --- | --- |
+| Query Engine | 3 | 2 | 1 | 0 | 0 |
+| Command PU | 2 | 0 | 0 | 2 | 0 |
+| Evaluation | 2 | 0 | 0 | 2 | 0 |
+
+Rows rank by lock-blocked threads first, not by size, so a queue with thousands
+of healthy idle workers never buries one with a handful of genuinely stuck
+threads. Below it the report gives per-pool occupancy, the application call sites
+threads are converging on, external-wait concentration, and every distinct stack
+signature with the frame that classified it — plus, across multiple dumps, which
+signature populations grew or shrank.
+
+Three dump formats are read: elfutils `eu-stack`, Solaris `pstack`, and
+gdb/Linux `pstack` (`thread apply all bt`). All three produce identical
+classifications for identical stacks; only the thread header and frame syntax
+differ. Everything is deterministic — no model, no network — and the whole
+analysis is also folded into `sift analyze` as cited evidence.
+
+Both axes are curated in one reviewed, versioned file,
+`src/sift/rules/eustack_roles.toml`, whose content hash appears in every report.
+Adding a queue or a role is a row in that file and no Python change. Lock
+findings are ownership-blind by construction: thread dumps carry no
+lock-acquisition edges, so Sift reports where threads are waiting and never
+claims which thread holds what.
 
 ## Requirements
 

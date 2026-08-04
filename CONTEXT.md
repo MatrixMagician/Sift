@@ -112,3 +112,53 @@ knobs. Owned by `llm/bringup.py`. One canonical path for all callers, so
 
 *Not* the same as the `InferenceClient` itself (`llm/client.py`), which knows
 about endpoints and protocol but nothing about `SiftConfig`.
+
+## Role and processing unit — two axes, never one
+
+The two things a thread dump tells us about a thread, deliberately kept apart.
+
+**Role** (`pipeline.eustack.Role`) is what a thread is *doing*: `idle-parked`,
+`blocked-on-external`, `blocked-on-lock`, `running`, or the `unclassified`
+residual. From `[[rule]]` rows, first match in file order (ADR 0015).
+
+**Processing unit** (**PU**) is which Intelligence Server work queue a thread is
+doing it *for*: Query Engine, Command PU, Evaluation and so on. From `[[pu]]`
+rows, deepest matching frame wins (ADR 0022). The term is MicroStrategy's own,
+adopted from the Support Utility so an engineer's existing vocabulary carries
+over.
+
+They are orthogonal and neither overrides the other: a `blocked-on-lock` Query
+Engine thread and a `blocked-on-lock` Command PU thread share a role and are
+different incidents. Say **role** or **processing unit**, never "classification"
+unqualified — that word could mean either, and the cross-tabulation of the two
+(`PuHealth`) is where the diagnostic value lives.
+
+**Subsystem** belongs to the role axis (`Rule.subsystem`, e.g. `job-queue`,
+`warehouse`) and is a finer label *within* it, not a synonym for a processing
+unit. `PuRule.subsystem` exists too, and is a slug for the same queue the `name`
+names; when both could be meant, say "role subsystem" or "PU subsystem".
+
+**Unattributed** means no `[[pu]]` row matched (`pu is None`), reported as its own
+row. It is an ordinary outcome for infrastructure threads and never a failure —
+unlike `unclassified` on the role axis, whose rate is deliberately a
+rules-drift signal. Do not describe either as "unknown", which blurs the two.
+
+## Dump grammar
+
+How one thread-dump format spells a thread header and a frame line, plus the
+symbol-extraction rule that strips its own location and offset noise
+(`adapters/threaddump.DumpGrammar`). Three ship: `eu-stack`, `solaris-pstack`,
+`gdb-pstack`.
+
+The grammar is the *only* format-dependent part of thread-dump analysis:
+everything after the split — role rules, PU attribution, signature grouping,
+saturation, rendering — runs on grammar-normalised frames and is identical
+across formats. "Adding a format" therefore means adding a grammar, and nothing
+else.
+
+Note that `eustack` remains the adapter's name and the `Event.source` value for
+all three formats, for the same reason ADR 0015's vocabulary was not renamed:
+the stored value is load-bearing in queries and case databases. Which grammar
+actually read a thread is recorded per event in `attrs["dump_format"]`. In
+prose, prefer **thread dump** for the artefact and **eu-stack** only when the
+elfutils format specifically is meant.

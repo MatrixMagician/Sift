@@ -106,6 +106,48 @@ noted.
 
 Omitting the `[mcm.thresholds]` table yields exactly the defaults above.
 
+### `[eustack]` — thread-dump rules and cut-points
+
+Thread-dump analysis has two independent axes. A thread's **role** says what it is doing
+(`idle-parked`, `blocked-on-external`, `blocked-on-lock`, `running`, `unclassified`); its
+**processing unit** says which Intelligence Server work queue it is doing it for (Query
+Engine, Command PU, Evaluation and so on). Crossing them is what answers "which type of
+PU's threads are locked or slow" — see `docs/decisions/0015-eustack-thread-role-taxonomy.md`
+and `docs/decisions/0022-processing-unit-attribution.md`.
+
+Both axes are curated in one versioned TOML file, `src/sift/rules/eustack_roles.toml`:
+`[[rule]]` rows assign roles and `[[pu]]` rows assign processing units. Nothing is fetched
+over the network, and the file's content hash is recorded in every report.
+
+| TOML key | Env var | Type | Default | Meaning |
+|---|---|---|---|---|
+| `eustack.rules_path` | `SIFT_EUSTACK_RULES_PATH` | str \| null | `null` | Path to a replacement rules file. `null` loads the packaged default. A path that does not exist fails loudly rather than silently reverting to the default. |
+| `eustack.thresholds.unclassified_thread_pct` | — | pair | `warn = 5.0`, `critical = 15.0` | Percentage of threads matching no role rule. This is the rules-drift signal; do not curate a catch-all rule to suppress it. |
+| `eustack.thresholds.no_resolvable_frame_pct` | — | pair | `warn = 5.0`, `critical = 15.0` | Percentage of threads whose stacks carry no resolvable symbol at all. A distinct problem from the row above: obtain symbols, rather than curate a rule. |
+| `eustack.thresholds.lock_convergence_count` | — | pair | `warn = 5.0`, `critical = 20.0` | Threads converging on one lock **site**. A count, not a percentage. |
+| `eustack.thresholds.pu_lock_blocked_count` | — | pair | `warn = 5.0`, `critical = 20.0` | Threads of one **processing unit** waiting at a lock site. Complements the row above: a queue spread thinly over several sites trips no per-site threshold while the queue itself is wedged. |
+
+Omitting the `[eustack]` table yields exactly the defaults above.
+
+Two calibration caveats, stated because they affect how the flags should be read. The two
+percentage cut-points rest on one real capture, in which 1.33% of threads were
+unclassified — comfortably `info`. Both count cut-points have no calibration data at all,
+because no capture of a genuinely hung server exists; they are round, conservative
+placeholders.
+
+There is deliberately **no** per-processing-unit blocked-share threshold. On the healthy
+reference case the Query Engine measures 100% blocked, being threads parked in
+`CDSSQueryEngine::WaitUntilFinished` waiting on the warehouse — a queue doing its job — so
+grading that share reports `critical` on a healthy server. The share is reported in the
+processing-unit table, ungraded.
+
+Adding a processing unit is a `[[pu]]` row and nothing else. Row order is **not**
+precedence for `[[pu]]` (unlike `[[rule]]`, where file order is the only precedence knob):
+the deepest matching frame wins, because a queue's dispatch frame sits below the work it
+calls into. Patterns must be fully-qualified C++ symbols in canonical form, with no
+`@GLIBC_...` suffix and no ` - <lib> <source>:<line>` tail; the loader rejects a
+non-canonical pattern at load time and quotes the form to use.
+
 ### Settings that are not in `config.toml`
 
 | Setting | Where | Default | Meaning |
