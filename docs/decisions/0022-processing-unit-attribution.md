@@ -35,6 +35,13 @@ decisions are wrong in ways that are measurable against Sift's own reference cap
 **Adopt the PU concept as a second, orthogonal axis. Re-implement the matching. Keep the frame
 list.**
 
+The frame list, the nine queue names and their index pairing were verified byte-for-byte against the
+shipped `MicroStrategy_Support_Util.dll` v1.25, not transcribed on trust; the test
+`test_pu_rules_reproduce_the_utilitys_table_verbatim` pins all three. That check found one
+transcription error before it shipped (`Delivery(NCSPU)` had acquired a space), which is exactly the
+class of drift that would leave an engineer comparing two reports side by side wondering whether two
+spellings meant one queue.
+
 Processing-unit rules live in the same versioned `src/sift/rules/eustack_roles.toml` the role rules
 live in, as `[[pu]]` rows, loaded and content-hashed by the same `load_rules`. `SignatureGroup`
 gains a defaulted `pu: PuAttribution | None`; `SaturationAnalysis` gains `pu_health`, the
@@ -101,6 +108,22 @@ incorrect" when off-network. Sift's rules file is in the repository, reviewed in
 content-hashed into the report, and overridable via `[eustack] rules_path`. This follows directly
 from the zero-network-egress invariant; it is recorded here because it also changes the failure mode
 from *silently stale* to *visibly versioned*.
+
+### Divergence 4: the reported thread id is the kernel thread, not the debugger's counter
+
+The utility's gdb/Linux header regex is `Thread (\d+) \(Thread (\w+)`, whose group 1 is gdb's own
+**sequential** thread number and whose group 2 is the pthread handle. The LWP is not captured at all.
+Sift reads the LWP instead (`Thread \d+ \(.*?LWP (\d+)\)`), falling back to the sequential number
+only when gdb omits the LWP, as it does for a single-threaded target.
+
+The LWP is the kernel thread id: it is what appears in `/proc`, in `top -H`, in a DSSErrors log line,
+and in a second capture of the same process. gdb's counter is an artefact of one debugging session
+and correlates with nothing outside it. Since the whole value of a thread id here is cross-referencing
+it against other diagnostics, the counter is the wrong number to print.
+
+The consequence is worth stating because it is visible: the same gdb dump yields different thread ids
+in the two tools. `test_grammar_detection_and_thread_ids` pins both the LWP preference and the
+fallback.
 
 ### Kept deliberately: substring matching over the whole stack
 

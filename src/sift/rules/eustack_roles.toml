@@ -268,7 +268,10 @@ description = "Resolving object definitions"
 
 [[pu]]
 index = 5
-name = "Delivery (NCSPU)"
+# Name verbatim from the utility's own PU table: no space before the
+# parenthesis. Kept byte-exact so an engineer who knows the utility's output
+# recognises the queue without a translation step.
+name = "Delivery(NCSPU)"
 subsystem = "delivery"
 match = "contains"
 pattern = 'DSSPersistResultTask::Run'

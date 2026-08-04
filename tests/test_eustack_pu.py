@@ -191,7 +191,7 @@ def test_packaged_rules_carry_the_utilitys_nine_named_queues() -> None:
         "Query Engine",
         "Analytical Engine",
         "Resolution",
-        "Delivery (NCSPU)",
+        "Delivery(NCSPU)",
         "Browsing",
         "Document Data Preparation",
         "Evaluation",
@@ -756,3 +756,68 @@ def test_degenerate_dumps_never_raise(tmp_path: Path) -> None:
     )
     assert analysis.unclassified[0].reason == "no-resolvable-frame"
     assert analysis.unclassified[0].pu is None
+
+
+# --- Provenance: the rules match the utility they were recovered from -------
+
+# Verbatim from the utility's compiled-in tables, verified byte-for-byte
+# against MicroStrategy_Support_Util.dll v1.25 (the two parallel ten-entry
+# std::vector<std::string> at 0x1800de808 and 0x1800de850). Transcribed here
+# rather than read from the DLL at test time: the binary is not redistributable
+# and is not in this repo, so a test that needed it would be unrunnable in CI.
+#
+# The pairing is positional in the binary, and the tenth entry
+# ("Not Yet Implemented") is the utility's sentinel, which Sift represents as
+# pu=None instead — see ADR 0022 divergence 2.
+_UTILITY_PU_TABLE: tuple[tuple[int, str, str], ...] = (
+    (0, "MSIDSSCommand::Process", "Command PU"),
+    (1, "CDSSSQLEngineServer", "SQL Engine"),
+    (2, "CDSSQueryEngineServer", "Query Engine"),
+    (3, "CDSSAnalyticalEngineServer", "Analytical Engine"),
+    (4, "DSSResolutionServerTask::Run", "Resolution"),
+    (5, "DSSPersistResultTask::Run", "Delivery(NCSPU)"),
+    (6, "DSSObjectServerTask::Run", "Browsing"),
+    (7, "DSSDocumentDataPreparationTask::Run", "Document Data Preparation"),
+    (8, "MSIEvaluationTask::Run", "Evaluation"),
+)
+
+
+def test_pu_rules_reproduce_the_utilitys_table_verbatim() -> None:
+    """Every shipped ``[[pu]]`` row matches the utility's own table exactly:
+    same index, same identifying symbol, same queue NAME byte-for-byte.
+
+    Byte-exactness on the name is not pedantry. ``Delivery(NCSPU)`` carries no
+    space before the parenthesis in the binary, and this test was written after
+    a transcription introduced one — an engineer reading a Sift report and a
+    utility report side by side would have seen two spellings and had to work
+    out whether they meant the same queue.
+
+    The index pairing matters for the same reason: ``index`` exists only to
+    trace a finding back to the utility's numbering (ADR 0022 divergence 2), so
+    an index paired with the wrong queue would silently break the one job it
+    has.
+    """
+    by_pattern = {rule.pattern: rule for rule in _RULES.pu}
+    assert len(by_pattern) == len(_UTILITY_PU_TABLE), (
+        "the shipped rules carry a different number of distinct patterns than "
+        "the utility's table"
+    )
+    for index, pattern, name in _UTILITY_PU_TABLE:
+        rule = by_pattern.get(pattern)
+        assert rule is not None, f"no [[pu]] row matches {pattern!r}"
+        assert rule.index == index, pattern
+        assert rule.name == name, pattern
+        # `contains` is what makes the utility's substring semantics hold —
+        # `exact` would silently stop matching CDSSSQLEngineServerImpl::Foo.
+        assert rule.match == "contains", pattern
+
+
+def test_utility_sentinel_is_not_a_queue() -> None:
+    """The utility's tenth entry, "Not Yet Implemented", is its no-match
+    sentinel and must never appear as a queue Sift can attribute a thread to.
+    Shipping it as a row would recreate exactly the bucket ADR 0022's
+    divergence 2 exists to remove."""
+    assert all(rule.name != "Not Yet Implemented" for rule in _RULES.pu)
+    assert all(rule.pattern != "Not Yet Implemented" for rule in _RULES.pu)
+    # And nothing occupies index 9, the sentinel's position.
+    assert all(rule.index != 9 for rule in _RULES.pu)
