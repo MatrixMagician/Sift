@@ -143,6 +143,38 @@ This is recorded because the failure was caught by running the analyser against 
 not by review — and a future contributor proposing the same threshold should find the measurement
 here rather than repeat it.
 
+### The axis is gated, not merely tested
+
+`eustack_detection_rate` scores an eu-stack golden case by *figure reproduction*: the case passes
+when `analyse_eustack_bundle` reproduces every figure its `truth.yaml` declares. A new axis that no
+truth file declares is therefore invisible to the gate — the metric would keep reading 1.00 while
+attribution silently regressed. Adding the analysis without extending the truth schema would have
+shipped it ungated.
+
+`ExpectEustack` gains `processing_units` (a per-queue role split) and an optional
+`processing_unit_names` (the complete attributed set). The split rather than a bare total is
+load-bearing: on `eustack-hang-pool-warehouse`, 25 Query Engine threads waiting on the warehouse and
+25 waiting at a lock are the same total and different incidents needing different fixes, so a
+total-only expectation would score both identically. All three shipped eu-stack cases declare
+measured figures, and the hang case's cosmetic-mutation twin reproduces them independently.
+
+Both fields default to empty, so a truth file that declines to pin the axis keeps passing rather
+than being retro-fitted with figures nobody measured. `processing_unit_names` defaults to `None`
+rather than `[]` for the same reason in the other direction: an empty list would assert *no queues*,
+which would make adding a `[[pu]]` row retroactively fail every case.
+
+### Detection must accept exactly what parsing reads
+
+Probing degenerate inputs found the sniff table compiling only `DumpGrammar.header` and not
+`header_fallback`, so a gdb dump of a single-threaded target (`Thread 1 (process 4242):`, no LWP)
+parsed correctly under a forced adapter override and fell through to `genericlog` without one.
+
+That asymmetry is the worst failure mode available in this area, which is why it is recorded rather
+than quietly fixed: the file still ingests, still reports full parse coverage, and yields zero
+threads, so the operator sees a *missing* analysis rather than an error. The invariant is that
+detection and parsing recognise the same set of files, and it is pinned by a test that asserts the
+parser really does read what the sniff accepts, on every shape a grammar can match.
+
 ### The ownership prohibition extends unchanged
 
 ADR 0015's permanent non-goal is a property of the data, not of an axis: neither eu-stack nor pstack
