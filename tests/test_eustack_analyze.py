@@ -460,3 +460,53 @@ def test_eval_path_parity_default_eustack_config(tmp_path: Path) -> None:
         assert block in prompts[0]
     finally:
         store.close()
+
+
+# --- Processing-unit evidence reaches the prompt, citably (ADR 0022) ---------
+
+
+def test_pu_lines_reach_the_prompt_with_valid_citations(tmp_path: Path) -> None:
+    """The processing-unit axis is evidence, so it must satisfy the same
+    anti-hallucination contract every other fact line does: reach the assembled
+    prompt verbatim, print only ids the model may cite, and have every one of
+    those ids resolve to a real stored event.
+
+    Uses the Solaris pstack fixture rather than ``threaddump.txt``: the latter
+    is a synthetic capture with no MicroStrategy frames, so it attributes no
+    queue at all and would make every assertion below vacuous.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    try:
+        _seed_eustack(store, "pstack_solaris.txt")
+        events = store.query_events()
+        rules, rules_hash = load_rules()
+        bundle = analyse_eustack_bundle(
+            events, rules, rules_hash, EustackThresholdsConfig()
+        )
+        block, block_ids = render_eustack_facts(bundle, events)
+
+        pu_lines = [
+            line
+            for line in block.splitlines()
+            if "eu-stack processing unit" in line
+        ]
+        # Non-vacuity: this fixture really does attribute named queues.
+        assert len(pu_lines) >= 2, block
+        assert any("Query Engine" in line for line in pu_lines)
+        # Lock and dependency waits stay separate figures on the line — a
+        # merged "N blocked" would let the model pick either explanation.
+        query_line = next(ln for ln in pu_lines if "Query Engine" in ln)
+        assert "waiting at a lock site" in query_line
+        assert "waiting on an external dependency" in query_line
+
+        ids, prompt = _assemble_blocks(store, _client(), with_eustack=True)
+        assert block in prompt
+        for line in pu_lines:
+            assert line.startswith("[evt:"), line
+            assert line in prompt
+        assert block_ids <= ids
+        by_id = {event.event_id: event for event in events}
+        for eid in block_ids:
+            assert eid in by_id
+    finally:
+        store.close()
