@@ -44,3 +44,26 @@ expect_eustack:
   dependencies:
     http: 3
     warehouse: 3
+  # Processing-unit figures (ADR 0022), MEASURED the same way as everything
+  # above. This is the healthy shape of the axis and the reason no per-queue
+  # blocked-SHARE threshold exists: the Query Engine reads 100% blocked here,
+  # being three threads parked in CDSSQueryEngine::WaitUntilFinished waiting on
+  # the warehouse, which is a Query Engine doing its job. The declared zeros
+  # are real assertions — a rules change that starts attributing lock waits to
+  # either queue must fail this case, not pass it.
+  processing_units:
+    Query Engine:
+      total_threads: 3
+      lock_blocked: 0
+      dependency_blocked: 3
+      idle: 0
+      running: 0
+    Evaluation:
+      total_threads: 43
+      lock_blocked: 0
+      dependency_blocked: 0
+      idle: 43
+      running: 0
+  processing_unit_names:
+    - Query Engine
+    - Evaluation

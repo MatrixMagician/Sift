@@ -16,6 +16,28 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 
+class ExpectPuHealth(BaseModel):
+    """One processing unit's expected role split (ADR 0022).
+
+    Every field defaults to zero and a declared zero is a real assertion, not
+    an absent one: "the Query Engine has no threads at a lock" is exactly the
+    claim that must fail loudly if a future rules change starts attributing
+    lock waits to it.
+
+    Own ``extra="forbid"``, mirroring ``ExpectEustack``'s own reasoning, so a
+    typo'd key inside a per-queue block fails loudly rather than silently
+    asserting nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_threads: int = 0
+    lock_blocked: int = 0
+    dependency_blocked: int = 0
+    idle: int = 0
+    running: int = 0
+
+
 class ExpectEustack(BaseModel):
     """An eu-stack golden case's expected deterministic figures (EUS-12).
 
@@ -43,6 +65,26 @@ class ExpectEustack(BaseModel):
     info_dimensions: list[str] = []
     pools: dict[str, int] = {}
     dependencies: dict[str, int] = {}
+    # Processing-unit figures (ADR 0022), keyed by queue name. Declared as the
+    # full role split rather than a single total, because that split IS the
+    # finding: 25 Query Engine threads waiting on the warehouse and 25 waiting
+    # at a lock are the same total and different incidents, and a total-only
+    # expectation would score them identically.
+    #
+    # Optional and additively defaulted, exactly as `pools`/`dependencies` are,
+    # so an existing truth file that declares no PU figures keeps passing
+    # rather than being retro-fitted with numbers nobody measured. Each key is
+    # checked only if declared; an undeclared queue is not asserted absent,
+    # which is why `processing_unit_names` exists below for cases that want to
+    # pin the complete set.
+    processing_units: dict[str, ExpectPuHealth] = {}
+    # The exact set of attributed queue names, when a case wants to assert that
+    # NO other queue appears. `null` (the default) asserts nothing, so adding a
+    # [[pu]] rule does not retroactively fail cases that never claimed
+    # completeness. The unattributed row is excluded by construction: it has no
+    # name, and its population is a property of rules coverage rather than of
+    # the captured incident.
+    processing_unit_names: list[str] | None = None
 
 
 class Truth(BaseModel):

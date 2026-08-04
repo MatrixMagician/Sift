@@ -36,3 +36,21 @@ expect_eustack:
     job-queue: 0
   dependencies:
     warehouse: 25
+  # Processing-unit figures (ADR 0022), MEASURED against the committed input.
+  # This is the whole point of the axis on this case: "25 threads are blocked"
+  # is also true of a lock convergence, and would need a completely different
+  # fix. Naming the queue AND the wait kind is what makes the finding
+  # actionable, so both are pinned. lock_blocked: 0 is a real assertion — a
+  # rules change that reclassified this warehouse wait as lock contention
+  # would invert the diagnosis and must fail here.
+  processing_units:
+    Query Engine:
+      total_threads: 25
+      lock_blocked: 0
+      dependency_blocked: 25
+      idle: 0
+      running: 0
+  # The 10 remaining threads are idle job-queue noise that no [[pu]] rule
+  # attributes, so they are the unattributed row and appear in no named queue.
+  processing_unit_names:
+    - Query Engine

@@ -33,6 +33,7 @@ from sift.config import SiftConfig, load_config
 from sift.eval.metrics import CaseResult, SuiteResult
 from sift.eval.runner import run_case
 from sift.eval.truth import load_truth
+from sift.pipeline.eustack_progression import EustackBundle
 from sift.store import CaseStore
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -612,7 +613,7 @@ def test_eustack_hang_twin_reproduces_identical_figures() -> None:
 
     from sift.adapters.eustack import EustackAdapter
     from sift.pipeline.eustack import load_rules
-    from sift.pipeline.eustack_progression import EustackBundle, analyse_eustack_bundle
+    from sift.pipeline.eustack_progression import analyse_eustack_bundle
 
     original_dir = _SUITE / "eustack-hang-pool-warehouse"
     twin_dir = _SUITE / "eustack-hang-pool-warehouse-mutated"
@@ -829,3 +830,125 @@ def test_eustack_gate_is_analyser_sensitive(
         check=True,
     )
     assert diff.stdout == ""
+
+
+# --- Processing-unit reproduction in the eval gate (ADR 0022) ---------------
+
+
+def _eustack_bundle_for(case_dir: Path) -> EustackBundle:
+    """Ingest one eu-stack golden case's dumps and analyse them, using the
+    same adapter-sniff selection ``_run_eustack_case`` relies on."""
+    from sift.adapters.eustack import EustackAdapter
+    from sift.models import Event
+    from sift.pipeline.eustack import load_rules
+    from sift.pipeline.eustack_progression import analyse_eustack_bundle
+
+    config = load_config({})
+    input_dir = case_dir / "input"
+    adapter = EustackAdapter()
+    adapter.input_root = input_dir
+    events: list[Event] = []
+    for path in sorted(input_dir.iterdir()):
+        if path.is_file() and adapter.sniff(path) >= 0.5:
+            events.extend(adapter.parse(path, case_dir.name))
+    rules, rules_hash = load_rules(config.eustack.rules_path)
+    return analyse_eustack_bundle(
+        events, rules, rules_hash, config.eustack.thresholds
+    )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "eustack-healthy",
+        "eustack-hang-pool-warehouse",
+        "eustack-hang-pool-warehouse-mutated",
+    ],
+)
+def test_eustack_cases_declare_and_reproduce_processing_units(case: str) -> None:
+    """Every shipped eu-stack golden case pins its processing-unit figures and
+    reproduces them (ADR 0022).
+
+    Without this the new axis would ship ungated: `eustack_detection_rate`
+    would keep reading 1.00 while attribution silently regressed, because the
+    metric only compares figures a truth file actually declares.
+    """
+    from sift.eval.runner import (  # noqa: PLC0415
+        _eustack_verdict,  # pyright: ignore[reportPrivateUsage] — the verdict under test; exercising it through run_case would need a live endpoint
+    )
+
+    case_dir = _SUITE / case
+    truth = load_truth(case_dir / "truth.yaml")
+    assert truth.expect_eustack is not None
+    expect = truth.expect_eustack
+    # Non-vacuity: a case declaring no queues would pass the verdict below
+    # while asserting nothing about this axis.
+    assert expect.processing_units, f"{case} declares no processing-unit figures"
+    assert expect.processing_unit_names is not None
+    assert set(expect.processing_units) <= set(expect.processing_unit_names)
+
+    bundle = _eustack_bundle_for(case_dir)
+    assert _eustack_verdict(bundle, expect)
+
+
+def test_eustack_gate_rejects_an_inverted_wait_kind() -> None:
+    """The assertion the hang case exists to protect: the same 25 threads
+    described as lock contention rather than a warehouse wait is a different
+    incident with a different fix, and the gate must reject it.
+
+    A total-only expectation would pass both, which is why the truth schema
+    declares the full role split per queue.
+    """
+    from sift.eval.runner import (  # noqa: PLC0415
+        _eustack_verdict,  # pyright: ignore[reportPrivateUsage] — the verdict under test; exercising it through run_case would need a live endpoint
+    )
+
+    case_dir = _SUITE / "eustack-hang-pool-warehouse"
+    truth = load_truth(case_dir / "truth.yaml")
+    assert truth.expect_eustack is not None
+    bundle = _eustack_bundle_for(case_dir)
+
+    inverted = truth.expect_eustack.model_copy(deep=True)
+    query = inverted.processing_units["Query Engine"]
+    assert query.dependency_blocked == 25, "non-vacuity: the shipped figure"
+    query.lock_blocked = query.dependency_blocked
+    query.dependency_blocked = 0
+    assert not _eustack_verdict(bundle, inverted)
+
+
+def test_eustack_gate_rejects_an_unexpected_queue() -> None:
+    """`processing_unit_names` pins the complete attributed set, so a rules
+    change that starts attributing threads to a queue this incident never
+    involved fails the case rather than passing unnoticed."""
+    from sift.eval.runner import (  # noqa: PLC0415
+        _eustack_verdict,  # pyright: ignore[reportPrivateUsage] — the verdict under test; exercising it through run_case would need a live endpoint
+    )
+
+    case_dir = _SUITE / "eustack-hang-pool-warehouse"
+    truth = load_truth(case_dir / "truth.yaml")
+    assert truth.expect_eustack is not None
+    bundle = _eustack_bundle_for(case_dir)
+
+    extra = truth.expect_eustack.model_copy(deep=True)
+    assert extra.processing_unit_names is not None
+    extra.processing_unit_names = [*extra.processing_unit_names, "Command PU"]
+    assert not _eustack_verdict(bundle, extra)
+
+
+def test_eustack_truth_without_processing_units_still_passes() -> None:
+    """The schema addition is additive: a truth file predating this axis, or
+    one deliberately declining to pin it, must keep passing rather than being
+    retro-fitted with figures nobody measured."""
+    from sift.eval.runner import (  # noqa: PLC0415
+        _eustack_verdict,  # pyright: ignore[reportPrivateUsage] — the verdict under test; exercising it through run_case would need a live endpoint
+    )
+
+    case_dir = _SUITE / "eustack-hang-pool-warehouse"
+    truth = load_truth(case_dir / "truth.yaml")
+    assert truth.expect_eustack is not None
+    bundle = _eustack_bundle_for(case_dir)
+
+    silent = truth.expect_eustack.model_copy(
+        update={"processing_units": {}, "processing_unit_names": None}
+    )
+    assert _eustack_verdict(bundle, silent)

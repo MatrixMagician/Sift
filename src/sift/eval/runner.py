@@ -153,6 +153,34 @@ def _eustack_verdict(bundle: EustackBundle, expect: ExpectEustack) -> bool:
         if dependency is None or dependency.thread_count != thread_count:
             return False
 
+    # Processing-unit reproduction (ADR 0022). The full role split per queue,
+    # not a total, because "25 Query Engine threads blocked" is the same figure
+    # for a warehouse stall and a lock convergence, which are different
+    # incidents. A declared zero is a real assertion.
+    pu_by_name = {r.pu_name: r for r in bundle.saturation.pu_health}
+    for name, expected_pu in expect.processing_units.items():
+        row = pu_by_name.get(name)
+        if row is None:
+            return False
+        if (
+            row.total_threads != expected_pu.total_threads
+            or row.blocked_on_lock_threads != expected_pu.lock_blocked
+            or row.blocked_on_external_threads != expected_pu.dependency_blocked
+            or row.idle_threads != expected_pu.idle
+            or row.running_threads != expected_pu.running
+        ):
+            return False
+
+    # The complete attributed-queue set, only when the case declares one.
+    # `None` asserts nothing, so adding a [[pu]] rule cannot retroactively fail
+    # a case that never claimed completeness. The unattributed row carries no
+    # name and is excluded: its population reflects rules coverage rather than
+    # the captured incident.
+    if expect.processing_unit_names is not None:
+        attributed = {name for name in pu_by_name if name is not None}
+        if attributed != set(expect.processing_unit_names):
+            return False
+
     # Severity-bucketed flag comparison (D-19-18): warn/critical are exact
     # counts, info is the exact NAMED dimension set — an info dimension
     # escalating to warn changes both sides and is caught.
