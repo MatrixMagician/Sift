@@ -679,3 +679,80 @@ def test_facts_report_lock_and_dependency_waits_separately() -> None:
     )
     assert "2 waiting at a lock site" in line
     assert "1 waiting on an external dependency" in line
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        # gdb omits the LWP for a single-threaded target. The parse loop reads
+        # this happily via `match_header`, so detection must too — otherwise a
+        # dump parses correctly under a forced override and is silently handed
+        # to genericlog without one.
+        (
+            "single-threaded gdb core",
+            "Thread 1 (process 4242):\n"
+            "#0  0x0000000000000001 in MSIEvaluationTask::Run () at t.cpp:1\n",
+        ),
+        # CRLF: a capture copied through a Windows support workflow.
+        (
+            "CRLF Solaris pstack",
+            "-----  lwp# 7 / thread# 7  -----\r\n"
+            " 0000000000000001 MSIDSSCommand::Process (void) + a\r\n",
+        ),
+    ],
+)
+def test_sniff_accepts_every_shape_the_parser_reads(
+    name: str, text: str, tmp_path: Path
+) -> None:
+    """Detection and parsing must recognise the same set of files.
+
+    A shape the parser handles but the sniff rejects is the worst failure mode
+    available here: the file is silently handed to genericlog, so it still
+    ingests, still reports coverage, and produces no threads at all — a
+    missing analysis rather than an error.
+    """
+    path = tmp_path / "dump.txt"
+    path.write_text(text, encoding="utf-8")
+    adapter = EustackAdapter()
+    adapter.input_root = tmp_path
+    assert adapter.sniff(path) >= 0.5, name
+    threads = [e for e in adapter.parse(path, "case") if e.thread is not None]
+    assert len(threads) == 1, name
+    assert signature_of(threads[0].raw), name
+
+
+def test_degenerate_dumps_never_raise(tmp_path: Path) -> None:
+    """An empty file, a header with no frames, and a stack of nothing but
+    unresolvable frames must all analyse to an honest empty-or-unattributed
+    result rather than an exception \u2014 the analysis runs on whatever a
+    customer actually captured.
+    """
+    cases = {
+        "empty.txt": "",
+        "noframes.txt": "TID 1:\n",
+        # `??` and a bare address are eu-stack's own spellings of "no symbol
+        # resolved here": a real stack from a stripped binary.
+        "unresolved.txt": "TID 1:\n#0  0x1 ??\n#1  0x2 0x00007f00\n",
+    }
+    for name, text in cases.items():
+        path = tmp_path / name
+        path.write_text(text, encoding="utf-8")
+        adapter = EustackAdapter()
+        adapter.input_root = tmp_path
+        events = list(adapter.parse(path, "case"))
+        analysis = analyse_eustack(events, _RULES, _RULES_HASH)
+        saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+        # No queue is ever named on evidence this thin.
+        assert all(row.pu_name is None for row in saturation.pu_health), name
+        assert analyse_pu_health(analysis) == saturation.pu_health, name
+
+    # The unresolvable stack is reported as a symbols problem, not as a rules
+    # problem — the D-07 split, still intact on the PU path.
+    path = tmp_path / "unresolved.txt"
+    adapter = EustackAdapter()
+    adapter.input_root = tmp_path
+    analysis = analyse_eustack(
+        list(adapter.parse(path, "case")), _RULES, _RULES_HASH
+    )
+    assert analysis.unclassified[0].reason == "no-resolvable-frame"
+    assert analysis.unclassified[0].pu is None

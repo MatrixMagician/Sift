@@ -67,9 +67,18 @@ CONDENSED_FRAMES = 5
 # Sniff signature: a thread header AND a frame line of the SAME grammar must
 # both appear in the head, so a bare "TID" mention in prose, or a stray
 # "Thread 1 (...)" line in a log, can never be mistaken for a dump.
+#
+# `header_fallback` is included, not just `header`: gdb omits the LWP for a
+# single-threaded target ("Thread 1 (process 4242):"), which the parse loop
+# reads happily via `match_header`. Sniffing on the primary pattern alone made
+# detection stricter than parsing, so such a dump parsed correctly if the
+# adapter was forced by an override and was silently handed to genericlog
+# otherwise. Detection and parsing must recognise the same set of files.
 _SNIFF_HEADERS: tuple[tuple[DumpGrammar, re.Pattern[str]], ...] = tuple(
-    (grammar, re.compile(grammar.header.pattern, re.MULTILINE))
+    (grammar, re.compile(pattern.pattern, re.MULTILINE))
     for grammar in GRAMMARS
+    for pattern in (grammar.header, grammar.header_fallback)
+    if pattern is not None
 )
 _SNIFF_FRAMES: tuple[tuple[DumpGrammar, re.Pattern[str]], ...] = tuple(
     (grammar, re.compile(grammar.frame.pattern, re.MULTILINE)) for grammar in GRAMMARS
