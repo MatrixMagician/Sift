@@ -393,6 +393,16 @@ def _flag_lines(
         for row in bundle.saturation.pu_health
         if row.pu_name is not None and row.blocked_on_lock_threads
     )
+    # The concentration flag has its own predicate (any blocked threads, not
+    # only lock-blocked), so it needs its own lockstep iterator rather than
+    # sharing the one above — sharing would desynchronise the moment a queue
+    # is dependency-blocked but not lock-blocked, which is the shipped hang
+    # fixture exactly.
+    pu_concentration_in_order = iter(
+        row
+        for row in bundle.saturation.pu_health
+        if row.pu_name is not None and row.blocked_threads
+    )
     for flag in bundle.saturation.flags:
         if flag.dimension == "unclassified_thread_pct":
             exemplars = pool_exemplars.get(None, ())
@@ -416,6 +426,18 @@ def _flag_lines(
             # quoting the smaller figure would overstate how much of the
             # cited set the sample covers.
             population = pu_row.total_threads if pu_row is not None else 0
+        elif flag.dimension == "pu_blocked_share_of_server_pct":
+            concentration_row = next(pu_concentration_in_order, None)
+            exemplars = (
+                pu_exemplars.get(concentration_row.pu_name, ())
+                if concentration_row is not None
+                else ()
+            )
+            population = (
+                concentration_row.total_threads
+                if concentration_row is not None
+                else 0
+            )
         else:
             # WR-02: an unrecognised dimension must never disappear silently
             # (CLAUDE.md "nothing disappears silently") — fail loudly so a
@@ -440,6 +462,10 @@ def _flag_lines(
     assert next(pu_rows_in_order, None) is None, (
         "pu_lock_blocked_count flag count must equal the number of named "
         "processing units with lock-blocked threads"
+    )
+    assert next(pu_concentration_in_order, None) is None, (
+        "pu_blocked_share_of_server_pct flag count must equal the number of "
+        "named processing units with blocked threads"
     )
     return lines
 

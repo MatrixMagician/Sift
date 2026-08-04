@@ -148,23 +148,57 @@ Lock sites per queue reuse `enclosing_application_frame` and `UNKNOWN_LOCK_SITE`
 rather than re-deriving them, so the per-queue and global lock tables can never name different sites
 for the same threads (`test_pu_lock_sites_agree_with_the_global_lock_table`).
 
-### One graded dimension, and one deliberately absent
+### Two graded dimensions, and the denominator that rescued the second
 
 `pu_lock_blocked_count` grades how many of one queue's threads wait at a lock site. It complements
 ADR 0016's per-*site* `lock_convergence_count`: a queue whose threads spread thinly across four sites
 trips no per-site threshold while the queue itself is wedged.
 
-A per-queue **blocked-share** threshold was implemented, measured and removed. On the healthy
-`eustack-healthy` eval case the Query Engine measures 100% blocked — three threads parked in
-`CDSSQueryEngine::WaitUntilFinished`, waiting on the warehouse, which is a Query Engine doing its job
-— so grading that share reported `critical` on a server with nothing wrong with it. Waiting on an
-external dependency is a queue's normal working state and has no defensible zero point, exactly the
-reasoning ADR 0016's D-07 used to refuse a per-pool occupancy flag. Waiting at a lock does have one:
-nothing. The share is still reported in the table, ungraded.
+A per-queue blocked-share against the **queue's own total** was implemented, measured and removed. On
+the healthy `eustack-healthy` eval case the Query Engine measures 100% blocked by that ratio — three
+threads parked in `CDSSQueryEngine::WaitUntilFinished`, waiting on the warehouse, which is a Query
+Engine doing its job — so grading it reported `critical` on a server with nothing wrong with it.
+Waiting on an external dependency is a queue's normal working state and has no defensible zero point
+at that scale, exactly the reasoning ADR 0016's D-07 used to refuse a per-pool occupancy flag. That
+figure is still reported in the table, ungraded.
 
-This is recorded because the failure was caught by running the analyser against the healthy fixture,
-not by review — and a future contributor proposing the same threshold should find the measurement
-here rather than repeat it.
+**Changing the denominator rescued the idea.** `pu_blocked_share_of_server_pct` grades the same
+population against the *whole server's* thread count, answering "is one queue consuming the server",
+whose zero point is "no queue monopolises it". Unlike every other cut-point in this area it is
+genuinely calibrated, because both a healthy and a hung capture exist to separate:
+
+| capture | threads | most-blocked queue | concentration |
+|---|---:|---|---:|
+| `eustack-healthy` | 144 | Query Engine (3 blocked) | 2.1% |
+| v1.3 reference capture | 105 | Query Engine (11 blocked) | 10.5% |
+| `eustack-hang-pool-warehouse` | 35 | Query Engine (25 blocked) | 71.4% |
+| its cosmetic-mutation twin | 35 | Query Engine (25 blocked) | 71.4% |
+
+`warn = 25.0` / `critical = 35.0` sits above both healthy figures and below both hang figures: an
+11.9x margin under warn on the healthy capture, a 2.0x margin over critical on the hang.
+
+This dimension exists because of a gap found by running the shipped CLI on both fixtures, not by
+reading the code. `sift eustack` prints only its most severe flag, and without it the healthy capture
+and a **total warehouse stall** emitted byte-identical all-`info` flag sets — so the operator's
+one-line summary read "0.0% of threads are unclassified" for both. The axis existed to find that
+incident and the summary said nothing about it. It now reads:
+
+```
+critical — 71.4% of all threads are blocked in the Query Engine processing unit
+(0 at a lock site, 25 on an external dependency, of 35 threads total).
+```
+
+Unlike `pu_lock_blocked_count` it counts blocked threads of **both** kinds, because at this scale a
+warehouse stall and a lock convergence both answer "is one queue consuming the server". The message
+names the split so the two are never confused, and the per-queue table alongside says which.
+
+`test_healthy_and_hang_do_not_emit_identical_flag_sets` pins the separation itself rather than each
+case's expectation, so a future threshold change that quietly collapses the two fails even if both
+truth files are updated to match.
+
+Both failures here were caught by running the analyser against real fixtures rather than by review —
+first the false positive, then the missing signal. A future contributor proposing either the
+own-queue ratio or no concentration dimension at all should find both measurements here.
 
 ### The axis is gated, not merely tested
 

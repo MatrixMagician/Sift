@@ -1233,6 +1233,65 @@ def analyse_saturation(
             )
         )
 
+    # One flag per named processing unit whose blocked threads make up a
+    # significant share of the WHOLE SERVER's threads.
+    #
+    # This is the concentration flag, and its denominator is the load-bearing
+    # choice. Grading blocked threads against the QUEUE's own total was
+    # implemented, measured and rejected (see the config docstring): a healthy
+    # Query Engine parked in CDSSQueryEngine::WaitUntilFinished reads 100% of
+    # its own queue, so that ratio reports `critical` on a healthy server.
+    # Against the server's total the same population reads 2.1%, because three
+    # threads out of 144 is what a healthy warehouse wait actually looks like.
+    #
+    # Measured separation across every capture available (2026-08-04):
+    # healthy 2.1%, the 93-signature reference capture 10.5%, the shipped
+    # warehouse-hang fixture 71.4% and its independent mutated twin 71.4%. The
+    # 25/35 default sits above the two healthy figures and below both hang
+    # figures, so it is calibrated at the boundary rather than guessed at.
+    #
+    # Why this earns a flag where per-pool occupancy does not (D-07, unchanged):
+    # it has a non-arbitrary zero point — no queue monopolising the server —
+    # and it is the ONE figure that separates the two shipped fixtures. Without
+    # it, `sift eustack` prints a byte-identical all-info flag set for a
+    # healthy server and for a total warehouse stall, so the operator's summary
+    # line carries no signal on exactly the incident this axis exists to find.
+    #
+    # Deliberately blocked threads of BOTH kinds, unlike pu_lock_blocked_count
+    # above: at this scale the question is "is one queue consuming the server",
+    # for which a warehouse stall and a lock convergence both qualify. The
+    # per-queue table alongside says which, and the message names the split so
+    # the two are never confused.
+    for pu_row in pu_health:
+        if pu_row.pu_name is None or not pu_row.blocked_threads:
+            continue
+        concentration = round(pu_row.blocked_threads / analysis.total_threads * 100, 1)
+        concentration_severity = cast(
+            "FlagSeverity",
+            _grade(
+                concentration,
+                thresholds.pu_blocked_share_of_server_pct.warn,
+                thresholds.pu_blocked_share_of_server_pct.critical,
+            ),
+        )
+        flags.append(
+            SaturationFlag(
+                dimension="pu_blocked_share_of_server_pct",
+                severity=concentration_severity,
+                value=concentration,
+                unit="percent",
+                warn=thresholds.pu_blocked_share_of_server_pct.warn,
+                critical=thresholds.pu_blocked_share_of_server_pct.critical,
+                message=(
+                    f"{concentration}% of all threads are blocked in the "
+                    f"{pu_row.pu_name} processing unit "
+                    f"({pu_row.blocked_on_lock_threads} at a lock site, "
+                    f"{pu_row.blocked_on_external_threads} on an external "
+                    f"dependency, of {analysis.total_threads} threads total)."
+                ),
+            )
+        )
+
     return SaturationAnalysis(
         pools=tuple(pools),
         lock_sites=tuple(lock_sites),

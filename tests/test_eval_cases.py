@@ -952,3 +952,39 @@ def test_eustack_truth_without_processing_units_still_passes() -> None:
         update={"processing_units": {}, "processing_unit_names": None}
     )
     assert _eustack_verdict(bundle, silent)
+
+
+def test_healthy_and_hang_do_not_emit_identical_flag_sets() -> None:
+    """The property the operator's one-line summary depends on.
+
+    `sift eustack` prints only the most severe flag. Before ADR 0022's
+    concentration dimension, the healthy capture and a total warehouse stall
+    produced byte-identical all-`info` flag sets, so that line read
+    "0.0% of threads are unclassified" for both — no signal on exactly the
+    incident this axis exists to find.
+
+    Asserted as a separation rather than as two independent expectations: a
+    future threshold change that quietly collapses them fails here even if
+    each case's own truth file is updated to match.
+    """
+    from sift.commands._bundle import SEV_RANK  # noqa: PLC0415
+
+    healthy = _eustack_bundle_for(_SUITE / "eustack-healthy")
+    hang = _eustack_bundle_for(_SUITE / "eustack-hang-pool-warehouse")
+
+    def top(bundle: EustackBundle) -> str:
+        ordered = sorted(
+            bundle.saturation.flags, key=lambda f: SEV_RANK.get(f.severity, 3)
+        )
+        return ordered[0].severity if ordered else "none"
+
+    assert top(healthy) == "info"
+    assert top(hang) == "critical"
+
+    # And the headline the CLI would print names the queue and the wait kind,
+    # not a generic percentage.
+    hang_top = sorted(
+        hang.saturation.flags, key=lambda f: SEV_RANK.get(f.severity, 3)
+    )[0]
+    assert "Query Engine" in hang_top.message
+    assert "external dependency" in hang_top.message

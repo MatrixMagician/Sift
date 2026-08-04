@@ -145,13 +145,38 @@ class EustackThresholdsConfig(BaseModel):
     queue itself is wedged. Its defaults mirror ``lock_convergence_count``
     (warn=5.0, critical=20.0) and rest on the same absent calibration.
 
-    Deliberately absent: a per-processing-unit BLOCKED-SHARE threshold. On the
-    healthy reference eval case the Query Engine measures 100% blocked, being
-    three threads parked in ``CDSSQueryEngine::WaitUntilFinished`` waiting on
-    the warehouse — a queue doing its job. Waiting on an external dependency
-    has no defensible zero point, so grading that share would report
-    ``critical`` on a healthy server, and the figure is reported in the
-    processing-unit table without a threshold instead.
+    Deliberately absent: a per-processing-unit BLOCKED-SHARE threshold against
+    the queue's OWN total. On the healthy reference eval case the Query Engine
+    measures 100% blocked by that ratio, being three threads parked in
+    ``CDSSQueryEngine::WaitUntilFinished`` waiting on the warehouse — a queue
+    doing its job. Waiting on an external dependency has no defensible zero
+    point at that scale, so grading it would report ``critical`` on a healthy
+    server. The figure is reported in the processing-unit table, ungraded.
+
+    ``pu_blocked_share_of_server_pct`` (ADR 0022) grades the same population
+    against the WHOLE SERVER's thread count instead, which is what makes it
+    sound where the ratio above is not: it answers "is one queue consuming the
+    server", and its zero point is "no queue monopolises it". Unlike every
+    other cut-point here it is genuinely calibrated, because both a healthy and
+    a hung capture exist to separate. Measured 2026-08-04: healthy 2.1%, the
+    93-signature reference capture 10.5%, the shipped warehouse-hang fixture
+    71.4%, and that fixture's independent cosmetic-mutation twin 71.4%. The
+    defaults (warn=25.0, critical=35.0) sit above both healthy figures and
+    below both hang figures.
+
+    This dimension is load-bearing for the operator-facing summary: without it
+    a healthy server and a total warehouse stall emit byte-identical all-``info``
+    flag sets, so the one line ``sift eustack`` prints carries no signal on the
+    incident the processing-unit axis exists to find.
+
+    Small-N caveat, stated rather than engineered around: this is a ratio, so
+    on a tiny capture a handful of threads clears the cut-point easily (the
+    8-thread pstack test fixture reads 37.5% on three blocked threads). That is
+    arithmetically correct and diagnostically reasonable — three of eight
+    threads blocked in one queue IS concentrated — but a minimum-thread floor
+    was considered and rejected: it would need its own uncalibrated constant,
+    and a real Intelligence Server capture carries thousands of threads, so the
+    case never arises outside test fixtures.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -160,6 +185,9 @@ class EustackThresholdsConfig(BaseModel):
     no_resolvable_frame_pct: ThresholdPair = ThresholdPair(warn=5.0, critical=15.0)
     lock_convergence_count: ThresholdPair = ThresholdPair(warn=5.0, critical=20.0)
     pu_lock_blocked_count: ThresholdPair = ThresholdPair(warn=5.0, critical=20.0)
+    pu_blocked_share_of_server_pct: ThresholdPair = ThresholdPair(
+        warn=25.0, critical=35.0
+    )
 
 
 class EustackConfig(BaseModel):

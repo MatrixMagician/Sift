@@ -968,3 +968,81 @@ def test_compressed_pstack_reaches_the_processing_unit_table(
     assert rows["Query Engine"].lock_sites[0].site == (
         "MSynch::CriticalSectionImpl::Lock"
     )
+
+
+def test_concentration_grades_against_the_server_not_the_queue() -> None:
+    """The denominator is the whole decision.
+
+    Against its OWN total, a healthy Query Engine parked in
+    ``CDSSQueryEngine::WaitUntilFinished`` reads 100% blocked — which is why
+    that ratio is reported and never graded. Against the SERVER's total the
+    same population reads a few percent, because three threads out of a
+    hundred-odd is what a healthy warehouse wait looks like.
+
+    This test pins both readings on one capture, so a future change that
+    swaps the denominator fails here rather than starting to report `critical`
+    on healthy servers.
+    """
+    analysis = analyse_eustack(
+        _parse("reference_capture_derivative.txt"), _RULES, _RULES_HASH
+    )
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+    query = next(r for r in saturation.pu_health if r.pu_name == "Query Engine")
+
+    # Own-queue ratio: saturated, reported, ungraded.
+    assert query.blocked_pct == 100.0
+
+    concentration = next(
+        f
+        for f in saturation.flags
+        if f.dimension == "pu_blocked_share_of_server_pct"
+    )
+    expected = round(query.blocked_threads / analysis.total_threads * 100, 1)
+    assert concentration.value == expected
+    assert concentration.value < query.blocked_pct
+    # Below the warn cut-point: this capture is healthy on this dimension.
+    assert concentration.severity == "info"
+    assert concentration.value < concentration.warn
+
+
+def test_concentration_flag_covers_dependency_and_lock_waits_alike() -> None:
+    """At this scale the question is "is one queue consuming the server", for
+    which a warehouse stall and a lock convergence both qualify — unlike
+    ``pu_lock_blocked_count``, which grades lock waits only.
+
+    The Solaris fixture carries both kinds in one queue, so it proves the
+    dimension counts them together while the message still names the split.
+    """
+    analysis = analyse_eustack(_parse("pstack_solaris.txt"), _RULES, _RULES_HASH)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+    query = next(r for r in saturation.pu_health if r.pu_name == "Query Engine")
+    assert query.blocked_on_lock_threads == 2
+    assert query.blocked_on_external_threads == 1
+
+    concentration = next(
+        f
+        for f in saturation.flags
+        if f.dimension == "pu_blocked_share_of_server_pct"
+    )
+    assert concentration.value == round(3 / analysis.total_threads * 100, 1)
+    assert "2 at a lock site" in concentration.message
+    assert "1 on an external dependency" in concentration.message
+
+
+def test_a_queue_with_nothing_blocked_raises_no_concentration_flag() -> None:
+    """A zero-valued flag per idle queue would bury the one that matters."""
+    analysis = analyse_eustack(_parse("pstack_solaris.txt"), _RULES, _RULES_HASH)
+    saturation = analyse_saturation(analysis, EustackThresholdsConfig())
+    graded = {
+        f.message.split(" processing unit")[0].split("in the ")[-1]
+        for f in saturation.flags
+        if f.dimension == "pu_blocked_share_of_server_pct"
+    }
+    assert graded == {"Query Engine"}
+    # ...and the queues with no blocked threads really are present in the
+    # table, so this is about restraint rather than absence.
+    assert {r.pu_name for r in saturation.pu_health} >= {
+        "Query Engine",
+        "Command PU",
+        "Evaluation",
+    }

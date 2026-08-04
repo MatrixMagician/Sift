@@ -30,6 +30,10 @@ expect_eustack:
   info_dimensions:
     - unclassified_thread_pct
     - no_resolvable_frame_pct
+    # ADR 0022: 3 of 144 threads blocked in one queue = 2.1%, comfortably
+    # info. This is the healthy end of the pair that calibrates this
+    # dimension; the warehouse-hang case is the other at 71.4%.
+    - pu_blocked_share_of_server_pct
   pools:
     job-queue: 0
     evaluation: 0

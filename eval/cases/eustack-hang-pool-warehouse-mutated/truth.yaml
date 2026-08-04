@@ -19,7 +19,12 @@ expect_eustack:
   hang_detected: true
   total_threads: 35
   warn: 0
-  critical: 0
+  # ADR 0022: 25 of 35 threads blocked in the Query Engine = 71.4%, over the
+  # 35.0 critical cut-point. This is the ONE graded figure that separates this
+  # case from eustack-healthy — without it both emit an identical all-info
+  # flag set, and `sift eustack`'s summary line says nothing about a total
+  # warehouse stall.
+  critical: 1
   info_dimensions:
     - unclassified_thread_pct
     - no_resolvable_frame_pct

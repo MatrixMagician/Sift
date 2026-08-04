@@ -126,20 +126,32 @@ over the network, and the file's content hash is recorded in every report.
 | `eustack.thresholds.no_resolvable_frame_pct` | — | pair | `warn = 5.0`, `critical = 15.0` | Percentage of threads whose stacks carry no resolvable symbol at all. A distinct problem from the row above: obtain symbols, rather than curate a rule. |
 | `eustack.thresholds.lock_convergence_count` | — | pair | `warn = 5.0`, `critical = 20.0` | Threads converging on one lock **site**. A count, not a percentage. |
 | `eustack.thresholds.pu_lock_blocked_count` | — | pair | `warn = 5.0`, `critical = 20.0` | Threads of one **processing unit** waiting at a lock site. Complements the row above: a queue spread thinly over several sites trips no per-site threshold while the queue itself is wedged. |
+| `eustack.thresholds.pu_blocked_share_of_server_pct` | — | pair | `warn = 25.0`, `critical = 35.0` | Share of **all** threads blocked in one processing unit, at a lock or on a dependency. Answers "is one queue consuming the server". |
 
 Omitting the `[eustack]` table yields exactly the defaults above.
 
-Two calibration caveats, stated because they affect how the flags should be read. The two
-percentage cut-points rest on one real capture, in which 1.33% of threads were
-unclassified — comfortably `info`. Both count cut-points have no calibration data at all,
-because no capture of a genuinely hung server exists; they are round, conservative
-placeholders.
+Calibration caveats, stated because they affect how the flags should be read. The two
+unclassified/no-resolvable percentage cut-points rest on one real capture, in which 1.33%
+of threads were unclassified — comfortably `info`. The two **count** cut-points have no
+calibration data at all, because no capture of a genuinely hung server exists; they are
+round, conservative placeholders.
 
-There is deliberately **no** per-processing-unit blocked-share threshold. On the healthy
-reference case the Query Engine measures 100% blocked, being threads parked in
-`CDSSQueryEngine::WaitUntilFinished` waiting on the warehouse — a queue doing its job — so
-grading that share reports `critical` on a healthy server. The share is reported in the
-processing-unit table, ungraded.
+`pu_blocked_share_of_server_pct` is the exception: it is genuinely calibrated, because a
+healthy capture and a hung one both exist to separate. Measured 2026-08-04 — healthy 2.1%,
+the 93-signature reference capture 10.5%, the shipped warehouse-hang fixture 71.4%, its
+independent mutated twin 71.4% — so the defaults sit above both healthy figures and below
+both hang ones. This dimension is what makes `sift eustack`'s one-line summary useful:
+without it a healthy server and a total warehouse stall emit identical all-`info` flag
+sets. Being a ratio it is sensitive on very small captures (an 8-thread fixture reads
+37.5% on three blocked threads); real Intelligence Server captures carry thousands of
+threads, so a minimum-thread floor was considered and rejected as another uncalibrated
+constant.
+
+There is deliberately **no** threshold on a queue's blocked share of its **own** total. On
+the healthy reference case the Query Engine measures 100% by that ratio, being three
+threads waiting on the warehouse — a queue doing its job — so grading it reports
+`critical` on a healthy server. That figure is reported in the processing-unit table,
+ungraded; the server-wide share above is the sound form of the same question.
 
 Adding a processing unit is a `[[pu]]` row and nothing else. Row order is **not**
 precedence for `[[pu]]` (unlike `[[rule]]`, where file order is the only precedence knob):
