@@ -330,6 +330,13 @@ findings are ownership-blind by construction: thread dumps carry no
 lock-acquisition edges, so Sift reports where threads are waiting and never
 claims which thread holds what.
 
+The nine queues shipped are the MicroStrategy Support Utility's compiled-in
+defaults, which are dead code in its v1.25 binary — the live mapping is the
+`taskmap` file it caches locally, and that file grows. `sift taskmap
+<path> --out rows.toml` converts a current taskmap into rules rows, so keeping
+the list current needs no hand-transcription. It reads one local file; Sift
+never contacts the corporate share the utility fetches from.
+
 ## Requirements
 
 - Python 3.12 or newer.

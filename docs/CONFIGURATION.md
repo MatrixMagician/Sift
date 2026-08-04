@@ -148,6 +148,30 @@ calls into. Patterns must be fully-qualified C++ symbols in canonical form, with
 `@GLIBC_...` suffix and no ` - <lib> <source>:<line>` tail; the loader rejects a
 non-canonical pattern at load time and quotes the form to use.
 
+#### Keeping the processing units current
+
+The nine queues Sift ships are the MicroStrategy Support Utility's **compiled-in
+defaults**, which its own specification records as dead code in v1.25 — the live mapping
+is the `taskmap` file the utility caches under `%ProgramData%\MSTRSuppUtil\taskmap`, and
+that file is expected to grow past the built-in list. Sift's shipped rows are therefore a
+2022 snapshot.
+
+`sift taskmap` converts a current taskmap into `[[pu]]` rows, so moving off that snapshot
+needs no hand-transcription (which is how `Delivery(NCSPU)` acquired a space that is not
+in the binary):
+
+```bash
+sift taskmap /path/to/taskmap --out new-pu-rows.toml
+cat new-pu-rows.toml >> my-eustack-roles.toml   # a copy of the packaged file
+sift eustack my-case                             # with [eustack] rules_path set
+```
+
+It reads one local file and writes text. Sift never contacts the corporate share the
+utility fetches from, so obtaining the taskmap is your step. The output is a fragment with
+no `[meta]` table, so overwriting a rules file with it fails loudly rather than silently
+producing a file with no role rules. Lines it cannot classify are reported with their line
+numbers rather than dropped.
+
 ### Settings that are not in `config.toml`
 
 | Setting | Where | Default | Meaning |

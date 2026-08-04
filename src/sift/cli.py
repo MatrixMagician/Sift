@@ -779,6 +779,90 @@ def eustack(
         raise typer.Exit(code)
 
 
+@app.command()
+def taskmap(
+    path: Annotated[
+        Path,
+        typer.Argument(
+            help="A MicroStrategy Support Utility taskmap file to convert"
+        ),
+    ],
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Write the rows here instead of stdout"),
+    ] = None,
+) -> None:
+    """Convert a MicroStrategy Support Utility ``taskmap`` into ``[[pu]]`` rows.
+
+    The nine processing units Sift ships are the utility's compiled-in
+    defaults, which are dead code in v1.25 — the live mapping is the
+    ``taskmap`` file the utility caches under ``%ProgramData%\\MSTRSuppUtil``,
+    and it is expected to grow past that built-in list. This command is how to
+    move off that 2022 snapshot without hand-transcribing anything: convert a
+    current taskmap, review the rows, then append them to a copy of
+    ``eustack_roles.toml`` and point ``[eustack] rules_path`` at it.
+
+    Reads one local file and writes text. No network access of any kind: Sift
+    never contacts the corporate share the utility fetches from, so obtaining
+    the taskmap is the operator's step, not this command's.
+
+    The output is a fragment, deliberately carrying no ``[meta]`` table, so
+    overwriting a rules file with it fails loudly at load rather than
+    producing a file with no role rules. Exit codes: 0 converted, 1 unreadable
+    or unparseable input / write failure, 2 Typer usage.
+    """
+    from sift.pipeline.taskmap import parse_taskmap, to_pu_rows
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        typer.secho(f"cannot read taskmap {path}: {exc}", fg="red", err=True)
+        raise typer.Exit(1) from None
+
+    parsed = parse_taskmap(text)
+    if not parsed.entries:
+        # An empty result means the file is not a taskmap, or its whole body
+        # was unclassifiable. Either way, silently writing an empty fragment
+        # would look like success.
+        typer.secho(
+            f"no task entries found in {path}; is this a taskmap file?",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    rows = to_pu_rows(parsed)
+    if out is not None:
+        try:
+            out.write_text(rows, encoding="utf-8")
+        except OSError as exc:
+            typer.secho(f"cannot write {out}: {exc}", fg="red", err=True)
+            raise typer.Exit(1) from None
+    else:
+        typer.echo(rows, nl=False)
+
+    queues = len(parsed.pu_names)
+    entries = len(parsed.entries)
+    destination = str(out) if out is not None else "stdout"
+    summary = (
+        f"Converted {queues} processing "
+        f"{'unit' if queues == 1 else 'units'}, {entries} "
+        f"{'signature' if entries == 1 else 'signatures'} -> {destination}"
+    )
+    if parsed.lut is not None:
+        summary += f" (taskmap revision {parsed.lut})"
+    typer.secho(_sanitise(summary), err=True)
+    # Nothing is dropped silently: unreadable lines are named, with numbers.
+    if parsed.skipped:
+        typer.secho(
+            f"  {len(parsed.skipped)} line(s) skipped as unrecognised: "
+            + ", ".join(str(n) for n, _ in parsed.skipped[:10])
+            + ("…" if len(parsed.skipped) > 10 else ""),
+            fg="yellow",
+            err=True,
+        )
+
+
 @app.command("eval")
 
 

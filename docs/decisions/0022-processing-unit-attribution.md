@@ -198,6 +198,43 @@ threads, so the operator sees a *missing* analysis rather than an error. The inv
 detection and parsing recognise the same set of files, and it is pinned by a test that asserts the
 parser really does read what the sniff accepts, on every shape a grammar can match.
 
+### The shipped nine are a snapshot, and there is a supported way off it
+
+The nine queues in `eustack_roles.toml` are the utility's **compiled-in** table, which its
+own specification records as dead in v1.25: constructed at static-init, never read at runtime.
+The live mapping is the `taskmap` file fetched from the corporate share and cached under
+`%ProgramData%\MSTRSuppUtil\taskmap`, and it is expected to outgrow the built-in list — the
+`PUMap contains additional PUs that this version of the plugin cannot support` warning fires
+exactly when it has.
+
+So freezing nine rows recovered from a 2022 binary would give Sift a mapping with a shelf
+life and no supported way to renew it. `sift taskmap` (`pipeline/taskmap.py`) converts a
+taskmap into `[[pu]]` rows: an engineer with a current one — every MSTRSuppUtil install has
+a local cache — regenerates the rows rather than hand-transcribing them, which is exactly
+how `Delivery(NCSPU)` acquired a space it does not have.
+
+The importer reproduces the utility's grammar but not two of its bugs, both recorded because
+each would corrupt data rather than merely differ:
+
+- **Header truncation.** The utility takes `substr(1, len-2)`, stripping the leading `:` *and
+  one trailing character* — the CR of a CRLF file. On a header with no closing colon, which
+  its own grammar permits, that silently renames the queue (`Cube Publication` becomes
+  `Cube Publicatio`). A renamed queue is worse than a missing one: threads are attributed
+  under a name that matches nothing an engineer can look up. The importer strips the `:`
+  delimiter when present and handles line endings properly, so CRLF and LF agree.
+- **The ten-entry cap.** Not reproduced, per divergence 2.
+
+Every row is imported with `match = "contains"`, reproducing the utility's substring `Lookup`;
+an `exact` import would silently stop matching stacks the utility matches. Output is a
+fragment carrying no `[meta]`, so pasting it over a rules file fails loudly at load rather
+than producing a file with no role rules, and unclassifiable lines are reported with their
+line numbers rather than dropped.
+
+`test_converted_taskmap_loads_and_attributes_correctly` closes the loop: a converted taskmap
+is combined with the shipped role rules, loaded, and used to attribute threads — including to
+a queue the 2022 table has never heard of. Without that round trip, the command would be a
+text generator whose output happens to look plausible.
+
 ### The ownership prohibition extends unchanged
 
 ADR 0015's permanent non-goal is a property of the data, not of an axis: neither eu-stack nor pstack

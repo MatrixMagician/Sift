@@ -17,7 +17,7 @@ stage independently re-runnable, idempotent, and inspectable with `sift show`.
 ## Component diagram
 
 ```
-   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, validate, tui, mcm, perfmon, eustack, eval, doctor)
+   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, validate, tui, mcm, perfmon, eustack, taskmap, eval, doctor)
                               │  orchestration only — no HTTP; SQL only in the
                               │  read-only `list` probe (see "The case store")
    ┌──────────────┬───────────┼───────────────┬──────────────┬─────────────┐
