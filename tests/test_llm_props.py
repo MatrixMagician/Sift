@@ -25,16 +25,28 @@ _LLAMACPP_PROPS: dict[str, object] = {
 }
 
 
-def _warn(gen_settings: object = None, **props: object) -> list[str]:
+def _warn(
+    gen_settings: object = None,
+    *,
+    seed_override: int | None = None,
+    temperature_override: float | None = None,
+    **props: object,
+) -> list[str]:
     """Build a ``/props`` body and return its warnings.
 
     ``gen_settings`` lands under ``default_generation_settings``, mirroring the
-    key the server actually serves.
+    key the server actually serves. The two overrides are the configured
+    ``generation.seed`` / ``generation.temperature`` (SEED-003), passed through
+    verbatim.
     """
     body = dict(props)
     if gen_settings is not None:
         body["default_generation_settings"] = gen_settings
-    return determinism_warnings(body)
+    return determinism_warnings(
+        body,
+        seed_override=seed_override,
+        temperature_override=temperature_override,
+    )
 
 
 def test_random_seed_warns_on_llamacpp_uint32_sentinel() -> None:
@@ -114,3 +126,44 @@ def test_bool_values_are_not_read_as_numbers() -> None:
     """
     assert determinism_warnings({"n_parallel": True}) == []
     assert _warn({"params": {"seed": True, "temperature": True}}) == []
+
+
+# --- overrides suppress the risk they control (SEED-003) ----------------------
+
+
+def test_configured_seed_suppresses_the_seed_warning() -> None:
+    """A request-level seed beats the server's loaded one, so the warning is
+    false once it is set.
+
+    Sift now sends ``generation.seed`` in every chat body. Continuing to tell
+    the operator their random server seed threatens reproducibility, when Sift
+    overrides it on every request, teaches them to ignore doctor's warnings.
+    """
+    warnings = _warn(_LLAMACPP_PROPS, seed_override=42)
+    assert not any("seed is random" in w for w in warnings), warnings
+    # The temperature risk is untouched: it has its own override.
+    assert any("temperature is 0.8" in w for w in warnings), warnings
+
+
+def test_configured_temperature_suppresses_the_temperature_warning() -> None:
+    warnings = _warn(_LLAMACPP_PROPS, temperature_override=0.0)
+    assert not any("temperature is" in w for w in warnings), warnings
+    assert any("seed is random" in w for w in warnings), warnings
+
+
+def test_both_overrides_silence_the_sampling_warnings() -> None:
+    assert _warn(_LLAMACPP_PROPS, seed_override=42, temperature_override=0.0) == []
+
+
+def test_overrides_do_not_suppress_the_multi_slot_warning() -> None:
+    """Slot scheduling is not something a request body can control.
+
+    The seam only suppresses risks Sift has actually taken control of; treating
+    the overrides as a blanket "determinism is handled" flag would hide a real
+    multi-slot non-determinism.
+    """
+    warnings = _warn(
+        _LLAMACPP_PROPS, seed_override=42, temperature_override=0.0, n_parallel=4
+    )
+    assert len(warnings) == 1
+    assert "n_parallel=4" in warnings[0]

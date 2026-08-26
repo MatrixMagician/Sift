@@ -209,7 +209,16 @@ def test_run_case_drives_the_shipped_analyze_body(
     run_case(_SUITE / "negative-no-incident", config, repeats=2)
 
     assert len(seen) == 2  # once per repeat, on its own fresh db copy
-    assert all(call["config"] is config for call in seen)
+    # The case config reaches run_analyze intact. Identity no longer holds:
+    # run_case pins the harness's sampling defaults (SEED-003) by returning a
+    # copy, so assert on the whole config with those two fields set as expected
+    # — a weaker "it's a SiftConfig" check would stop catching a re-derived one.
+    expected = config.model_copy(
+        update={"generation": config.generation.model_copy(
+            update={"seed": 42, "temperature": 0.0}
+        )}
+    )
+    assert all(call["config"] == expected for call in seen)
     # The sinks are eval's, not the CLI's: nothing may reach the metric table.
     assert all(callable(call["echo"]) for call in seen)
     assert all(callable(call["announce"]) for call in seen)

@@ -39,6 +39,31 @@ class GenerationConfig(BaseModel):
     # falls back to a built-in default that may exceed a small loaded context and
     # the server rejects the over-context prompt. None keeps the built-in default.
     context: int | None = None
+    # SEED-003: sampling control, sent per request only when set. Sift's
+    # documented determinism guarantee ("identical case + config + model + seed
+    # produce byte-identical JSON") names a seed but, before these, nothing in
+    # Sift could set one — reproducibility rested entirely on how the operator
+    # loaded the model. Measured against a Lemonade-managed llama-server loaded
+    # with a random seed at temperature 0.8, three identical prompts returned
+    # three different completions; the same endpoint returned byte-identical
+    # content once {"seed": 42, "temperature": 0} travelled in the request body.
+    # Both stay None by default so the request shape is unchanged for anyone who
+    # does not opt in, and so a server deliberately loaded with its own sampling
+    # policy is not silently overridden.
+    seed: int | None = None
+    temperature: float | None = None
+
+    @field_validator("temperature")
+    @classmethod
+    def _temperature_in_range(cls, value: float | None) -> float | None:
+        """A negative temperature is a typo, not a policy (T-04-02).
+
+        Rejected at config time rather than passed through to be rejected by
+        the server mid-analyse, after the embedding work is already done.
+        """
+        if value is not None and value < 0:
+            raise ValueError("generation.temperature must be >= 0")
+        return value
 
 
 class EmbeddingsConfig(BaseModel):
@@ -237,6 +262,8 @@ _ENV_SCALARS: dict[str, tuple[str, str]] = {
     "SIFT_GENERATION_TIMEOUT": ("generation", "timeout"),
     "SIFT_GENERATION_RETRIES": ("generation", "retries"),
     "SIFT_GENERATION_CONTEXT": ("generation", "context"),
+    "SIFT_GENERATION_SEED": ("generation", "seed"),
+    "SIFT_GENERATION_TEMPERATURE": ("generation", "temperature"),
     "SIFT_EMBEDDINGS_BASE_URL": ("embeddings", "base_url"),
     "SIFT_EMBEDDINGS_MODEL": ("embeddings", "model"),
     "SIFT_EMBEDDINGS_TIMEOUT": ("embeddings", "timeout"),

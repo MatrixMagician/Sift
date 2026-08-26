@@ -230,6 +230,12 @@ class InferenceClient:
             large record cannot exceed the model's context and abort the batch.
         context: Embedding context window in tokens, bounding the TOTAL size of
             one request. Usually the binding constraint, not ``batch_size``.
+        seed: Sampling seed sent with every chat completion, or ``None`` to send
+            none and let the server's loaded seed decide (SEED-003).
+        temperature: Sampling temperature sent with every chat completion, or
+            ``None`` to send none. Both default to ``None`` so the no-config
+            request shape stays byte-identical to before they existed — the
+            same discipline ``model`` and ``response_format`` already follow.
     """
 
     # Conservative chars-per-token divisor for the batch budget. Measured 1.94
@@ -252,6 +258,8 @@ class InferenceClient:
         batch_size: int = 64,
         max_input_chars: int = 8000,
         context: int = 8192,
+        seed: int | None = None,
+        temperature: float | None = None,
     ) -> None:
         _assert_local(generation.base_url, allow_public)
         _assert_local(embeddings.base_url, allow_public)
@@ -264,6 +272,8 @@ class InferenceClient:
         self._max_input_chars = max(1, max_input_chars)
         self._context = max(1, context)
         self._batch_chars = self._context * self._CHARS_PER_TOKEN
+        self._seed = seed
+        self._temperature = temperature
         self._has_tokenize: bool | None = None  # None = not yet probed
         # Model id the embeddings server reported on the last embed (STORE-03
         # provenance); None until the first embed call returns one.
@@ -405,6 +415,14 @@ class InferenceClient:
         constraint is best-effort — a server that ignores it still returns text
         parsed here; downstream Pydantic validation is the real backstop.
 
+        ``seed`` and ``temperature`` travel per request when configured
+        (SEED-003). This is what makes Sift's documented determinism guarantee
+        reachable from Sift: without them, reproducibility depended entirely on
+        how the operator happened to load the model, and a server loaded with a
+        random seed produced three different completions for three identical
+        prompts. Unset stays unset — the payload then carries neither key, so
+        the default request is byte-identical to the pre-SEED-003 shape.
+
         Raises:
             ValueError: On a malformed response — absent/empty ``choices``, a
                 non-string/absent ``content``, or empty/whitespace-only content
@@ -416,6 +434,10 @@ class InferenceClient:
         payload: dict[str, object] = {"messages": list(messages)}
         if self._generation.model is not None:
             payload["model"] = self._generation.model
+        if self._seed is not None:
+            payload["seed"] = self._seed
+        if self._temperature is not None:
+            payload["temperature"] = self._temperature
         if response_format is not None:
             payload["response_format"] = response_format
         response = self._request("POST", url, json=payload)

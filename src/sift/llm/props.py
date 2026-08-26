@@ -1,10 +1,13 @@
 """Determinism-risk interpretation of an inference server's ``/props`` payload.
 
 ``sift doctor`` reports three reproducibility risks a server can carry: a
-multi-slot configuration, a random seed, and a non-zero temperature. Sift sends
-neither seed nor temperature in its chat payload, so the server's loaded
-settings fully determine reproducibility — which is exactly why doctor must
-read them back and say so.
+multi-slot configuration, a random seed, and a non-zero temperature. The seed
+and temperature risks only exist while Sift sends neither in its chat payload,
+which is the default — so doctor must read the server's loaded settings back
+and say so. When the operator sets ``generation.seed`` / ``generation.temperature``
+(SEED-003), Sift overrides the server per request and the corresponding warning
+is withheld: warning about a risk that has been controlled is how operators
+learn to ignore warnings.
 
 The decision is PURE and returns its warnings rather than printing them, so the
 whole thing is testable against a dict literal with no client, no transport and
@@ -29,7 +32,12 @@ from typing import cast
 _RANDOM_SEED_SENTINEL = 0xFFFFFFFF
 
 
-def determinism_warnings(props: Mapping[str, object]) -> list[str]:
+def determinism_warnings(
+    props: Mapping[str, object],
+    *,
+    seed_override: int | None = None,
+    temperature_override: float | None = None,
+) -> list[str]:
     """Every reproducibility risk ``props`` reports, as rendered warning lines.
 
     Returned in emission order — multi-slot, then seed, then temperature — and
@@ -40,6 +48,13 @@ def determinism_warnings(props: Mapping[str, object]) -> list[str]:
     (D-02 reserves stopping for the critical checks). ``/props`` is
     feature-detected and returns ``{}`` when absent (Lemonade), so an empty
     payload warns nothing.
+
+    ``seed_override`` / ``temperature_override`` are the configured
+    ``generation.seed`` / ``generation.temperature`` (SEED-003). A set override
+    travels in every chat request and therefore beats the server's loaded value,
+    so its warning is suppressed. ``n_parallel`` has no such override — slot
+    scheduling is not something a request body can control — so that warning
+    always stands.
 
     Every value is bool-guarded as well as type-guarded: ``bool`` is a subclass
     of ``int``, and a server reporting ``n_parallel: true`` must not be read as
@@ -77,25 +92,29 @@ def determinism_warnings(props: Mapping[str, object]) -> list[str]:
 
     seed = source.get("seed")
     if (
-        isinstance(seed, int)
+        seed_override is None
+        and isinstance(seed, int)
         and not isinstance(seed, bool)
         and (seed < 0 or seed == _RANDOM_SEED_SENTINEL)
     ):
         warnings.append(
             f"Warning: server seed is random ({seed}); set a fixed seed "
-            "for reproducible triage"
+            "for reproducible triage (server-side, or generation.seed in "
+            "config.toml)"
         )
 
     temperature = source.get("temperature")
     if (
-        isinstance(temperature, int | float)
+        temperature_override is None
+        and isinstance(temperature, int | float)
         and not isinstance(temperature, bool)
         and temperature > 0
     ):
         warnings.append(
             f"Warning: server temperature is {temperature} (> 0); "
             "identical prompts can yield different triage output — load "
-            "the model at temperature 0 for reproducible triage"
+            "the model at temperature 0, or set generation.temperature = 0 "
+            "in config.toml, for reproducible triage"
         )
 
     return warnings

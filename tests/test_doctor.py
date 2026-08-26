@@ -12,6 +12,7 @@ A live-server variant is ``@pytest.mark.live`` and excluded from the default sui
 import json
 import os
 import socket
+from pathlib import Path
 
 import httpx
 import pytest
@@ -34,6 +35,7 @@ def _make_transport(
     embed_dim: int = 4,
     embed_empty: bool = False,
     n_parallel: int = 1,
+    random_seed: bool = False,
     connect_error_ports: tuple[int, ...] = (),
     seen: list[str] | None = None,
 ) -> httpx.MockTransport:
@@ -42,12 +44,14 @@ def _make_transport(
     Toggles simulate: a healthy server; an OGA/ONNX server that lists a model but
     returns an empty embeddings ``data`` list (``embed_empty``); a custom embedding
     dimension; an unreachable endpoint (``connect_error_ports`` → ConnectError); a
-    multi-slot server (``n_parallel``). ``seen`` records ``"{port}{path}"`` per call
-    so a test can prove fail-fast order (embeddings path never reached).
+    multi-slot server (``n_parallel``); a server loaded with a random seed at a
+    non-zero temperature (``random_seed``). ``seen`` records ``"{port}{path}"``
+    per call so a test can prove fail-fast order (embeddings path never reached).
 
-    There is no ``default_generation_settings`` knob: interpreting that payload
-    is the pure decision tested in ``tests/test_llm_props.py`` (ADR 0020), and
-    ``n_parallel`` alone is enough to make one warning cross the wire here.
+    Interpreting ``default_generation_settings`` is the pure decision tested in
+    ``tests/test_llm_props.py`` (ADR 0020); ``random_seed`` exists here only so
+    the SEED-003 suppression can be witnessed at the wire, where the question is
+    whether the CONFIG reaches the decision at all.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -69,7 +73,14 @@ def _make_transport(
             ]
             return httpx.Response(200, json={"data": data})
         if path.endswith("/props"):
-            return httpx.Response(200, json={"n_parallel": n_parallel})
+            body: dict[str, object] = {"n_parallel": n_parallel}
+            if random_seed:
+                # The verbatim llama.cpp shape: sampler knobs nested under
+                # params, a random seed reported as UINT32_MAX.
+                body["default_generation_settings"] = {
+                    "params": {"seed": 4294967295, "temperature": 0.8}
+                }
+            return httpx.Response(200, json=body)
         # /tokenize (and anything else) absent → 404, degraded gracefully.
         return httpx.Response(404)
 
@@ -192,6 +203,64 @@ def test_multi_slot_warns_but_passes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "n_parallel=4" in result.stderr  # determinism WARNING (non-fatal)
     assert "n_parallel=4" not in result.stdout  # stdout stays scriptable
     assert "doctor: all checks passed" in result.output
+
+
+def _write_sampling_config(body: str) -> None:
+    """Write a ``[generation]`` config.toml into the conftest-isolated XDG dir."""
+    cfg_dir = Path(os.environ["XDG_CONFIG_HOME"]) / "sift"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "config.toml").write_text(body, encoding="utf-8")
+
+
+def test_random_server_seed_warns_when_nothing_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default is still non-deterministic, and doctor is what says so.
+
+    SEED-003 makes sampling controllable but leaves it unset by default, so this
+    warning must keep firing for anyone who has not opted in -- and now names
+    the config key as one of the two ways out.
+    """
+    _patch_http(monkeypatch, _make_transport(random_seed=True))
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "seed is random" in result.stderr
+    assert "generation.seed" in result.stderr
+    assert "temperature is 0.8" in result.stderr
+
+
+def test_configured_sampling_silences_the_server_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wire-level witness for the SEED-003 suppression (ADR 0023).
+
+    ``tests/test_llm_props.py`` proves the decision against dict literals. Only
+    the assembled CLI can prove the wiring: that ``config.generation.seed`` and
+    ``.temperature`` actually reach ``determinism_warnings``. Dropping either
+    keyword argument in ``cli.py`` leaves the whole pure suite green.
+    """
+    _write_sampling_config("[generation]\nseed = 42\ntemperature = 0.0\n")
+    _patch_http(monkeypatch, _make_transport(random_seed=True))
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "seed is random" not in result.stderr
+    assert "temperature is" not in result.stderr
+    assert "doctor: all checks passed" in result.output
+
+
+def test_configured_sampling_does_not_silence_the_multi_slot_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A request body cannot control slot scheduling, so that risk still stands.
+
+    The suppression is per knob, never a blanket "determinism is handled".
+    """
+    _write_sampling_config("[generation]\nseed = 42\ntemperature = 0.0\n")
+    _patch_http(monkeypatch, _make_transport(random_seed=True, n_parallel=4))
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0, result.output
+    assert "n_parallel=4" in result.stderr
+    assert "seed is random" not in result.stderr
 
 
 @pytest.mark.live

@@ -98,7 +98,11 @@ change, however good the rest of it is.
   is structurally non-citable, and it stays that way.
 - **Determinism.** `event_id = sha256(source_file, byte_offset)[:16]`, which
   makes re-ingestion idempotent. Identical case, configuration, model, and seed
-  produce byte-identical JSON, modulo timestamps — but only given a stable
+  produce byte-identical JSON, modulo timestamps. The seed is
+  `generation.seed`, alongside `generation.temperature` (ADR
+  [0023](docs/decisions/0023-request-level-sampling-control.md)); both default
+  to unset, so a run that pins neither inherits whatever sampling the server was
+  loaded with — but only given a stable
   embedding-backend state: batch composition perturbs embedding vectors well
   above float32 noise, and Sift neither controls nor can fully record that
   backend state. ADR

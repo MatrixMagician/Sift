@@ -376,6 +376,59 @@ def test_chat_sends_llama_cpp_response_format_shape() -> None:
     assert "grammar" not in body
 
 
+# --- sampling control (SEED-003) ---------------------------------------------
+
+
+def _chat_body(**kw: object) -> dict[str, object]:
+    """Return the request body one ``chat`` call put on the wire."""
+    seen: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    _client(handler, **kw).chat([{"role": "user", "content": "hi"}])
+    return seen[0]
+
+
+def test_chat_omits_sampling_when_unset() -> None:
+    """The unconfigured request shape must be byte-identical to pre-SEED-003.
+
+    This is the compatibility half of the feature: a server deliberately loaded
+    with its own sampling policy must not be silently overridden by Sift.
+    """
+    body = _chat_body()
+    assert "seed" not in body
+    assert "temperature" not in body
+
+
+def test_chat_sends_seed_and_temperature_when_set() -> None:
+    """The whole point: Sift can reach its own documented determinism.
+
+    Before this, ``GenerationConfig`` had no seed at all and ``chat`` sent none,
+    so the guarantee "identical case + config + model + seed produce
+    byte-identical JSON" named a knob nothing in Sift could turn.
+    """
+    body = _chat_body(seed=42, temperature=0.0)
+    assert body["seed"] == 42
+    assert body["temperature"] == 0.0
+
+
+def test_chat_sends_each_sampling_knob_independently() -> None:
+    """One knob set must not drag the other onto the wire."""
+    assert _chat_body(seed=7) == {
+        "messages": [{"role": "user", "content": "hi"}],
+        "seed": 7,
+    }
+    assert "seed" not in _chat_body(temperature=0.2)
+
+
+def test_chat_sends_temperature_zero_not_dropped_as_falsey() -> None:
+    """Temperature 0 is the value that matters most; a truthiness test on it
+    would silently drop exactly the setting an operator reaches for."""
+    assert _chat_body(temperature=0.0)["temperature"] == 0.0
+
+
 # --- feature detection: /tokenize, /props (LLM-04, Lemonade-safe) -------------
 
 

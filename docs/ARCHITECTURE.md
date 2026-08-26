@@ -428,7 +428,7 @@ src/sift/
 │                    perfmon + eustack bundles (shared escaping in _util.py)
 ├── tui/             Textual review TUI: screens/, data_access, review_state
 └── eval/            Golden-case harness: runner, metrics, thresholds, judge
-docs/decisions/      Architecture decision records (ADR 0001–0018)
+docs/decisions/      Architecture decision records (ADR 0001–0023)
 eval/cases/          Golden cases with frozen truth files
 tests/               pytest suite; no test ever opens a socket
 deploy/              Container/Quadlet deployment assets

@@ -64,6 +64,43 @@ if TYPE_CHECKING:
     from sift.pipeline.eustack_progression import EustackBundle
 
 
+# The eval harness's own sampling policy (SEED-003). `determinism_stability`
+# exists to measure SIFT's determinism, but with no seed or temperature in the
+# request it measured the operator's server configuration instead: against a
+# Lemonade-managed llama-server loaded with a random seed at temperature 0.8 the
+# metric scored 0.00 and took two sampling-dependent floors down with it, with
+# nothing wrong in Sift. A fixed seed at temperature 0 makes the gate mean what
+# its name says. The seed value is arbitrary and only has to be constant.
+_EVAL_SEED = 42
+_EVAL_TEMPERATURE = 0.0
+
+
+def with_deterministic_sampling(config: SiftConfig) -> SiftConfig:
+    """Return ``config`` with the harness's fixed seed/temperature defaults.
+
+    Applied per field and only where the operator set nothing: an explicitly
+    configured ``generation.seed`` or ``generation.temperature`` still wins, so
+    someone deliberately evaluating their own sampling policy can, and the
+    normal precedence chain (flags > env > toml > defaults) is not inverted by
+    the harness. ``model_fields_set`` is what distinguishes "not configured"
+    from "configured to None" — the two are indistinguishable by value.
+
+    Pure and returning a new config rather than mutating: the caller's config is
+    shared with every other command in the process.
+    """
+    provided = config.generation.model_fields_set
+    updates: dict[str, object] = {}
+    if "seed" not in provided:
+        updates["seed"] = _EVAL_SEED
+    if "temperature" not in provided:
+        updates["temperature"] = _EVAL_TEMPERATURE
+    if not updates:
+        return config
+    return config.model_copy(
+        update={"generation": config.generation.model_copy(update=updates)}
+    )
+
+
 def _cluster_exemplar_texts(store: CaseStore, top_clusters: int) -> list[str]:
     """The exemplar messages of the top-N salience-ranked clusters — the same
     slice fed to the hypothesiser (RESEARCH A1). Mirrors
@@ -303,6 +340,12 @@ def run_case(
     # state can never occur (19-CONTEXT.md).
     if truth.expect_eustack is not None:
         return _run_eustack_case(case_dir, config)
+    # SEED-003: every LLM-touching case runs under the harness's fixed sampling
+    # unless the operator configured their own. Applied here rather than at the
+    # CLI so any caller of run_case (including a test) gets the same policy —
+    # the metric is only meaningful when the sampling is pinned. Deliberately
+    # after the eu-stack dispatch above, which contacts no endpoint at all.
+    config = with_deterministic_sampling(config)
     top_clusters = DEFAULT_TOP_CLUSTERS
 
     with tempfile.TemporaryDirectory(prefix="sift-eval-") as tmp:

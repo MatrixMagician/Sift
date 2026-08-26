@@ -3,6 +3,9 @@ id: 2026-07-30-generation-sampling-not-controlled
 created: 2026-07-30
 source: v1.3 milestone audit (.planning/milestones/v1.3-MILESTONE-AUDIT.md §4)
 severity: medium
+status: completed
+completed: 2026-08-26
+resolution: ADR 0023 — generation.seed/generation.temperature ship, sent per request when set; sift eval defaults to seed 42 at temperature 0; doctor withholds the warning for whichever knob is configured
 area: llm-client, config, determinism
 requirement_hint: SEED-003 (candidate)
 ---

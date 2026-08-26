@@ -69,6 +69,8 @@ def build_client(
             retries=config.generation.retries,
             backoff_base=config.generation.backoff_base,
             batch_size=config.embeddings.batch_size,
+            seed=config.generation.seed,
+            temperature=config.generation.temperature,
             **tuning,
         )
     except ValueError:

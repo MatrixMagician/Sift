@@ -55,6 +55,31 @@ flag glob always wins the first-match detection order.
 | `generation.retries` | `SIFT_GENERATION_RETRIES` | — | int | `2` | Extra attempts after the first, on connect error, timeout or HTTP 5xx. |
 | `generation.backoff_base` | — | — | float | `0.5` | Exponential backoff base in seconds: attempt *n* sleeps `base * 2**n`. TOML-only. |
 | `generation.context` | `SIFT_GENERATION_CONTEXT` | — | int \| null | `null` | Fallback generation context window (tokens) used only when the server does not expose llama.cpp's `/props` (e.g. Lemonade). Set it to the model's actual loaded context so the prompt budget trims to fit; otherwise an over-context prompt is rejected. `/props`-reported `n_ctx` always wins. |
+| `generation.seed` | `SIFT_GENERATION_SEED` | — | int \| null | `null` | Sampling seed sent with every chat completion. `null` sends no `seed` field, leaving the server's loaded seed in charge. |
+| `generation.temperature` | `SIFT_GENERATION_TEMPERATURE` | — | float \| null | `null` | Sampling temperature sent with every chat completion. `null` sends no `temperature` field. Must be >= 0. |
+
+#### Reproducible triage
+
+Sift's determinism guarantee names a seed, and these two are how you set it. Without
+them, reproducibility depends entirely on how the model was loaded: against a
+llama-server loaded with a random seed at temperature 0.8, three identical prompts
+return three different triage reports. Set both for reproducible output:
+
+```toml
+[generation]
+seed = 42
+temperature = 0.0
+```
+
+Both default to `null` deliberately, so the request Sift sends is unchanged for anyone
+who has not opted in and a server deliberately loaded with its own sampling policy is
+not silently overridden. `sift doctor` warns about a random server seed or a non-zero
+server temperature only while the corresponding key is unset — once you set it, Sift
+overrides the server per request and the warning would be false.
+
+`sift eval` applies `seed = 42`, `temperature = 0.0` as its own default for exactly this
+reason: its `determinism_stability` metric is meant to measure Sift, not the endpoint's
+sampling configuration. Anything you set explicitly still wins.
 
 ### `[embeddings]` — the embeddings endpoint
 

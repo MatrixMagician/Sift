@@ -282,3 +282,48 @@ def test_unknown_key_under_eustack_thresholds_is_a_loud_error() -> None:
     )
     with pytest.raises(ValidationError, match="unclassified_thread_pcnt"):
         load_config()
+
+
+# ------------------------------------------------- SEED-003 ([generation] sampling)
+
+
+def test_generation_sampling_defaults_to_unset() -> None:
+    """Unset is the default, and it is load-bearing.
+
+    ``None`` means "send no seed/temperature key", which keeps the request shape
+    byte-identical to before these knobs existed and leaves a server that was
+    deliberately loaded with its own sampling policy in charge.
+    """
+    generation = load_config().generation
+    assert generation.seed is None
+    assert generation.temperature is None
+
+
+def test_generation_sampling_round_trips_from_toml() -> None:
+    _write_toml("[generation]\nseed = 42\ntemperature = 0.0\n")
+    generation = load_config().generation
+    assert generation.seed == 42
+    assert generation.temperature == 0.0
+
+
+def test_env_generation_sampling_coerced(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SIFT_* env arrives as strings; pydantic coerces on validation."""
+    monkeypatch.setenv("SIFT_GENERATION_SEED", "7")
+    monkeypatch.setenv("SIFT_GENERATION_TEMPERATURE", "0.25")
+    generation = load_config({}).generation
+    assert generation.seed == 7
+    assert generation.temperature == 0.25
+
+
+def test_negative_temperature_is_a_loud_error() -> None:
+    """Caught at config time, not mid-analyse after the embedding work is done."""
+    _write_toml("[generation]\ntemperature = -1.0\n")
+    with pytest.raises(ValidationError, match="temperature"):
+        load_config()
+
+
+def test_typo_in_a_sampling_key_is_a_loud_error() -> None:
+    """T-04-02: an operator who believes they pinned the seed must be told."""
+    _write_toml("[generation]\nsed = 42\n")
+    with pytest.raises(ValidationError, match="sed"):
+        load_config()

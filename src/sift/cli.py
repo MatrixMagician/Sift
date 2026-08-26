@@ -938,7 +938,7 @@ def eval_(
     """
     from sift.eval.metrics import SuiteResult
     from sift.eval.report import render_json_table, render_text_table
-    from sift.eval.runner import run_case
+    from sift.eval.runner import run_case, with_deterministic_sampling
     from sift.eval.thresholds import gate, load_thresholds
 
     if not suite.is_dir():
@@ -957,6 +957,10 @@ def eval_(
         raise typer.Exit(2) from None
 
     config = _config_with_model(data_dir, model)
+    # SEED-003: the judge client below must sample the same way the scored runs
+    # do. run_case pins its own config, so pin this one at the same seam rather
+    # than leaving the advisory judge on the endpoint's loaded sampling.
+    config = with_deterministic_sampling(config)
 
     # Built up front for TWO reasons, only one of which is the judge: this is
     # also the suite's fail-fast SSRF guard (LLM-02). A public endpoint without
@@ -1109,9 +1113,15 @@ def doctor(
 
         # 7. Determinism WARNINGS (non-fatal): a multi-slot server, a random
         # seed or a non-zero temperature each break reproducibility (T-03-15).
-        # The decision itself is pure and lives in llm/props.py (ADR 0020);
-        # stderr keeps stdout scriptable.
-        for warning in determinism_warnings(client.props()):
+        # The configured overrides are passed in because a request-level seed or
+        # temperature (SEED-003) beats the server's loaded value, so warning
+        # about the latter would be false. The decision itself is pure and lives
+        # in llm/props.py (ADR 0020); stderr keeps stdout scriptable.
+        for warning in determinism_warnings(
+            client.props(),
+            seed_override=config.generation.seed,
+            temperature_override=config.generation.temperature,
+        ):
             print(warning, file=sys.stderr)
 
         print("doctor: all checks passed")
