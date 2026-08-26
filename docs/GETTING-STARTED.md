@@ -629,9 +629,12 @@ governs all re-run behaviour:
   often as you like, with the backend down.
 
 Determinism holds across runs: an identical case, config, model and seed
-produce byte-identical JSON output, modulo timestamps. The recorded prompt
-hash in the report's run metadata is how you confirm two runs used the same
-prompt.
+produce byte-identical JSON output, modulo timestamps. Set the seed with
+`generation.seed` (alongside `generation.temperature = 0.0`) in `config.toml` —
+both are unset by default, and with neither set your output is only as
+reproducible as the sampling your inference server was loaded with. `sift
+doctor` tells you which case you are in. The recorded prompt hash in the
+report's run metadata is how you confirm two runs used the same prompt.
 
 To delete a case, delete its directory. A clean command exit checkpoints the
 write-ahead log, so the directory holds only `case.db` (plus `mcm/` if you

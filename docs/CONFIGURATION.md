@@ -90,6 +90,7 @@ sampling configuration. Anything you set explicitly still wins.
 | `embeddings.timeout` | `SIFT_EMBEDDINGS_TIMEOUT` | — | float | `60.0` | Per-request HTTP timeout, in seconds. |
 | `embeddings.batch_size` | `SIFT_EMBEDDINGS_BATCH_SIZE` | — | int | `64` | Maximum inputs per `/embeddings` request. |
 | `embeddings.max_input_chars` | `SIFT_EMBEDDINGS_MAX_INPUT_CHARS` | — | int | `8000` | Each embedding input is truncated to this many characters before sending. |
+| `embeddings.context` | `SIFT_EMBEDDINGS_CONTEXT` | — | int | `8192` | Embedding context window in tokens, bounding the **total** size of one request. Usually the binding constraint, not `batch_size`. Sift cannot read the loaded `n_ctx` for embeddings (Lemonade serves no `/props`), so set this when it differs from the default. |
 
 `max_input_chars` exists because a single large multi-line record — an MCM memory dump,
 a full stack trace — can exceed the embedding model's context window and cause the
@@ -98,6 +99,14 @@ backend to reject the entire batch, aborting `sift analyze`. Roughly 8000 charac
 model (bge-small, for example, has a 512-token context). Embedded text is never cited,
 so prefix truncation is safe. When the server rejects a batch, Sift's error message
 names this knob and its current value.
+
+`context` bounds the request as a whole, which `max_input_chars` alone cannot: 64 inputs
+of 8000 characters is roughly 256k tokens, which a backend rejects outright. That was the
+failure that aborted `sift analyze` on a 1781-group case. Note that changing either knob
+alters embedding batch composition, which perturbs vectors well above float32 noise — see
+`docs/decisions/0014-embedding-determinism-scope.md` and
+`docs/decisions/0018-batch-knob-does-not-invalidate-vector-reuse.md` for why a change here
+does *not* invalidate already-stored vectors.
 
 ### `[clustering]` — semantic clustering
 

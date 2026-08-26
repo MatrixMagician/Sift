@@ -444,7 +444,8 @@ grep.
 - **Determinism.** `event_id`, `template_id`, and prompt hashes are all `sha256(...)[:16]` of
   content-only inputs. Ordering is explicit everywhere (canonical event order, `count DESC` then id,
   score then `cluster_id`). Identical case + config + model + seed yields byte-identical JSON modulo
-  the excluded volatile fields.
+  the excluded volatile fields. The seed is `generation.seed`, sent per request alongside
+  `generation.temperature` when set and omitted entirely when not (ADR 0023).
 - **Nothing disappears silently.** Unparseable regions become `severity="unknown"` events; adapters
   emit per-file coverage; unvalidated model output is persisted and rendered; flagged citations stay
   visible rather than being dropped.

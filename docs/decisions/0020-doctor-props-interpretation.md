@@ -1,6 +1,12 @@
 # ADR 0020: `/props` determinism interpretation is pure and lives in `llm/`
 
-**Status:** Accepted (implemented)
+**Status:** Accepted (implemented). Amended by ADR
+[0023](0023-request-level-sampling-control.md): the seed and temperature
+warnings are now withheld when the corresponding `generation.*` key is set,
+because Sift overrides the server per request and the warning would be false.
+The placement decision this ADR actually makes — that the interpretation is
+pure and lives in `llm/` — is unchanged, and the amendment landed as two
+keyword arguments to the same pure function.
 **Date:** 2026-08-01
 **Answers:** SPEC.md §5.8 (CLI) / §7 (repository layout) — where does the
 logic of a Typer command that is **not** a case command live, now that
@@ -18,7 +24,8 @@ it is not a check that can fail, it is an **interpretation**. The server's
 configuration, a random seed, and a non-zero temperature — each emitted as a
 non-fatal warning on stderr. Sift sends neither seed nor temperature in its
 chat payload, so the endpoint's loaded settings fully determine reproducibility,
-which is why doctor must report them at all.
+which is why doctor must report them at all. (That premise held at the time and
+is what ADR 0023 later changed — see the amendment note above.)
 
 That interpretation had no interface. It sat inline in the Typer command body
 in `cli.py`, and reaching it in a test meant standing up an `httpx.MockTransport`
