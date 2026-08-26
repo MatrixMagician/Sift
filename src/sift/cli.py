@@ -541,12 +541,16 @@ def report(
     ] = None,
     data_dir: DataDirOption = None,
 ) -> None:
-    """Render a self-contained triage report from a case (REPT-01).
+    # Raw docstring: the `\[` sequences below are Rich markup escapes, not Python
+    # ones. Rich (via Typer's rich_markup_mode) treats `[...]` in help text as a
+    # style tag and silently deletes it, so an unescaped `sift[pdf]` renders as
+    # `sift`. Escaping keeps the extra's real name on screen.
+    r"""Render a self-contained triage report from a case (REPT-01).
 
     A pure function of ``case.db``: no inference client is constructed and no
     network call is made (zero-egress invariant). Exit-code contract (ADR 0007):
     0 = rendered (including a degraded case — the banner communicates
-    degradation), 1 = no hypotheses / render-or-IO failure / missing sift[pdf],
+    degradation), 1 = no hypotheses / render-or-IO failure / missing sift\[pdf],
     2 = Typer usage (bad ``--format``).
     """
     config = load_config({"data_dir": data_dir})
@@ -792,21 +796,23 @@ def taskmap(
         typer.Option("--out", help="Write the rows here instead of stdout"),
     ] = None,
 ) -> None:
-    """Convert a MicroStrategy Support Utility ``taskmap`` into ``[[pu]]`` rows.
+    # Raw docstring: see `report` above — `\[` escapes Rich's markup so the TOML
+    # table names survive `--help` instead of rendering as `[]`.
+    r"""Convert a MicroStrategy Support Utility ``taskmap`` into ``\[\[pu]]`` rows.
 
     The nine processing units Sift ships are the utility's compiled-in
     defaults, which are dead code in v1.25 — the live mapping is the
-    ``taskmap`` file the utility caches under ``%ProgramData%\\MSTRSuppUtil``,
+    ``taskmap`` file the utility caches under ``%ProgramData%\MSTRSuppUtil``,
     and it is expected to grow past that built-in list. This command is how to
     move off that 2022 snapshot without hand-transcribing anything: convert a
     current taskmap, review the rows, then append them to a copy of
-    ``eustack_roles.toml`` and point ``[eustack] rules_path`` at it.
+    ``eustack_roles.toml`` and point ``\[eustack] rules_path`` at it.
 
     Reads one local file and writes text. No network access of any kind: Sift
     never contacts the corporate share the utility fetches from, so obtaining
     the taskmap is the operator's step, not this command's.
 
-    The output is a fragment, deliberately carrying no ``[meta]`` table, so
+    The output is a fragment, deliberately carrying no ``\[meta]`` table, so
     overwriting a rules file with it fails loudly at load rather than
     producing a file with no role rules. Exit codes: 0 converted, 1 unreadable
     or unparseable input / write failure, 2 Typer usage.
