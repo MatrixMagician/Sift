@@ -49,10 +49,15 @@ from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 
 # Shared, not copied (D-08 / the adapter's own house rule): this tool reuses
-# the shipped header regex and the shipped signature function rather than
-# growing a second definition of either.
-from sift.adapters.eustack import _TID_RE  # pyright: ignore[reportPrivateUsage]
+# the shipped eu-stack grammar's header rule and the shipped signature function
+# rather than growing a second definition of either. The grammar object is the
+# public seam; this tool previously imported a private `_TID_RE` out of
+# `adapters.eustack`, which 252484f moved into `adapters.threaddump` as part of
+# the pstack grammars, silently breaking the tool.
+from sift.adapters.threaddump import EUSTACK_GRAMMAR
 from sift.pipeline.eustack import signature_of
+
+_TID_RE = EUSTACK_GRAMMAR.header
 
 _SYNTHETIC_PID_HEADER = "PID 999999 - process\n"
 _SYNTHETIC_TID_START = 100_001
