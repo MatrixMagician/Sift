@@ -22,23 +22,23 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-import numpy as np
-from sklearn.cluster import (  # pyright: ignore[reportMissingTypeStubs] — sklearn ships no stubs
-    HDBSCAN,
-    AgglomerativeClustering,
-)
-from sklearn.preprocessing import (  # pyright: ignore[reportMissingTypeStubs]
-    normalize,  # pyright: ignore[reportUnknownVariableType]
-)
-
 from sift.llm.budget import PromptBudget
 from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
 from sift.pipeline._shared import load_prompt, short_hash
 from sift.store import CaseStore, Cluster, TemplateGroup
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from sift.config import ClusteringConfig
     from sift.llm.client import InferenceClient
+
+# numpy, scipy and sklearn cost ~0.56 s to import and are needed ONLY by the
+# two functions below, which run inside `sift analyze`. Importing them at module
+# scope put that cost on every `sift` invocation — `--help`, `show`, `eustack`,
+# `report` — because `sift.cli` imports this module transitively. They are
+# imported lazily at their two call sites instead; `from __future__ import
+# annotations` keeps the `np.ndarray` annotations working under TYPE_CHECKING.
 
 # The versioned label prompt (CLI-02): editing the .md changes label output with
 # no Python change. Loaded via importlib.resources so it ships as package data.
@@ -113,6 +113,11 @@ def _cluster_labels(x: np.ndarray, cfg: ClusteringConfig) -> list[int]:
     ``cfg.algorithm == "agglomerative"`` routes through the cosine-average
     fallback; otherwise HDBSCAN runs on the normalised vectors.
     """
+    from sklearn.cluster import (  # pyright: ignore[reportMissingTypeStubs] — sklearn ships no stubs
+        HDBSCAN,
+        AgglomerativeClustering,
+    )
+
     n = int(x.shape[0])
     if n < cfg.min_cluster_size:
         return list(range(n))  # auto-singleton: too few points to cluster
@@ -414,6 +419,11 @@ def cluster_and_label(
     meta counts) happens inside one ``store.transaction()`` — the
     caller-owns-transaction idiom mirrored from ``rebuild_template_groups``.
     """
+    import numpy as np
+    from sklearn.preprocessing import (  # pyright: ignore[reportMissingTypeStubs]
+        normalize,  # pyright: ignore[reportUnknownVariableType]
+    )
+
     groups = store.query_template_groups()
     if not groups:
         return ClusterResult(0, 0, 0)
