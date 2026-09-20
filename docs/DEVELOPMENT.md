@@ -51,13 +51,22 @@ Three commands. All three clean is the definition of done — for a commit, for 
 plan, for a milestone. Nothing else counts as finished.
 
 ```bash
-uv run ruff check           # lint (E, F, I, UP, B, DTZ), target py312
+uv run ruff check           # lint (E, F, I, UP, B, DTZ, C901, PLR0912, PLR0915), target py312
 uv run pyright              # strict mode over src/ and tests/, 0 errors
 uv run pytest               # default suite
 ```
 
 Notes that bite people:
 
+- **`C901`/`PLR0912`/`PLR0915` are the function-complexity gate** (#13):
+  max cyclomatic complexity 10, max branches 12, max statements 50 — ruff's
+  defaults, not loosened. A function over the line at the time the gate was
+  added carries a `# noqa: <code>, ...` on its `def` line with a one-line
+  reason naming what makes that function big, e.g. "one loop drives three
+  thread-dump grammars". Those markers are dated debt, not normal: read one as
+  "this shape predates the gate and was never simplified", not as licence to
+  add another branch behind it. New code gets no such allowance and must stay
+  under the thresholds or be split.
 - **pyright runs in `strict` mode** (`[tool.pyright]` in `pyproject.toml`) over
   both `src` and `tests`. Test code is held to the same standard as production
   code. Suppressions must be narrow (`# pyright: ignore[ruleName]`) and carry a
