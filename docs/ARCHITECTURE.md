@@ -203,14 +203,22 @@ methods must not be merged into a shared helper; the split is the invariant.
 
 ## The adapter protocol
 
-`src/sift/adapters/base.py` defines the frozen protocol:
+`src/sift/adapters/base.py` defines the protocol:
 
 ```python
 class Adapter(Protocol):
     name: str
+    streams_offsets: bool                            # ADR 0025
     def sniff(self, path: Path) -> float: ...        # 0.0-1.0 confidence
     def parse(self, path: Path, case_id: str) -> Iterator[Event]: ...
 ```
+
+The protocol was frozen after Phase 1 and has been extended once, by
+[`0025-adapter-declares-offset-streaming.md`](decisions/0025-adapter-declares-offset-streaming.md).
+`streams_offsets` is how `pipeline/ingest.py` decides whether a file's progress
+can advance per batch, replacing an `isinstance` check that named one concrete
+adapter and so made bounded-batch offset tracking a privilege of `genericlog`
+rather than a capability any adapter can declare.
 
 Concrete adapters subclass `ConfigurableAdapter`, which carries the per-run state the orchestrator
 sets and reads back uniformly (`input_root`, `tz_overrides`, `last_stats`) — deliberately outside
@@ -238,6 +246,15 @@ Sniffing always sees decompressed bytes: `base.open_bytes` detects gzip and zstd
 `base.read_head` reads the first 64 KiB of the decompressed stream. Timezone normalisation is a
 single shared path (`to_utc`, `tz_override_for`), so `ts_confidence` is `exact` for
 timezone-aware inputs and `inferred` where an override or UTC assumption was applied.
+
+`base.py` also holds the byte-level line machinery every line-based adapter needs: `byte_lines`
+(splitting, with the D-06 `MAX_EVENT_LINES`/`MAX_EVENT_BYTES` caps applied), and `RecordBase`, the
+accumulator for one in-progress multi-line event. `finish()` stays with each adapter, because
+building an `Event` is where they genuinely differ. That machinery used to live in `genericlog.py`
+and be imported by four sibling adapters, which made a domain adapter a de facto second base
+module. See [`0024-adapter-line-machinery-in-base.md`](decisions/0024-adapter-line-machinery-in-base.md).
+The byte accounting is the reason it is shared rather than copied: `byte_len` and `line_end` feed
+the `byte_offset` that `event_id` determinism rests on.
 
 The five registered adapters are `genericlog`, `journald`, `dsserrors`, `eustack` (thread dumps in
 any of the three `adapters/threaddump.py` grammars) and the v1.2

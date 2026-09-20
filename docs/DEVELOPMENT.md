@@ -154,12 +154,14 @@ case store is the single seam between stages; this section is only a map.
 - **Frozen contracts.** The `Event` dataclass (`models.py`) and the `Adapter`
   protocol (`adapters/base.py`) are frozen. Breaking either requires a milestone
   decision recorded in `docs/decisions/` and a store migration — never an
-  in-place edit.
+  in-place edit. `Adapter` has been extended exactly once since, by ADR 0025,
+  which added the `streams_offsets` capability flag; read that ADR before
+  proposing a second member.
 - **ADRs.** Decisions that close an open question go in `docs/decisions/` as
   `NNNN-kebab-title.md`, numbered sequentially, with a Status, Date, the
-  question being answered, Context, and the decision. Read the existing eleven
-  before adding the twelfth — several answer questions you may be about to
-  re-ask.
+  question being answered, Context, and the decision. `ls docs/decisions/` and
+  read the ones near your change before adding the next number — several answer
+  questions you may be about to re-ask.
 
 ## Walkthrough: adding a new adapter
 
@@ -177,28 +179,40 @@ walkthrough.
 
 ### 1. The contract
 
-`src/sift/adapters/base.py` holds the frozen protocol:
+`src/sift/adapters/base.py` holds the protocol:
 
 ```python
 class Adapter(Protocol):
     name: str
+    streams_offsets: bool    # ADR 0025; ConfigurableAdapter defaults it False
 
     def sniff(self, path: Path) -> float: ...   # 0.0-1.0 confidence this file is mine
     def parse(self, path: Path, case_id: str) -> Iterator[Event]: ...
 ```
 
+`streams_offsets` is True only when `parse` yields events in ascending byte
+order carrying `byte_offset`/`byte_len` attrs that map to the input stream, so
+ingest can advance its progress bar per batch instead of per completed file.
+Leave it at the inherited `False` unless you have checked that your adapter
+holds that property. It is how ingest asks the question without naming a
+concrete adapter class.
+
 `parse` yields the canonical frozen `Event` (`src/sift/models.py`) — every
-adapter normalises into the same shape:
+adapter normalises into the same shape. `severity` and `ts_confidence` are
+`Literal` types (`models.Severity`, `models.TsConfidence`), so pyright rejects
+an unrecognised value at your parse site rather than SQLite rejecting it at
+insert. Annotate your severity lookup table `dict[str, Severity]` and fall back
+to `"unknown"`; never cast a raw string into the Literal.
 
 ```python
 Event(
     event_id=event_id(relpath, byte_offset),  # sha256(source_file, offset)[:16]
     case_id=case_id,
-    ts=..., ts_confidence="exact" | "inferred" | "missing",
+    ts=..., ts_confidence=...,   # TsConfidence: "exact" | "inferred" | "missing"
     source="myformat",           # your adapter name
     source_file=relpath,         # case-relative POSIX path
     line_start=..., line_end=...,  # 1-based, inclusive; a multi-line record is ONE event
-    severity="fatal" | "error" | "warn" | "info" | "debug" | "unknown",
+    severity=...,   # Severity: "fatal"|"error"|"warn"|"info"|"debug"|"unknown"
     component=..., thread=..., session=...,
     message=...,                 # normalised text, multi-line permitted
     attrs={...},                 # adapter-specific extras, str -> str
@@ -214,7 +228,9 @@ carries the per-run state the ingest orchestrator sets and reads back
 orchestrator treat every adapter uniformly:
 
 ```python
-from sift.adapters.base import ConfigurableAdapter, ParseStats, open_bytes, read_head
+from sift.adapters.base import (
+    ConfigurableAdapter, ParseStats, RecordBase, byte_lines, open_bytes, read_head,
+)
 
 class MyFormatAdapter(ConfigurableAdapter):
     name = "myformat"
@@ -226,7 +242,8 @@ class MyFormatAdapter(ConfigurableAdapter):
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
         stats = ParseStats(path=relpath)
         with open_bytes(path) as stream:   # gzip/zstd handled here, not by you
-            ...
+            for line in byte_lines(stream):   # D-06 caps applied here, not by you
+                ...
         self.last_stats = stats
 ```
 
