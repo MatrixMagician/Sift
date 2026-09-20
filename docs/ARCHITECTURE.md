@@ -17,7 +17,8 @@ stage independently re-runnable, idempotent, and inspectable with `sift show`.
 ## Component diagram
 
 ```
-   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, validate, tui, mcm, perfmon, eustack, taskmap, eval, doctor)
+   src/sift/cli.py  (Typer: new, ingest, show, analyze, report, validate, tui, list, delete,
+                            mcm, perfmon, eustack, taskmap, eval, doctor)
                               │  orchestration only — no HTTP; SQL only in the
                               │  read-only `list` probe (see "The case store")
    ┌──────────────┬───────────┼───────────────┬──────────────┬─────────────┐
@@ -140,8 +141,9 @@ connection to display the `sift list` table without running migrations —
 constructing a `CaseStore` would rewrite the schema of every listed case as a
 side effect of displaying it. That probe never writes. Everywhere else, every
 statement uses `?` placeholders; no value is ever interpolated into SQL text. Filter keys reaching the store from the CLI are checked
-against allowlist dicts (`_EVENT_FILTER_SQL`, `_CLUSTER_FILTER_SQL`, `_CLUSTERS_TABLE_FILTER_SQL`)
-that map a key to a fixed `WHERE` snippet — an unknown key raises before any query is built.
+against allowlist dicts (`_EVENT_FILTER_SQL`, `_CLUSTER_FILTER_SQL`, `_CLUSTERS_TABLE_FILTER_SQL`,
+`_VERDICT_FILTER_SQL`) that map a key to a fixed `WHERE` snippet — an unknown key raises before any
+query is built.
 
 Migrations are numbered functions applied by a `PRAGMA user_version` runner, each inside
 `BEGIN IMMEDIATE`:
@@ -175,14 +177,18 @@ local change. And `raw` text above 4 KB encoded is transparently zstd-compressed
 (`_encode_raw`/`_decode_raw`), with a 128 MB decompression cap because a shared `case.db` is
 untrusted input.
 
-Run-level state lives in `meta`: `embedding_dim`, `embedding_metric`, `embedding_model`,
-`embedding_context`, `embedding_batch_size`, `embedding_max_input_chars`,
-`mask_version`, `cluster_label_prompt_hash`, and the `triage_*` keys
+Run-level state lives in `meta`. The embedding and triage keys are the ones with invariants
+attached: `embedding_dim`, `embedding_metric`, `embedding_model`, `embedding_context`,
+`embedding_batch_size`, `embedding_max_input_chars`, `embedding_new_count`,
+`embedding_reused_count`, `mask_version`, `cluster_label_prompt_hash`, and the `triage_*` keys
 (`triage_degraded`, `triage_prompt_hash`, `triage_created_at`, `triage_model`,
 `triage_timeline_summary`, `triage_unexplained_signals`, `triage_raw`). The three
 `embedding_*` batch-layout keys are provenance only, recorded so a divergent
 re-run is diagnosable (ADR 0014) — they overwrite unconditionally on every
-`analyze`, unlike `embedding_dim`'s mismatch guard.
+`analyze`, unlike `embedding_dim`'s mismatch guard. `ingest` writes plainer
+bookkeeping alongside them (`created_at`, `input_dir`, `adapter_overrides`,
+`parse_coverage`, `template_groups_stale`); `grep -n 'set_meta(' src/` is the
+current list, since `meta` is a key-value table rather than a fixed schema.
 
 The KB namespace is deliberately separate: `kb_chunks` has no `event_id` column anywhere, so a KB
 row structurally *cannot* become citable evidence. See
@@ -192,8 +198,10 @@ row structurally *cannot* become citable evidence. See
 
 `DSSPerformanceMonitor` samples are periodic observations, not diagnostics: thousands of
 near-identical counter rows carry no incident signal and would dominate template counts if fed to
-dedup, clustering and salience. `store.py` holds them out of *ranking only* through a single frozen
-constant, `EXCLUDED_FROM_RANKING = frozenset({"dssperfmon"})`, applied at exactly one place —
+dedup, clustering and salience. Thread-dump events are held out for the same reason, once the
+deterministic eu-stack analysis that replaced them shipped. `store.py` holds both out of
+*ranking only* through a single frozen constant,
+`EXCLUDED_FROM_RANKING = frozenset({"dssperfmon", "eustack"})`, applied at exactly one place —
 `CaseStore.iter_event_summaries`, whose `SELECT` carries a `WHERE source NOT IN (...)` clause
 (source values are `?`-bound from the constant, sorted for determinism). Because every ranking stage
 — dedup, cluster exemplars, hypothesis excerpts and the eval runner — reads its event universe from
@@ -415,9 +423,9 @@ Log-derived excerpts interpolated into a template are treated as untrusted data,
 `src/sift/config.py` resolves configuration by layering plain dicts and validating once with
 Pydantic (`SiftConfig`, all sections `extra="forbid"` so a typo fails loudly). Precedence is
 CLI flags > `SIFT_*` environment variables > `$XDG_CONFIG_HOME/sift/config.toml` > defaults.
-Sections: `generation`, `embeddings`, `clustering`, `mcm` (with `mcm.thresholds`), plus the
-`timezones` and `adapters` mappings, which are TOML/flag-only because they are nested mappings
-rather than scalars. Model identity has no baked default — it comes from config or is left to the
+Sections: `generation`, `embeddings`, `clustering`, `mcm` (with `mcm.thresholds`) and `eustack`
+(with `eustack.thresholds`), plus the `timezones` and `adapters` mappings, which are TOML/flag-only
+because they are nested mappings rather than scalars. Model identity has no baked default — it comes from config or is left to the
 server's loaded model.
 
 ## Evaluation harness
