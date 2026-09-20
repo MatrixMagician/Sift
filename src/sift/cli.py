@@ -10,6 +10,8 @@ import json
 import shutil
 import sqlite3
 import sys
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -111,6 +113,25 @@ def _case_store(case: str, config: SiftConfig) -> CaseStore:
     except (CaseNotFound, CaseUnreadable) as exc:
         print(f"Error: {exc}")
         raise typer.Exit(1) from None
+
+
+@contextmanager
+def _open_case(
+    case: str, data_dir: Path | None
+) -> Generator[tuple[CaseStore, SiftConfig]]:
+    """Open a case and guarantee the WAL checkpoints on every exit path (Pitfall 4).
+
+    Resolves config from ``--data-dir`` alone. ``analyze`` needs the
+    ``--model``-merged config too (D-03); it resolves that separately and
+    only takes the store from here, since the store only depends on
+    ``config.data_dir`` and that is identical either way.
+    """
+    config = load_config({"data_dir": data_dir})
+    store = _case_store(case, config)
+    try:
+        yield store, config
+    finally:
+        store.close()
 
 
 @app.command()
@@ -290,24 +311,19 @@ def ingest(case: str, data_dir: DataDirOption = None) -> None:
     files produce duplicate events (a documented limitation — event identity
     is source_file + byte_offset within one snapshot).
     """
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
-        run_ingest(case, config, store)
-    except IngestUsageError as exc:
-        print(f"Error: {_sanitise(str(exc))}")
-        raise typer.Exit(2) from None
-    except IngestError as exc:
-        # WR-07 disk-full included: abort loudly, non-zero, with zero events
-        # committed (the transaction is already rolled back). Message text is
-        # already sanitised at construction; re-sanitise for defence in depth.
-        print(f"Error: {_sanitise(str(exc))}")
-        raise typer.Exit(1) from None
-    finally:
-        # STORE-01 / Pitfall 4: a clean close checkpoints the WAL, so the
-        # case directory holds only case.db afterwards — deleting the
-        # directory is deleting the case.
-        store.close()
+    with _open_case(case, data_dir) as (store, config):
+        try:
+            run_ingest(case, config, store)
+        except IngestUsageError as exc:
+            print(f"Error: {_sanitise(str(exc))}")
+            raise typer.Exit(2) from None
+        except IngestError as exc:
+            # WR-07 disk-full included: abort loudly, non-zero, with zero
+            # events committed (the transaction is already rolled back).
+            # Message text is already sanitised at construction; re-sanitise
+            # for defence in depth.
+            print(f"Error: {_sanitise(str(exc))}")
+            raise typer.Exit(1) from None
 
 
 # The targets `sift show` accepts. Each has its own body in commands/show.py
@@ -354,18 +370,13 @@ def show(
         # T-02-09: echoed filter values are untrusted input — sanitise.
         print(f"Error: {_sanitise(str(exc))}")
         raise typer.Exit(2) from None
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, _config):
         if what == "hypotheses":
             code = run_show_hypotheses(store)
         elif what == "clusters":
             code = run_show_clusters(store, filters=parsed)
         else:
             code = run_show_events(store, filters=parsed)
-    finally:
-        # Close so WAL sidecars checkpoint on every show path (Pitfall 4).
-        store.close()
     if code:
         raise typer.Exit(code)
 
@@ -504,8 +515,7 @@ def analyze(
     since_dt = _parse_moment(since, "since")
     until_dt = _parse_moment(until, "until")
     config = _config_with_model(data_dir, model)
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, _config):
         code = run_analyze(
             store,
             config,
@@ -518,10 +528,6 @@ def analyze(
             until=until_dt,
             top_clusters=top_clusters,
         )
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
-        # ingest — the case directory holds only case.db afterwards.
-        store.close()
     if code:
         raise typer.Exit(code)
 
@@ -553,13 +559,8 @@ def report(
     degradation), 1 = no hypotheses / render-or-IO failure / missing sift\[pdf],
     2 = Typer usage (bad ``--format``).
     """
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, _config):
         code = run_report(store, fmt=fmt, out=out)
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4).
-        store.close()
     if code:
         raise typer.Exit(code)
 
@@ -636,13 +637,8 @@ def validate(
     except TargetSpecError as exc:
         print(f"Error: {_sanitise(str(exc))}")
         raise typer.Exit(2) from None
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, _config):
         code = run_validate(store, case=case, spec=spec, verdict=chosen[0], note=note)
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4).
-        store.close()
     if code:
         raise typer.Exit(code)
 
@@ -662,18 +658,12 @@ def tui(case: str, data_dir: DataDirOption = None) -> None:
     screen where `a` analyses it in place (R012). Press '?' inside for the
     key bindings (R013), q to quit (exit 0).
     """
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, config):
         # Lazy import (the report-renderer precedent): textual is a heavy
         # import no other subcommand should pay for.
         from sift.tui.app import SiftApp
 
         SiftApp(store, case, config=config).run()
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4) — the app
-        # never closes the store itself, so this runs exactly once.
-        store.close()
 
 
 @app.command()
@@ -698,13 +688,8 @@ def mcm(
     0 = bundle written (including an empty case), 1 = missing case / write
     failure, 2 = Typer usage (bad ``--format``).
     """
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, config):
         code = run_mcm(store, config, case=case, fmt=fmt)
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring report.
-        store.close()
     if code:
         raise typer.Exit(code)
 
@@ -733,13 +718,8 @@ def perfmon(
     (ADR 0007): 0 = bundle written (including an empty case), 1 = missing case
     / write failure, 2 = Typer usage (bad ``--format``).
     """
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, config):
         code = run_perfmon(store, config, case=case, fmt=fmt)
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring mcm.
-        store.close()
     if code:
         raise typer.Exit(code)
 
@@ -771,14 +751,8 @@ def eustack(
     an empty case), 1 = missing case / write failure, 2 = Typer usage (bad
     ``--format``).
     """
-    config = load_config({"data_dir": data_dir})
-    store = _case_store(case, config)
-    try:
+    with _open_case(case, data_dir) as (store, config):
         code = run_eustack(store, config, case=case, fmt=fmt)
-    finally:
-        # Close so the WAL checkpoints on every path (Pitfall 4), mirroring
-        # mcm/perfmon.
-        store.close()
     if code:
         raise typer.Exit(code)
 
