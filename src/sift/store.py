@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import sqlite_vec  # pyright: ignore[reportMissingTypeStubs] — pre-v1, no stubs
@@ -381,37 +381,6 @@ _MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
 VERDICT_STATES: frozenset[str] = frozenset({"confirmed", "rejected", "uncertain"})
 VERDICT_TARGET_TYPES: frozenset[str] = frozenset({"hypothesis", "cluster", "template"})
 
-_EVENT_COLUMNS = (
-    "event_id, case_id, ts, ts_confidence, source, source_file, "
-    "line_start, line_end, severity, component, thread, session, "
-    "message, attrs, raw"
-)
-
-_TEMPLATE_GROUP_COLUMNS = (
-    "template_id, template, count, first_ts, last_ts, severity_max, "
-    "exemplar_event_ids"
-)
-
-_CHUNK_COLUMNS = "chunk_id, template_id, text, event_ids"
-
-# KB namespace columns (D-01): deliberately NO event_id — KB is never citable.
-_KB_CHUNK_COLUMNS = "kb_chunk_id, source_file, ordinal, text"
-
-_CLUSTER_COLUMNS = (
-    "cluster_id, label, signature, severity_max, count, template_ids"
-)
-
-_HYP_COLUMNS = (
-    "hyp_index, title, narrative, confidence, confidence_reasoning, "
-    "supporting_event_ids, contradicting_evidence, suggested_next_steps, "
-    "citations_valid"
-)
-
-_VERDICT_COLUMNS = (
-    "verdict_id, target_type, target_id, verdict, note, context, "
-    "provenance, created_at"
-)
-
 # Sources held out of every ranking stage (PERF-03, EUS-11). Perfmon samples
 # are periodic observations, not diagnostics: they carry no incident signal
 # to dedup, cluster, salience or hypothesis excerpts, and thousands of near-
@@ -527,6 +496,119 @@ def _coerce_json_dict(value: str) -> dict[str, object]:
         return {"value": loaded}
     items = cast("dict[object, object]", loaded)
     return {str(k): v for k, v in items.items()}
+
+
+def _decode_ts(value: str | None) -> datetime | None:
+    """Decode an ``events.ts`` column to an aware datetime, or None.
+
+    Timestamps are stored as explicit ISO 8601 strings because sqlite3's
+    default datetime adapter is deprecated on 3.12+; NULL means the timestamp
+    was genuinely unparseable.
+    """
+    return None if value is None else datetime.fromisoformat(value)
+
+
+# One ordered declaration per persisted table, pairing each column with the
+# decoder its stored value needs on the way out (None where the stored value
+# is already the dataclass field type). The SELECT column list and the
+# row-to-dataclass mapping BOTH derive from this one declaration (see
+# ``_row_to``), so a reordered column list can no longer populate the wrong
+# field with a value of the right type. Pinned by tests/test_store_row_mapping.
+type _RowDecoders = Mapping[str, Callable[..., object] | None]
+
+_EVENT_FIELDS: _RowDecoders = {
+    "event_id": None,
+    "case_id": None,
+    "ts": _decode_ts,
+    "ts_confidence": None,
+    "source": None,
+    "source_file": None,
+    "line_start": None,
+    "line_end": None,
+    "severity": None,
+    "component": None,
+    "thread": None,
+    "session": None,
+    "message": None,
+    "attrs": json.loads,
+    "raw": _decode_raw,  # single raw read path (Pitfall 1/2)
+}
+
+_TEMPLATE_GROUP_FIELDS: _RowDecoders = {
+    "template_id": None,
+    "template": None,
+    "count": None,
+    "first_ts": None,
+    "last_ts": None,
+    "severity_max": None,
+    "exemplar_event_ids": _coerce_str_list,
+}
+
+_CLUSTER_FIELDS: _RowDecoders = {
+    "cluster_id": None,
+    "label": None,
+    "signature": None,
+    "severity_max": None,
+    "count": None,
+    "template_ids": _coerce_str_list,
+}
+
+_HYP_FIELDS: _RowDecoders = {
+    "hyp_index": None,
+    "title": None,
+    "narrative": None,
+    "confidence": None,
+    "confidence_reasoning": None,
+    "supporting_event_ids": _coerce_str_list,
+    "contradicting_evidence": None,
+    "suggested_next_steps": _coerce_str_list,
+    "citations_valid": bool,  # stored 0/1 (T-04-02)
+}
+
+_VERDICT_FIELDS: _RowDecoders = {
+    "verdict_id": None,
+    "target_type": None,
+    "target_id": None,
+    "verdict": None,
+    "note": None,
+    "context": _coerce_json_dict,
+    "provenance": _coerce_json_dict,
+    "created_at": None,
+}
+
+# chunks and kb_chunks are written but never read back into a dataclass, so
+# they declare column order only. KB deliberately has NO event_id column —
+# non-citability is structural (D-01).
+_CHUNK_FIELDS = ("chunk_id", "template_id", "text", "event_ids")
+_KB_CHUNK_FIELDS = ("kb_chunk_id", "source_file", "ordinal", "text")
+
+_EVENT_COLUMNS = ", ".join(_EVENT_FIELDS)
+_TEMPLATE_GROUP_COLUMNS = ", ".join(_TEMPLATE_GROUP_FIELDS)
+_CLUSTER_COLUMNS = ", ".join(_CLUSTER_FIELDS)
+_HYP_COLUMNS = ", ".join(_HYP_FIELDS)
+_VERDICT_COLUMNS = ", ".join(_VERDICT_FIELDS)
+
+
+def _placeholders(columns: Iterable[str]) -> str:
+    """``?`` placeholders for one row of ``columns``, counted from the
+    declaration rather than by hand."""
+    return ", ".join("?" for _ in columns)
+
+
+def _row_to[T](cls: Callable[..., T], decoders: _RowDecoders, row: Sequence[Any]) -> T:
+    """Build ``cls`` from a positional row via the table's field declaration.
+
+    The SINGLE row-to-dataclass path. Binding by name against the same
+    declaration that produced the SELECT column list is what removes the
+    silent-mis-population hazard. ``strict=True`` turns a row of the wrong
+    width into an error instead of a truncated object.
+    """
+    return cls(
+        **{
+            name: value if decode is None else decode(value)
+            for (name, decode), value in zip(decoders.items(), row, strict=True)
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -703,7 +785,7 @@ class CaseStore:
         before = self._conn.total_changes
         self._conn.executemany(
             f"INSERT OR IGNORE INTO events ({_EVENT_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            f"VALUES ({_placeholders(_EVENT_FIELDS)})",
             rows,
         )
         return self._conn.total_changes - before
@@ -735,26 +817,7 @@ class CaseStore:
             + "ORDER BY ts IS NULL, ts, source_file, line_start",
             params,
         ).fetchall()
-        return [
-            Event(
-                event_id=r[0],
-                case_id=r[1],
-                ts=datetime.fromisoformat(r[2]) if r[2] is not None else None,
-                ts_confidence=r[3],
-                source=r[4],
-                source_file=r[5],
-                line_start=r[6],
-                line_end=r[7],
-                severity=r[8],
-                component=r[9],
-                thread=r[10],
-                session=r[11],
-                message=r[12],
-                attrs=json.loads(r[13]),
-                raw=_decode_raw(r[14]),  # single raw read path (Pitfall 2)
-            )
-            for r in rows
-        ]
+        return [_row_to(Event, _EVENT_FIELDS, r) for r in rows]
 
     def get_events_by_ids(self, ids: Sequence[str]) -> dict[str, Event]:
         """Fetch ONLY the requested events, keyed by event_id (REPT-01, Pitfall 1).
@@ -776,26 +839,7 @@ class CaseStore:
             f"WHERE event_id IN ({placeholders})",
             tuple(ids),
         ).fetchall()
-        return {
-            r[0]: Event(
-                event_id=r[0],
-                case_id=r[1],
-                ts=datetime.fromisoformat(r[2]) if r[2] is not None else None,
-                ts_confidence=r[3],
-                source=r[4],
-                source_file=r[5],
-                line_start=r[6],
-                line_end=r[7],
-                severity=r[8],
-                component=r[9],
-                thread=r[10],
-                session=r[11],
-                message=r[12],
-                attrs=json.loads(r[13]),
-                raw=_decode_raw(r[14]),  # single raw read path (Pitfall 1)
-            )
-            for r in rows
-        }
+        return {r[0]: _row_to(Event, _EVENT_FIELDS, r) for r in rows}
 
     def iter_event_summaries(self) -> Iterator[tuple[str, str | None, str, str]]:
         """Yield (event_id, ts, severity, message) in canonical order (CLUS-01).
@@ -861,16 +905,61 @@ class CaseStore:
         for row in cursor:
             yield (row[0], row[1], row[2], row[3], row[4], row[5])
 
+    def _replace_table(
+        self,
+        table: str,
+        columns: Iterable[str],
+        rows: Iterable[tuple[object, ...]],
+    ) -> None:
+        """DELETE every row of ``table``, then insert ``rows``.
+
+        The SINGLE whole-table replace path. The CALLER owns the transaction,
+        so an interrupted rebuild rolls back to the original rows rather than
+        to an empty table. ``table`` and ``columns`` reach SQL text but come
+        only from the module-constant declarations above, never from caller
+        data (the PRAGMA user_version precedent, T-02-13); every value is
+        ``?``-bound.
+        """
+        names = tuple(columns)
+        self._conn.execute(f"DELETE FROM {table}")  # noqa: S608 — module-fixed table name
+        self._conn.executemany(
+            # S608: table and column names are module constants, values all ?.
+            f"INSERT INTO {table} ({', '.join(names)}) "  # noqa: S608
+            f"VALUES ({_placeholders(names)})",
+            rows,
+        )
+
+    def _upsert_vec_rows(
+        self, table: str, id_col: str, rows: Iterable[tuple[int, list[float]]]
+    ) -> None:
+        """Shared body of the two vec0 upserts (the ``_ensure_vec_table`` idiom).
+
+        Same lazy extension load, same ``_vec_to_blob`` write path — the vector
+        confinement invariant — and the same delete-then-insert, because vec0
+        supports no ``INSERT OR REPLACE``. The CALLER owns the transaction.
+        ``table``/``id_col`` are module-fixed names, never caller data.
+        """
+        self._ensure_vec_loaded()
+        pairs = [(row_id, _vec_to_blob(vec)) for row_id, vec in rows]
+        self._conn.executemany(
+            f"DELETE FROM {table} WHERE {id_col} = ?",  # noqa: S608 — module-fixed names
+            [(row_id,) for row_id, _ in pairs],
+        )
+        self._conn.executemany(
+            # S608: table and column names are module constants, values all ?.
+            f"INSERT INTO {table} ({id_col}, embedding) VALUES (?, ?)",  # noqa: S608
+            pairs,
+        )
+
     def replace_template_groups(self, groups: Iterable[TemplateGroup]) -> None:
         """DELETE FROM template_groups then insert all groups (CLUS-01).
 
         The CALLER owns the transaction — rebuild_template_groups wraps this
         together with the mask_version meta write.
         """
-        self._conn.execute("DELETE FROM template_groups")
-        self._conn.executemany(
-            f"INSERT INTO template_groups ({_TEMPLATE_GROUP_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        self._replace_table(
+            "template_groups",
+            _TEMPLATE_GROUP_FIELDS,
             [
                 (
                     g.template_id,
@@ -901,23 +990,7 @@ class CaseStore:
             f"{where_sql} ORDER BY count DESC, template{limit_sql}",
             params,
         ).fetchall()
-        groups: list[TemplateGroup] = []
-        for r in rows:
-            groups.append(
-                TemplateGroup(
-                    template_id=r[0],
-                    template=r[1],
-                    count=r[2],
-                    first_ts=r[3],
-                    last_ts=r[4],
-                    severity_max=r[5],
-                    # WR-01: a tampered case.db can hold ANY JSON here —
-                    # _coerce_str_list keeps the tampering visible instead of
-                    # crashing the read path.
-                    exemplar_event_ids=_coerce_str_list(r[6]),
-                )
-            )
-        return groups
+        return [_row_to(TemplateGroup, _TEMPLATE_GROUP_FIELDS, r) for r in rows]
 
     def _check_embedding_dim(self, dim: int) -> str | None:
         """STORE-03 guard: return ``meta.embedding_dim``, raising on a mismatch
@@ -1022,15 +1095,7 @@ class CaseStore:
         vec0 does not support ``INSERT OR REPLACE``, so a prior row for the
         same chunk_id is deleted first.
         """
-        self._ensure_vec_loaded()
-        pairs = [(chunk_id, _vec_to_blob(vec)) for chunk_id, vec in rows]
-        self._conn.executemany(
-            "DELETE FROM vectors WHERE chunk_id = ?",
-            [(chunk_id,) for chunk_id, _ in pairs],
-        )
-        self._conn.executemany(
-            "INSERT INTO vectors (chunk_id, embedding) VALUES (?, ?)", pairs
-        )
+        self._upsert_vec_rows("vectors", "chunk_id", rows)
 
     def replace_chunks(
         self, chunks: Iterable[tuple[int, str, str, list[str]]]
@@ -1040,10 +1105,9 @@ class CaseStore:
         The CALLER owns the transaction (mirrors replace_template_groups):
         pipeline/cluster.py wraps this with the vector + cluster writes.
         """
-        self._conn.execute("DELETE FROM chunks")
-        self._conn.executemany(
-            f"INSERT INTO chunks ({_CHUNK_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?)",
+        self._replace_table(
+            "chunks",
+            _CHUNK_FIELDS,
             [
                 (chunk_id, template_id, text, json.dumps(event_ids))
                 for chunk_id, template_id, text, event_ids in chunks
@@ -1132,12 +1196,7 @@ class CaseStore:
         to zero KB rows. KB rows carry NO event_id — non-citability is
         structural (D-01).
         """
-        self._conn.execute("DELETE FROM kb_chunks")
-        self._conn.executemany(
-            f"INSERT INTO kb_chunks ({_KB_CHUNK_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?)",
-            list(chunks),
-        )
+        self._replace_table("kb_chunks", _KB_CHUNK_FIELDS, chunks)
 
     def upsert_kb_vectors(self, rows: Iterable[tuple[int, list[float]]]) -> None:
         """Write (kb_chunk_id, embedding) pairs to the KB vec0 table.
@@ -1146,15 +1205,7 @@ class CaseStore:
         byte is produced here via ``_vec_to_blob`` — the confinement invariant.
         vec0 has no ``INSERT OR REPLACE`` so a prior row is deleted first.
         """
-        self._ensure_vec_loaded()
-        pairs = [(kb_chunk_id, _vec_to_blob(vec)) for kb_chunk_id, vec in rows]
-        self._conn.executemany(
-            "DELETE FROM kb_vectors WHERE kb_chunk_id = ?",
-            [(kb_chunk_id,) for kb_chunk_id, _ in pairs],
-        )
-        self._conn.executemany(
-            "INSERT INTO kb_vectors (kb_chunk_id, embedding) VALUES (?, ?)", pairs
-        )
+        self._upsert_vec_rows("kb_vectors", "kb_chunk_id", rows)
 
     def knn_kb_chunks(self, qvec: list[float], k: int) -> list[str]:
         """Return the k nearest KB chunk texts by vector similarity (RAG-07).
@@ -1185,10 +1236,9 @@ class CaseStore:
         The CALLER owns the transaction — cluster.py wraps this together with
         the vector upserts and the label-prompt-hash meta write.
         """
-        self._conn.execute("DELETE FROM clusters")
-        self._conn.executemany(
-            f"INSERT INTO clusters ({_CLUSTER_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?, ?, ?)",
+        self._replace_table(
+            "clusters",
+            _CLUSTER_FIELDS,
             [
                 (
                     c.cluster_id,
@@ -1220,22 +1270,7 @@ class CaseStore:
             f"{where_sql} ORDER BY count DESC, cluster_id{limit_sql}",
             params,
         ).fetchall()
-        clusters: list[Cluster] = []
-        for r in rows:
-            clusters.append(
-                Cluster(
-                    cluster_id=r[0],
-                    label=r[1],
-                    signature=r[2],
-                    severity_max=r[3],
-                    count=r[4],
-                    # WR-01: a tampered case.db can hold ANY JSON here —
-                    # _coerce_str_list keeps the tampering visible instead of
-                    # crashing the read path.
-                    template_ids=_coerce_str_list(r[5]),
-                )
-            )
-        return clusters
+        return [_row_to(Cluster, _CLUSTER_FIELDS, r) for r in rows]
 
     def set_cluster_labels(self, labels: Mapping[int, str]) -> None:
         """Update clusters.label by cluster_id (D-01, caller owns transaction)."""
@@ -1253,12 +1288,12 @@ class CaseStore:
         triage_degraded, triage_raw, triage_model, triage_prompt_hash,
         triage_created_at. The two list fields are json.dumps'd; citations_valid
         stores as int (T-04-02). No model value ever reaches SQL text —
-        _HYP_COLUMNS is a module constant, values are all ?-bound (T-04-05).
+        _replace_table interpolates only the module-constant column
+        declaration, values are all ?-bound (T-04-05).
         """
-        self._conn.execute("DELETE FROM hypotheses")
-        self._conn.executemany(
-            f"INSERT INTO hypotheses ({_HYP_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        self._replace_table(
+            "hypotheses",
+            _HYP_FIELDS,
             [
                 (
                     h.hyp_index,
@@ -1286,22 +1321,7 @@ class CaseStore:
         rows = self._conn.execute(
             f"SELECT {_HYP_COLUMNS} FROM hypotheses ORDER BY hyp_index"  # noqa: S608 — column list is a module constant
         ).fetchall()
-        hyps: list[StoredHypothesis] = []
-        for r in rows:
-            hyps.append(
-                StoredHypothesis(
-                    hyp_index=r[0],
-                    title=r[1],
-                    narrative=r[2],
-                    confidence=r[3],
-                    confidence_reasoning=r[4],
-                    supporting_event_ids=_coerce_str_list(r[5]),
-                    contradicting_evidence=r[6],
-                    suggested_next_steps=_coerce_str_list(r[7]),
-                    citations_valid=bool(r[8]),
-                )
-            )
-        return hyps
+        return [_row_to(StoredHypothesis, _HYP_FIELDS, r) for r in rows]
 
     def record_verdict(
         self,
@@ -1344,7 +1364,7 @@ class CaseStore:
         )
         self._conn.execute(
             f"INSERT INTO verdicts ({_VERDICT_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            f"VALUES ({_placeholders(_VERDICT_FIELDS)})",
             (
                 verdict_id,
                 target_type,
@@ -1378,19 +1398,7 @@ class CaseStore:
             f"{where_sql} ORDER BY created_at DESC, rowid DESC{limit_sql}",
             params,
         ).fetchall()
-        return [
-            Verdict(
-                verdict_id=r[0],
-                target_type=r[1],
-                target_id=r[2],
-                verdict=r[3],
-                note=r[4],
-                context=_coerce_json_dict(r[5]),
-                provenance=_coerce_json_dict(r[6]),
-                created_at=r[7],
-            )
-            for r in rows
-        ]
+        return [_row_to(Verdict, _VERDICT_FIELDS, r) for r in rows]
 
     def get_meta(self, key: str) -> str | None:
         row = self._conn.execute(
