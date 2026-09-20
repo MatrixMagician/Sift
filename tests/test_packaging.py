@@ -16,6 +16,7 @@ does NOT need a ``_no_network`` exemption (unlike ``live``): do not add a
 import os
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -117,7 +118,14 @@ def test_offline_wheel_install_yields_working_console_script(tmp_path: Path) -> 
     assert "ingest" in help_out.stdout
 
     version_out = _run([str(sift), "--version"], env)
-    assert "0.1.0" in version_out.stdout
+    # Read the expected version from pyproject.toml rather than pinning a
+    # literal: a hard-coded one turns every release into a test failure, and
+    # what this asserts is that the installed console script reports the
+    # version the project declares, not which version that happens to be.
+    declared = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    )["project"]["version"]
+    assert declared in version_out.stdout
 
     _run(
         [

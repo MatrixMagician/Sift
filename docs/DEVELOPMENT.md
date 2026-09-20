@@ -197,6 +197,14 @@ Leave it at the inherited `False` unless you have checked that your adapter
 holds that property. It is how ingest asks the question without naming a
 concrete adapter class.
 
+The two D-06 safety caps are applied in different places, and confusing them
+is how an adapter ends up unbounded. `byte_lines` applies `MAX_EVENT_BYTES`
+itself, force-splitting a single newline-less run so one monster line cannot
+slurp unbounded memory. `MAX_EVENT_LINES` is **not** applied there: each
+multi-line adapter closes its own record when it reaches the cap, as
+`dsserrors.py`, `eustack.py` and `genericlog.py` each do. `RecordBase` gives
+you the byte and line accounting; the decision to close a record is yours.
+
 `parse` yields the canonical frozen `Event` (`src/sift/models.py`) — every
 adapter normalises into the same shape. `severity` and `ts_confidence` are
 `Literal` types (`models.Severity`, `models.TsConfidence`), so pyright rejects
@@ -242,8 +250,11 @@ class MyFormatAdapter(ConfigurableAdapter):
     def parse(self, path: Path, case_id: str) -> Iterator[Event]:
         stats = ParseStats(path=relpath)
         with open_bytes(path) as stream:   # gzip/zstd handled here, not by you
-            for line in byte_lines(stream):   # D-06 caps applied here, not by you
+            for line in byte_lines(stream):   # MAX_EVENT_BYTES split applied here
                 ...
+                # Multi-line records only: subclass RecordBase, call take_line
+                # per line, and close the record yourself once it reaches
+                # MAX_EVENT_LINES. That cap is YOURS to apply (see below).
         self.last_stats = stats
 ```
 
@@ -332,6 +343,7 @@ with `importlib.resources`:
 | `cluster_label.md` | `pipeline/cluster.py` |
 | `mcm_facts.md` | `pipeline/mcm_facts.py` |
 | `perfmon_facts.md` | `pipeline/perfmon_facts.py` |
+| `eustack_facts.md` | `pipeline/eustack_facts.py` |
 | `judge.md` | `eval/judge.py` |
 
 Rules for changing one:
