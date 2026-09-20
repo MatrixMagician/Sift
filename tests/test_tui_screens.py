@@ -23,7 +23,9 @@ from _report_fixtures import (
     build_analysed_case,
     open_case,
 )
+from textual.coordinate import Coordinate
 from textual.widgets import Static
+from textual.widgets.data_table import CellKey, ColumnKey, RowKey
 
 from sift.models import Event, event_id
 from sift.store import Cluster, StoredHypothesis
@@ -46,6 +48,11 @@ from sift.tui.screens.timeline import NO_EVENTS_MESSAGE, TimelineScreen
 
 def _static_text(app: SiftApp, widget_id: str) -> str:
     return str(app.screen.query_one(f"#{widget_id}", Static).content)
+
+
+def _none_row_key(_coord: Coordinate) -> CellKey:
+    """A cell key whose row key carries no value (the None-key guard path)."""
+    return CellKey(RowKey(), ColumnKey())
 
 
 def _hostile_hypothesis(title: str, narrative: str) -> StoredHypothesis:
@@ -103,6 +110,55 @@ async def test_zero_hypotheses_shows_degraded_message(
             message = _static_text(app, "hypotheses-empty")
             assert "No schema-valid hypotheses" in message
             assert "sift report" in message
+    finally:
+        store.close()
+
+
+async def test_verdict_noop_on_empty_hypotheses_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v on the hard-degraded empty list is a no-op, not a crash (R012)."""
+    case = build_analysed_case(monkeypatch, case="scrvhempty")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_hypotheses([])
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+            assert app.screen.table.row_count == 0
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
+    finally:
+        store.close()
+
+
+async def test_verdict_noop_on_none_key_and_missing_hypothesis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyless cursor cell and a row key with no backing hypothesis are
+    both verdict-inert, never a crash or a stray VerdictModal (R012)."""
+    case = build_analysed_case(monkeypatch, case="scrvhnone")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, HypothesesScreen)
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(
+                    screen.table, "coordinate_to_cell_key", _none_row_key
+                )
+                await pilot.press("v")
+                await pilot.pause()
+                assert isinstance(app.screen, HypothesesScreen)
+            screen._hyps.clear()  # pyright: ignore[reportPrivateUsage] — forces the missing-entity guard path
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, HypothesesScreen)
     finally:
         store.close()
 
@@ -451,6 +507,140 @@ async def test_zero_clusters_shows_message(
             message = _static_text(app, "clusters-empty")
             assert "No semantic clusters" in message
             assert "sift analyze" in message
+    finally:
+        store.close()
+
+
+async def test_verdict_noop_on_empty_clusters_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v on an empty clusters table is a no-op, not a crash (R012)."""
+    case = build_analysed_case(monkeypatch, case="scrvcempty")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_clusters([])
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+            assert app.screen.table.row_count == 0
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+    finally:
+        store.close()
+
+
+async def test_verdict_noop_on_none_key_and_missing_cluster(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyless cursor cell and a row key with no backing cluster are both
+    verdict-inert, never a crash or a stray VerdictModal (R012)."""
+    case = build_analysed_case(monkeypatch, case="scrvcnone")
+    store = open_case(case)
+    try:
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, ClustersScreen)
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(
+                    screen.table, "coordinate_to_cell_key", _none_row_key
+                )
+                await pilot.press("v")
+                await pilot.pause()
+                assert isinstance(app.screen, ClustersScreen)
+            screen._clusters.clear()  # pyright: ignore[reportPrivateUsage] — forces the missing-entity guard path
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, ClustersScreen)
+    finally:
+        store.close()
+
+
+async def test_verdict_noop_on_empty_cluster_detail_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """v on a cluster with zero member templates is a no-op (R012)."""
+    case = build_analysed_case(monkeypatch, case="scrvdempty")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_clusters(
+                [
+                    Cluster(
+                        cluster_id=0,
+                        label="empty cluster",
+                        signature="sig",
+                        severity_max="error",
+                        count=0,
+                        template_ids=[],
+                    )
+                ]
+            )
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+            assert app.screen.table.row_count == 0
+            await pilot.press("v")
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
+    finally:
+        store.close()
+
+
+async def test_verdict_noop_on_none_key_and_missing_template(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A keyless cursor cell and the MISSING-template row (Q7) are both
+    verdict-inert, never a crash or a stray VerdictModal (R012)."""
+    case = build_analysed_case(monkeypatch, case="scrvdnone")
+    store = open_case(case)
+    try:
+        with store.transaction():
+            store.replace_clusters(
+                [
+                    Cluster(
+                        cluster_id=0,
+                        label="tampered",
+                        signature="sig",
+                        severity_max="error",
+                        count=1,
+                        template_ids=["f" * 16],
+                    )
+                ]
+            )
+        app = SiftApp(store, case)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.press("c")
+            await pilot.pause()
+            await pilot.press("enter")
+            await pilot.pause()
+            screen = app.screen
+            assert isinstance(screen, ClusterDetailScreen)
+            assert screen.table.row_count == 1  # the MISSING row itself
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setattr(
+                    screen.table, "coordinate_to_cell_key", _none_row_key
+                )
+                await pilot.press("v")
+                await pilot.pause()
+                assert isinstance(app.screen, ClusterDetailScreen)
+            await pilot.press("v")  # cursor already on the MISSING row
+            await pilot.pause()
+            assert isinstance(app.screen, ClusterDetailScreen)
     finally:
         store.close()
 
