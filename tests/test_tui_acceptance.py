@@ -184,7 +184,7 @@ def _static(app: SiftApp, widget_id: str) -> str:
     return str(app.screen.query_one(f"#{widget_id}", Static).content)
 
 
-async def test_acceptance_demo_end_to_end(
+async def test_acceptance_demo_end_to_end(  # noqa: PLR0915 -- one linear Pilot script driving the full multi-session M001 demo
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The full M001 demo: i → a → roam → three-level verdicts → quit →

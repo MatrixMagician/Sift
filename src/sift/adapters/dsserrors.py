@@ -153,7 +153,7 @@ class DsserrorsAdapter(ConfigurableAdapter):
             return 0.8
         return 0.0
 
-    def parse(self, path: Path, case_id: str) -> Iterator[Event]:  # noqa: C901
+    def parse(self, path: Path, case_id: str) -> Iterator[Event]:  # noqa: C901, PLR0915 -- one method: token extraction, MCM grouping, node/rotation/tz handling
         relpath = self.case_relpath(path)
         # Only a real subdirectory (nodeN/DSSErrors.log) names a node; a file
         # placed directly under the case root has parts[0] == the filename, so

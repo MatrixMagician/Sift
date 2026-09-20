@@ -66,10 +66,17 @@ src = ["src"]
 # provenance, never linted. pyright already excludes it via include=[src,tests].
 # .agents/skills holds vendored third-party agent-skill scripts — not Sift
 # code, never linted.
-extend-exclude = ["docs/reference", ".agents"]
+# .planning holds one-off GSD milestone verification scripts, a historical
+# record per CLAUDE.md rather than live code; never linted, same reasoning
+# as docs/reference and .agents above.
+extend-exclude = ["docs/reference", ".agents", ".planning"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "DTZ"]
+# C901/PLR0912/PLR0915 (#13): the complexity gate. Thresholds are ruff's
+# defaults (10/12/50), not loosened to fit today's offenders — those are
+# grandfathered individually with a `# noqa` carrying a one-line reason, so
+# new code is held to the line while existing hotspots stay visible and dated.
+select = ["E", "F", "I", "UP", "B", "DTZ", "C901", "PLR0912", "PLR0915"]
 
 [tool.pyright]
 typeCheckingMode = "strict"

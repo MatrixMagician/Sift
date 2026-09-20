@@ -396,7 +396,7 @@ class InferenceClient:
         """Per-input char cap for embedding, as actually used (clamped, 0014)."""
         return self._max_input_chars
 
-    def chat(
+    def chat(  # noqa: C901 -- defensive response parsing plus response_format/seed/temperature assembly
         self,
         messages: Sequence[dict[str, str]],
         *,

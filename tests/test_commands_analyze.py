@@ -139,7 +139,7 @@ def _seed_case(case: str, messages: list[str]) -> list[str]:
     return [event_id("case.log", i) for i in range(len(messages))]
 
 
-def _handler(
+def _handler(  # noqa: C901 -- one mock branches on endpoint, injected failure and response override
     *,
     calls: list[str] | None = None,
     chat_content: str | None = None,

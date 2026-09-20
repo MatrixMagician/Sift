@@ -275,7 +275,7 @@ class DssperfmonAdapter(ConfigurableAdapter):
             return SNIFF_SCORE
         return 0.0
 
-    def parse(self, path: Path, case_id: str) -> Iterator[Event]:
+    def parse(self, path: Path, case_id: str) -> Iterator[Event]:  # noqa: C901, PLR0912, PLR0915 -- per-row PDH-CSV parsing plus ADR-0012 tz-bias bookkeeping, no regex allowed
         relpath = self.case_relpath(path)
         override_tz = tz_override_for(relpath, self.tz_overrides)
         stats = ParseStats(path=relpath)

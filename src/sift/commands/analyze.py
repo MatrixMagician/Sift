@@ -68,7 +68,7 @@ def resolve_generation_ctx(
     )
 
 
-def run_analyze(
+def run_analyze(  # noqa: C901 -- shared CLI/TUI body: presentation sinks plus CLI-04 exit-code branching
     store: CaseStore,
     config: SiftConfig,
     *,

@@ -233,7 +233,7 @@ class GenericLogAdapter(ConfigurableAdapter):
             else 0.0
         )
 
-    def parse(self, path: Path, case_id: str) -> Iterator[Event]:
+    def parse(self, path: Path, case_id: str) -> Iterator[Event]:  # noqa: C901, PLR0912, PLR0915 -- full timestamp ladder, continuation grouping, BOM-aware byte accounting
         relpath = self.case_relpath(path)
         override_glob, override_tz = next(
             (
