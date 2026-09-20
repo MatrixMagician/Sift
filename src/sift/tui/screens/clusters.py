@@ -108,24 +108,11 @@ class ClustersScreen(CaseScreen):
             return
         self._refresh_badges("cluster", self._clusters)
 
-    def action_verdict(self) -> None:
-        """v: capture a verdict for the highlighted cluster (R003)."""
-        if self.table.row_count == 0:
-            return
-        key = self.table.coordinate_to_cell_key(
-            self.table.cursor_coordinate
-        ).row_key.value
-        if key is None:
-            return
+    def _verdict_target(self, key: str) -> tuple[TargetSpec, str] | None:
         cluster = self._clusters.get(key)
         if cluster is None:
-            return
-        self.capture_verdict(
-            self._store,
-            TargetSpec("cluster", key),
-            cluster.label or cluster.signature,
-            self._paint_recorded,
-        )
+            return None
+        return TargetSpec("cluster", key), cluster.label or cluster.signature
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         key = event.row_key.value
@@ -239,22 +226,10 @@ class ClusterDetailScreen(CaseScreen):
             return
         self._refresh_badges("template", self._member_ids)
 
-    def action_verdict(self) -> None:
-        """v: capture a verdict for the highlighted member template (R003).
-
-        A MISSING row (a template id the store does not hold) is
-        verdict-inert: there is nothing in this case to rule on (Q7).
-        """
-        if self.table.row_count == 0:
-            return
-        key = self.table.coordinate_to_cell_key(
-            self.table.cursor_coordinate
-        ).row_key.value
-        if key is None or key not in self._labels:
-            return
-        self.capture_verdict(
-            self._store,
-            TargetSpec("template", key),
-            self._labels[key],
-            self._paint_recorded,
-        )
+    def _verdict_target(self, key: str) -> tuple[TargetSpec, str] | None:
+        """A MISSING row (a template id the store does not hold) is
+        verdict-inert: there is nothing in this case to rule on (Q7)."""
+        label = self._labels.get(key)
+        if label is None:
+            return None
+        return TargetSpec("template", key), label

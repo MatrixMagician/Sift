@@ -19,6 +19,13 @@ Three contracts live here and nowhere else:
   screen opens the verdict modal, and its dismissal filter is the ONLY
   place a screen's paint callback fires: with the ``RecordedVerdict`` the
   modal's committed INSERT returned, never on cancel or failure (R012).
+
+* **The verdict guard chain** — :meth:`CaseScreen.action_verdict` is the
+  shared "v" handler for every table-bearing screen: bail on an empty
+  table, a keyless cursor cell, or a key :meth:`_verdict_target` can't
+  resolve. Subclasses override only ``_verdict_target``; EvidenceScreen has
+  no table and calls :meth:`capture_verdict` directly, so it keeps its own
+  ``action_verdict``.
 """
 
 import sqlite3
@@ -119,6 +126,35 @@ class CaseScreen(Screen[None]):
                 on_recorded(recorded)
 
         self._app.push_screen(VerdictModal(store, target, label), gate)
+
+    def _verdict_target(self, key: str) -> tuple[TargetSpec, str] | None:
+        """Resolve a row key to its verdict target and label.
+
+        ``None`` means the row has nothing to verdict on (a MISSING or
+        state-drifted key), so :meth:`action_verdict` stays inert. Every
+        table-bearing subclass overrides this with its own lookup.
+        """
+        return None
+
+    def action_verdict(self) -> None:
+        """v: capture a verdict for the highlighted row (R003).
+
+        The guard chain is the same on every verdict-bearing screen: bail
+        on an empty table, a keyless cursor cell, or a key
+        ``_verdict_target`` can't resolve.
+        """
+        if self.table.row_count == 0:
+            return
+        key = self.table.coordinate_to_cell_key(
+            self.table.cursor_coordinate
+        ).row_key.value
+        if key is None:
+            return
+        resolved = self._verdict_target(key)
+        if resolved is None:
+            return
+        target, label = resolved
+        self.capture_verdict(self._store, target, label, self._paint_recorded)
 
     def guarded[T](self, read: Callable[[], T]) -> T | None:
         """Run a store read; a sqlite failure becomes a sanitised ErrorScreen.
