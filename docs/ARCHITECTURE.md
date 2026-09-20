@@ -123,7 +123,10 @@ hashlib.sha256(f"{source_file}\x00{byte_offset}".encode()).hexdigest()[:16]
 inputs) and `byte_offset` is the 0-based offset of the event's first byte in the *decompressed*
 stream. The NUL separator prevents concatenation ambiguity. The function depends on nothing else —
 no case id, no clock, no randomness — so re-ingesting the same directory is a no-op
-(`INSERT OR IGNORE` in `CaseStore.insert_events`).
+(`ON CONFLICT (event_id) DO NOTHING` in `CaseStore.insert_events`). The clause names the
+conflict on purpose. It was `INSERT OR IGNORE`, which SQLite applies to *every* constraint on
+the statement, so an event failing the `severity` CHECK was dropped silently and read back as a
+correctly skipped duplicate — a "nothing disappears silently" violation, fixed in issue #21.
 
 Severity is a fixed six-value vocabulary (`fatal`, `error`, `warn`, `info`, `debug`, `unknown`),
 enforced by a SQL `CHECK` constraint. Unparseable regions become `severity="unknown"` events rather
@@ -150,6 +153,7 @@ Migrations are numbered functions applied by a `PRAGMA user_version` runner, eac
 | 3 | `chunks`, `clusters` |
 | 4 | `hypotheses` |
 | 5 | `kb_chunks` |
+| 6 | `verdicts` (append-only; the review loop's write target) |
 
 Vector tables are **not** created by a migration, because the embedding dimension is unknown until
 the first embedding round-trip. `CaseStore.ensure_vectors_table(dim)` and
@@ -247,9 +251,11 @@ Sniffing always sees decompressed bytes: `base.open_bytes` detects gzip and zstd
 single shared path (`to_utc`, `tz_override_for`), so `ts_confidence` is `exact` for
 timezone-aware inputs and `inferred` where an override or UTC assumption was applied.
 
-`base.py` also holds the byte-level line machinery every line-based adapter needs: `byte_lines`
-(splitting, with the D-06 `MAX_EVENT_LINES`/`MAX_EVENT_BYTES` caps applied), and `RecordBase`, the
-accumulator for one in-progress multi-line event. `finish()` stays with each adapter, because
+`base.py` also holds the byte-level line machinery every line-based adapter needs: `byte_lines`,
+which splits on the newline and applies the D-06 `MAX_EVENT_BYTES` cap by force-splitting a
+newline-less run, and `RecordBase`, the accumulator for one in-progress multi-line event. The
+other D-06 cap, `MAX_EVENT_LINES`, is applied per record by each multi-line adapter rather than
+by `byte_lines`, because only the adapter knows where one record ends. `finish()` stays with each adapter, because
 building an `Event` is where they genuinely differ. That machinery used to live in `genericlog.py`
 and be imported by four sibling adapters, which made a domain adapter a de facto second base
 module. See [`0024-adapter-line-machinery-in-base.md`](decisions/0024-adapter-line-machinery-in-base.md).
@@ -389,7 +395,8 @@ Markdown and JSON renderers list them under "Recorded verdicts".
 
 All prompts are Markdown files in `src/sift/prompts/`, loaded as package data via
 `importlib.resources` and never executed: `triage.md`, `cluster_label.md`, `mcm_facts.md`,
-`perfmon_facts.md`, `judge.md`. Changing a prompt never requires touching Python.
+`perfmon_facts.md`, `eustack_facts.md`, `judge.md`. Changing a prompt never requires touching
+Python.
 
 `triage.md` carries four delimited, optional blocks marked with HTML comments — a KB block plus
 one block per registered analyser (MCM, perfmon, eu-stack). A single shared splice,
@@ -445,7 +452,7 @@ src/sift/
 │                    perfmon + eustack bundles (shared escaping in _util.py)
 ├── tui/             Textual review TUI: screens/, data_access, review_state
 └── eval/            Golden-case harness: runner, metrics, thresholds, judge
-docs/decisions/      Architecture decision records (ADR 0001–0023)
+docs/decisions/      Architecture decision records, numbered sequentially
 eval/cases/          Golden cases with frozen truth files
 tests/               pytest suite; no test ever opens a socket
 deploy/              Container/Quadlet deployment assets

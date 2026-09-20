@@ -58,13 +58,15 @@ app = typer.Typer(no_args_is_help=True)
 
 
 def _version_string() -> str:
-    """Return the installed package version, or the source default off-tree."""
+    """Return the installed package version, or say there is not one."""
     try:
         return version("sift")
     except PackageNotFoundError:
         # Running from an uninstalled checkout (e.g. ``python -m sift.cli``):
-        # no dist metadata exists, so fall back to the declared version.
-        return "0.1.0"
+        # no dist metadata exists. Say so rather than repeating a version
+        # number here, which is a third copy to keep in step by hand and was
+        # already a release behind.
+        return "unknown (running from an uninstalled source tree)"
 
 
 def _version_callback(value: bool) -> None:
