@@ -24,6 +24,7 @@ from pathlib import Path
 
 from sift.adapters.dsserrors import DsserrorsAdapter
 from sift.config import McmThresholdsConfig
+from sift.pipeline._shared import load_prompt
 from sift.pipeline.mcm import (
     Attribution,
     AttributionRow,
@@ -37,7 +38,7 @@ from sift.pipeline.mcm import (
 )
 from sift.pipeline.mcm_facts import (
     _MAX_EPISODES,  # pyright: ignore[reportPrivateUsage]
-    _load_mcm_fragment,  # pyright: ignore[reportPrivateUsage]
+    _MCM_FILE,  # pyright: ignore[reportPrivateUsage]
     render_mcm_facts,
 )
 from sift.render._util import sanitise
@@ -257,7 +258,7 @@ def test_fragment_holds_no_authored_number() -> None:
     Read through the same package-data path the renderer uses (not a hard-coded
     filesystem path), so this guards exactly what ships.
     """
-    fragment = _load_mcm_fragment()
+    fragment = load_prompt(_MCM_FILE)
     offending = [ch for ch in fragment if "0" <= ch <= "9"]
     assert offending == [], f"mcm_facts.md must hold no authored figure: {offending}"
 

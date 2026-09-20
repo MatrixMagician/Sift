@@ -92,11 +92,6 @@ def _group_severity_rank(group: TrendGroup) -> int:
     return _worst_severity_rank(h.severity for h in group.hazards)
 
 
-def _load_perfmon_fragment() -> str:
-    """Load the versioned perfmon fragment from package data (CLI-02)."""
-    return load_prompt(_PERFMON_FILE)
-
-
 def _cite_prefix(event_ids: tuple[str, ...], ids: set[str]) -> str:
     """Join ``[evt:<id>]`` tokens for ``event_ids`` and record them as citable.
 
@@ -174,7 +169,8 @@ def render_perfmon_facts(analysis: PerfmonAnalysis) -> tuple[str, set[str]]:
                 figs.append(f"slope {ct.slope_per_second:.{_SLOPE_DP}f}/s")
             lines.append(f"{cprefix} {sanitise(ct.counter)}: {', '.join(figs)}")
 
-    return _load_perfmon_fragment().replace(_PERFMON_LINES_SLOT, "\n".join(lines)), ids
+    block = load_prompt(_PERFMON_FILE).replace(_PERFMON_LINES_SLOT, "\n".join(lines))
+    return block, ids
 
 
 def _select_counters(

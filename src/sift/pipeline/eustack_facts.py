@@ -100,11 +100,6 @@ _EXEMPLAR_K = 3
 _MAX_SIGNATURES = 8
 
 
-def _load_eustack_fragment() -> str:
-    """Load the versioned eu-stack fragment from package data (CLI-02)."""
-    return load_prompt(_EUSTACK_FILE)
-
-
 def _sampling_sentence(k: int, population: int) -> str:
     """D-03: state both the exemplar count and the aggregate's own true
     population, so a sampled citation set is never read as an enumeration.
@@ -694,7 +689,8 @@ def render_eustack_facts(
 
     lines.extend(_progression_lines(bundle, per_dump_sig_ids, ids))
 
-    return _load_eustack_fragment().replace(_EUSTACK_LINES_SLOT, "\n".join(lines)), ids
+    block = load_prompt(_EUSTACK_FILE).replace(_EUSTACK_LINES_SLOT, "\n".join(lines))
+    return block, ids
 
 
 __all__ = ["render_eustack_facts"]

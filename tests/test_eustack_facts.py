@@ -24,6 +24,7 @@ from sift.adapters.eustack import EustackAdapter
 from sift.config import EustackThresholdsConfig, McmThresholdsConfig, load_config
 from sift.models import Event
 from sift.pipeline import hypothesise
+from sift.pipeline._shared import load_prompt
 from sift.pipeline.eustack import (
     EustackAnalysis,
     PoolOccupancy,
@@ -32,8 +33,8 @@ from sift.pipeline.eustack import (
     load_rules,
 )
 from sift.pipeline.eustack_facts import (
+    _EUSTACK_FILE,  # pyright: ignore[reportPrivateUsage]
     _MAX_SIGNATURES,  # pyright: ignore[reportPrivateUsage]
-    _load_eustack_fragment,  # pyright: ignore[reportPrivateUsage]
     render_eustack_facts,
 )
 from sift.pipeline.eustack_progression import (
@@ -78,7 +79,7 @@ def test_fragment_holds_no_authored_number() -> None:
     figure is computed in Python, so a wording change touches no number. Read
     through the same package-data path the renderer uses, so this guards
     exactly what ships."""
-    fragment = _load_eustack_fragment()
+    fragment = load_prompt(_EUSTACK_FILE)
     offending = [ch for ch in fragment if "0" <= ch <= "9"]
     assert offending == [], f"eustack_facts.md holds an authored figure: {offending}"
 

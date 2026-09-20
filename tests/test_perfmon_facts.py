@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 
+from sift.pipeline._shared import load_prompt
 from sift.pipeline.perfmon import (
     MCM_DENIAL_COUNTER,
     CounterTrend,
@@ -36,8 +37,8 @@ from sift.pipeline.perfmon import (
 )
 from sift.pipeline.perfmon_facts import (
     _MAX_GROUPS,  # pyright: ignore[reportPrivateUsage]
+    _PERFMON_FILE,  # pyright: ignore[reportPrivateUsage]
     _SALIENT_COUNTERS,  # pyright: ignore[reportPrivateUsage]
-    _load_perfmon_fragment,  # pyright: ignore[reportPrivateUsage]
     render_perfmon_facts,
 )
 from sift.render._util import sanitise
@@ -256,7 +257,7 @@ def test_fragment_holds_no_authored_number() -> None:
     """D-06: the versioned fragment carries no ASCII digit — proving every figure
     is computed in Python, so a wording change touches no number. Read through the
     same package-data path the renderer uses, so this guards exactly what ships."""
-    fragment = _load_perfmon_fragment()
+    fragment = load_prompt(_PERFMON_FILE)
     offending = [ch for ch in fragment if "0" <= ch <= "9"]
     assert offending == [], f"perfmon_facts.md holds an authored figure: {offending}"
 
