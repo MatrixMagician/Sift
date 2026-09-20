@@ -24,7 +24,7 @@ Timeline ordering is by each event's own UTC ts downstream, never by the
 
 import re
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -33,6 +33,7 @@ from sift.adapters.base import (
     MAX_EVENT_LINES,
     ConfigurableAdapter,
     ParseStats,
+    RecordBase,
     byte_lines,
     match_iso_ts,
     open_bytes,
@@ -123,14 +124,9 @@ def _mcm_message(raw: str) -> str:
 
 
 @dataclass
-class _Record:
+class _Record(RecordBase):
     """Accumulator for one in-progress event."""
 
-    offset: int
-    line_start: int
-    ts: datetime | None
-    ts_confidence: str
-    severity: str
     is_mcm: bool = False
     is_fallback: bool = False
     component: str | None = None
@@ -139,10 +135,6 @@ class _Record:
     error_code: str | None = None
     oid: str | None = None
     source_loc: str | None = None
-    line_end: int = 0
-    byte_len: int = 0
-    message_lines: list[str] = field(default_factory=list[str])
-    raw_parts: list[str] = field(default_factory=list[str])
 
 
 class DsserrorsAdapter(ConfigurableAdapter):
@@ -210,12 +202,6 @@ class DsserrorsAdapter(ConfigurableAdapter):
                 raw=raw,
             )
 
-        def add_line(rec: _Record, text: str, decoded: str, blen: int) -> None:
-            rec.message_lines.append(text)
-            rec.raw_parts.append(decoded)
-            rec.line_end = line_no
-            rec.byte_len += blen
-
         def start_timestamped(
             line_offset: int, text: str, dt_utc: datetime, confidence: str
         ) -> _Record:
@@ -270,17 +256,17 @@ class DsserrorsAdapter(ConfigurableAdapter):
                         is_mcm=True,
                         component="MCM",
                     )
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
                 elif ts_match is not None:
                     if current is not None:
                         yield finish(current)
                     prefix_end, dt_utc, confidence = ts_match
                     current = start_timestamped(line_offset, text, dt_utc, confidence)
                     body = text[prefix_end:].lstrip()
-                    add_line(current, body, decoded, len(bline))
+                    current.add_line(body, decoded, len(bline), line_no)
                 elif current is not None and current.is_mcm and stripped == _MCM_END:
                     # End sentinel closes the MCM block (inclusive).
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
                     yield finish(current)
                     current = None
                 elif current is not None:
@@ -301,7 +287,7 @@ class DsserrorsAdapter(ConfigurableAdapter):
                             severity="unknown",
                             is_fallback=True,
                         )
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
                 else:
                     # Leading/interstitial unparseable region -> its own
                     # severity=unknown, ts=None event (counts as fallback).
@@ -313,7 +299,7 @@ class DsserrorsAdapter(ConfigurableAdapter):
                         severity="unknown",
                         is_fallback=True,
                     )
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
         if current is not None:
             yield finish(current)
         stats.total_bytes = offset

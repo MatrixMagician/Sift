@@ -141,6 +141,43 @@ def byte_lines(
         yield buf
 
 
+@dataclass
+class RecordBase:
+    """Accumulator for one in-progress multi-line event.
+
+    The nine fields every line-based adapter needs, plus the two ways a line
+    is accounted against a record. Adapters subclass this and add their own
+    domain fields; ``finish()`` stays with the adapter, because building an
+    ``Event`` is where they genuinely differ.
+
+    Byte accounting is the reason this is shared rather than copied:
+    ``byte_len`` and ``line_end`` feed ``byte_offset`` and the line span that
+    ``event_id`` determinism rests on, so three hand-maintained copies were
+    three chances to drift.
+    """
+
+    offset: int
+    line_start: int
+    ts: datetime | None
+    ts_confidence: str
+    severity: str
+    line_end: int = 0
+    byte_len: int = 0
+    message_lines: list[str] = field(default_factory=list[str])
+    raw_parts: list[str] = field(default_factory=list[str])
+
+    def take_line(self, decoded: str, blen: int, line_no: int) -> None:
+        """Account one raw line: its verbatim text, the span end and its bytes."""
+        self.raw_parts.append(decoded)
+        self.line_end = line_no
+        self.byte_len += blen
+
+    def add_line(self, text: str, decoded: str, blen: int, line_no: int) -> None:
+        """Append a message line, then account the raw line it came from."""
+        self.message_lines.append(text)
+        self.take_line(decoded, blen, line_no)
+
+
 class ConfigurableAdapter:
     """Shared per-run adapter state — deliberately NOT part of the frozen
     ``Adapter`` Protocol.

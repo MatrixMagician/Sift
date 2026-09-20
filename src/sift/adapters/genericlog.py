@@ -18,7 +18,6 @@ signature is frozen. Set by the ingest orchestrator before ``parse``.
 
 import re
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
@@ -28,6 +27,7 @@ from sift.adapters.base import (
     MAX_EVENT_LINES,
     ConfigurableAdapter,
     ParseStats,
+    RecordBase,
     byte_lines,
     open_bytes,
     parse_iso_prefix,
@@ -208,21 +208,6 @@ def _decode(raw: bytes, encoding: str) -> str:
 
 
 
-@dataclass
-class _Record:
-    """Accumulator for one in-progress event."""
-
-    offset: int
-    line_start: int
-    ts: datetime | None
-    ts_confidence: str
-    severity: str
-    line_end: int = 0
-    byte_len: int = 0
-    message_lines: list[str] = field(default_factory=list[str])
-    raw_parts: list[str] = field(default_factory=list[str])
-
-
 class GenericLogAdapter(ConfigurableAdapter):
     """Fallback adapter for timestamped line-based logs.
 
@@ -262,11 +247,11 @@ class GenericLogAdapter(ConfigurableAdapter):
         inferred = 0
         syslog_used = False
         locked: int | None = None
-        current: _Record | None = None
+        current: RecordBase | None = None
         offset = 0
         line_no = 0
 
-        def finish(rec: _Record) -> Event:
+        def finish(rec: RecordBase) -> Event:
             stats.event_count += 1
             if rec.ts is None:
                 stats.unknown_fallback_bytes += rec.byte_len
@@ -318,7 +303,7 @@ class GenericLogAdapter(ConfigurableAdapter):
                         syslog_used = True
                     if current is not None:
                         yield finish(current)
-                    current = _Record(
+                    current = RecordBase(
                         offset=line_offset,
                         line_start=line_no,
                         ts=dt_utc,
@@ -337,7 +322,7 @@ class GenericLogAdapter(ConfigurableAdapter):
                         or current.byte_len + len(bline) > MAX_EVENT_BYTES
                     ):
                         yield finish(current)
-                        current = _Record(
+                        current = RecordBase(
                             offset=line_offset,
                             line_start=line_no,
                             ts=None,
@@ -347,7 +332,7 @@ class GenericLogAdapter(ConfigurableAdapter):
                     current.message_lines.append(text)
                 else:
                     # Leading unparseable region becomes its own event (D-06).
-                    current = _Record(
+                    current = RecordBase(
                         offset=line_offset,
                         line_start=line_no,
                         ts=None,
@@ -355,9 +340,7 @@ class GenericLogAdapter(ConfigurableAdapter):
                         severity="unknown",
                     )
                     current.message_lines.append(text)
-                current.line_end = line_no
-                current.byte_len += len(bline)
-                current.raw_parts.append(decoded)
+                current.take_line(decoded, len(bline), line_no)
         if current is not None:
             yield finish(current)
         stats.total_bytes = offset
