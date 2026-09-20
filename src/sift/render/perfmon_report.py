@@ -31,15 +31,16 @@ load-bearing, not polish.
 from __future__ import annotations
 
 import csv
-import json
 from typing import TYPE_CHECKING
 
 # Reuse the load-bearing markdown escaping (sanitise + Markdown/HTML escape) —
 # NOT a second implementation. ``md_field`` wraps ``render._util.sanitise``;
 # the shared implementation lives in ``_util`` so sibling renderers never
-# import each other's private symbols.
+# import each other's private symbols. The canonical JSON serialisation is
+# shared from there for the same reason.
 from sift.render._util import csv_safe as _csv_safe
 from sift.render._util import md_field as _field
+from sift.render._util import render_model_json as _render_model_json
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -182,14 +183,15 @@ def render_perfmon_json(analysis: PerfmonAnalysis) -> str:
     ``ensure_ascii=True`` backslash-u-escapes every non-ASCII code point so the
     JSON report carries no raw C1/Cf terminal-injection byte (T-13-JSONESC) —
     a security control, not a cosmetic choice; ``sort_keys`` plus the trailing
-    newline are what make the artefact byte-identical on re-run.
+    newline are what make the artefact byte-identical on re-run. All three come
+    from the shared ``_util.render_model_json``, so this renderer and its
+    MCM/eu-stack siblings cannot drift apart on any of them.
 
     No bare ``NaN``/``Infinity`` token can appear (T-13-JSONNAN): the
     correlator's ``_numeric`` guarantees every stored figure is finite or
     ``None``, so ``json.dumps``' non-standard float path is never reached.
     """
-    doc = analysis.model_dump(mode="json")
-    return json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
+    return _render_model_json(analysis)
 
 
 def write_perfmon_trend_csv(analysis: PerfmonAnalysis, path: Path) -> None:

@@ -24,11 +24,11 @@ no network, no LLM.
 from __future__ import annotations
 
 import csv
-import json
 from typing import TYPE_CHECKING
 
 from sift.render._util import csv_safe as _csv_safe
 from sift.render._util import md_field as _field
+from sift.render._util import render_model_json as _render_model_json
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -438,12 +438,12 @@ def render_eustack_json(bundle: EustackBundle) -> str:
     """Serialise the bundle to canonical, key-sorted, ASCII-safe JSON (D-13).
 
     ``ensure_ascii=True`` backslash-escapes every non-ASCII code point so the
-    JSON report carries no raw C1/Cf terminal-injection byte (mirrors
-    ``render_perfmon_json``'s T-13-JSONESC control). No wall-clock field of
+    JSON report carries no raw C1/Cf terminal-injection byte — the same
+    ``_util.render_model_json`` call ``render_perfmon_json`` makes, not a
+    mirrored second copy of its T-13-JSONESC control. No wall-clock field of
     any kind anywhere in the bundle is what makes byte-identity achievable.
     """
-    doc = bundle.model_dump(mode="json")
-    return json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
+    return _render_model_json(bundle)
 
 
 def write_eustack_signatures_csv(bundle: EustackBundle, path: Path) -> None:
