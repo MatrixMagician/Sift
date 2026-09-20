@@ -10,23 +10,24 @@ from __future__ import annotations
 
 import hashlib
 import importlib.resources
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
+
+from sift.models import Severity
 
 if TYPE_CHECKING:
     from sift.store import TemplateGroup
 
 _PROMPT_PACKAGE = "sift.prompts"
 
-# Explicit severity rank — never lexicographic ('unknown' > 'error' as a
-# string would be wrong). The vocabulary is frozen by the clusters/severity
-# CHECK constraint, so the shared copy cannot drift.
-SEVERITY_RANK = {
-    "fatal": 5,
-    "error": 4,
-    "warn": 3,
-    "info": 2,
-    "debug": 1,
-    "unknown": 0,
+# Numeric severity rank — never lexicographic ('unknown' > 'error' as a string
+# would be wrong). Derived from the Severity Literal rather than re-typed, so
+# the vocabulary has one spelling and this copy cannot fall out of step with
+# the one the adapters and the events CHECK constraint are held to. Severity is
+# declared most severe first, so reversing it makes the index the rank, giving
+# unknown=0 through fatal=5. test_severity_rank_matches_cluster_module pins
+# those numbers, so reordering the Literal fails loudly.
+SEVERITY_RANK: dict[str, int] = {
+    name: rank for rank, name in enumerate(reversed(get_args(Severity)))
 }
 
 
