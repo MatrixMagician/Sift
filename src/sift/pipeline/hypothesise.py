@@ -30,8 +30,8 @@ import httpx
 
 from sift.llm.budget import PromptBudget
 from sift.models import HypothesisSet
-from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
 from sift.pipeline._shared import load_prompt, short_hash
+from sift.pipeline._shared import salience_key as _salience_key
 from sift.pipeline.analysers import (
     ANALYSER_SOURCES,
     ANALYSERS,
@@ -157,17 +157,18 @@ def _representative_exemplar(
 ) -> str | None:
     """The citable event id for a cluster: its highest-salience group's exemplar.
 
-    Picks the member ``TemplateGroup`` with the greatest (severity, count) —
-    mirroring the representative the cluster signature uses — and returns that
-    group's first exemplar event id. ``None`` when no member group has an
-    exemplar (a partial/tampered store).
+    Picks the member ``TemplateGroup`` with the greatest
+    ``_shared.salience_key`` — the very key the cluster signature's
+    representative is chosen by, not a mirror of it — and returns that group's
+    first exemplar event id. ``None`` when no member group has an exemplar (a
+    partial/tampered store).
     """
     best: tuple[tuple[int, int], str] | None = None
     for template_id in cluster.template_ids:
         group = group_index.get(template_id)
         if group is None or not group.exemplar_event_ids:
             continue
-        key = (_SEVERITY_RANK.get(group.severity_max, 0), group.count)
+        key = _salience_key(group)
         if best is None or key > best[0]:
             best = (key, group.exemplar_event_ids[0])
     return None if best is None else best[1]

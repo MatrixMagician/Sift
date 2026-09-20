@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from sift.llm.budget import PromptBudget
-from sift.pipeline._shared import SEVERITY_RANK as _SEVERITY_RANK
 from sift.pipeline._shared import load_prompt, short_hash
+from sift.pipeline._shared import salience_key as _salience_key
 from sift.store import CaseStore, Cluster, TemplateGroup
 
 if TYPE_CHECKING:
@@ -167,28 +167,24 @@ def _build_clusters(
 ) -> list[Cluster]:
     """Aggregate member template groups into Cluster rows (label NULL for now).
 
-    The representative group (highest severity, then count, first in canonical
-    order) supplies the signature shown until an LLM label exists.
+    The representative group (highest ``_shared.salience_key``: severity, then
+    count, first in canonical order) supplies the signature shown until an LLM
+    label exists, and its own ``severity_max`` is the cluster's — read off the
+    representative rather than recomputed, because the key's leading term is
+    the severity rank, so a second maximum could only ever agree or be a bug.
     """
     members: dict[int, list[TemplateGroup]] = {}
     for group, cluster_id in zip(groups, assignment, strict=True):
         members.setdefault(cluster_id, []).append(group)
     clusters: list[Cluster] = []
     for cluster_id, group_members in members.items():
-        representative = max(
-            group_members,
-            key=lambda g: (_SEVERITY_RANK.get(g.severity_max, 0), g.count),
-        )
-        severity_max = max(
-            group_members,
-            key=lambda g: _SEVERITY_RANK.get(g.severity_max, 0),
-        ).severity_max
+        representative = max(group_members, key=_salience_key)
         clusters.append(
             Cluster(
                 cluster_id=cluster_id,
                 label=None,  # D-01: filled by the label call (Task 2)
                 signature=representative.template,
-                severity_max=severity_max,
+                severity_max=representative.severity_max,
                 count=sum(g.count for g in group_members),
                 template_ids=[g.template_id for g in group_members],
             )
@@ -442,13 +438,14 @@ def cluster_and_label(
     assignment = _assign_cluster_ids(_cluster_labels(x, cfg))
     clusters = _build_clusters(groups, assignment)
 
-    # One representative exemplar excerpt per cluster (same representative the
-    # signature uses: highest severity then count, first in canonical order).
+    # One representative exemplar excerpt per cluster, selected by the same
+    # _shared.salience_key _build_clusters ranks the signature with, so the
+    # excerpt and the signature always come from one group.
     rep_excerpt: dict[int, tuple[tuple[int, int], str]] = {}
     for index, (group, cluster_id) in enumerate(
         zip(groups, assignment, strict=True)
     ):
-        key = (_SEVERITY_RANK.get(group.severity_max, 0), group.count)
+        key = _salience_key(group)
         if cluster_id not in rep_excerpt or key > rep_excerpt[cluster_id][0]:
             rep_excerpt[cluster_id] = (key, texts[index])
 
