@@ -44,7 +44,7 @@ def to_utc(value: str) -> datetime:
     return moment.astimezone(UTC)
 
 
-def parse_filters(specs: list[str], target: str) -> dict[str, str | int]:
+def parse_filters(specs: list[str], target: str) -> dict[str, str | int]:  # noqa: C901 -- distinct branch per invalid key/value case, fails loud not silent
     """Parse and validate repeated ``--filter key=value`` specs (typer-free).
 
     Splits on the FIRST '=': filter keys are allowlisted names that never

@@ -164,7 +164,7 @@ class EustackAdapter(ConfigurableAdapter):
                 return 0.8
         return 0.0
 
-    def parse(self, path: Path, case_id: str) -> Iterator[Event]:
+    def parse(self, path: Path, case_id: str) -> Iterator[Event]:  # noqa: C901, PLR0912, PLR0915 -- one loop drives three thread-dump grammars (eu-stack/pstack/gdb)
         relpath = self.case_relpath(path)
         override_tz = tz_override_for(relpath, self.tz_overrides)
         stats = ParseStats(path=relpath)

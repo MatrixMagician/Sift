@@ -162,7 +162,7 @@ def _analyse(
     return code, lines
 
 
-def _eustack_verdict(bundle: EustackBundle, expect: ExpectEustack) -> bool:
+def _eustack_verdict(bundle: EustackBundle, expect: ExpectEustack) -> bool:  # noqa: C901 -- field-by-field comparison against D-19-17's declared bundle shape
     """Figure-reproduction comparison, per D-19-17 — never ``bool(flags)`` and
     never a new threshold over ``PoolOccupancy``/``DependencyWait`` (both
     explicitly rejected by D-19-17). A declared key with no matching row is a

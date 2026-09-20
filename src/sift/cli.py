@@ -984,7 +984,7 @@ _OGA_ONNX_MSG = (
 @app.command()
 
 
-def doctor(
+def doctor(  # noqa: C901 -- sequential dependency-ordered checks, stop at first critical failure (D-02)
     case: Annotated[
         str | None,
         typer.Argument(help="Optional case: check the server dim against its index"),

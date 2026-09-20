@@ -58,7 +58,7 @@ class DiskFullError(IngestError):
     """
 
 
-def run_ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
+def run_ingest(case: str, config: SiftConfig, store: CaseStore) -> None:  # noqa: C901, PLR0912, PLR0915 -- adapter dispatch, coverage accounting, all-or-nothing abort in one function
     """Ingest body; the caller owns the store lifecycle (clean close)."""
     input_dir_s = store.get_meta("input_dir")
     if input_dir_s is None:

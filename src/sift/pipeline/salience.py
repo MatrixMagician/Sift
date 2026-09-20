@@ -112,7 +112,7 @@ def _intersects_window(
     return not (until is not None and first > _as_utc(until))
 
 
-def rank_clusters(
+def rank_clusters(  # noqa: C901, PLR0912 -- combines five salience features with window filtering in one pass
     clusters: list[Cluster],
     groups: list[TemplateGroup],
     *,

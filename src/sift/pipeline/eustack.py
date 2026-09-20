@@ -980,7 +980,7 @@ class SaturationAnalysis(BaseModel):
     flags: tuple[SaturationFlag, ...]
 
 
-def analyse_saturation(
+def analyse_saturation(  # noqa: C901, PLR0912, PLR0915 -- per-subsystem saturation tallying plus idle-parked totals (D-12)
     analysis: EustackAnalysis, thresholds: EustackThresholdsConfig
 ) -> SaturationAnalysis:
     """Pure, deterministic, model-free (D-12) grouping over
