@@ -100,6 +100,26 @@ DataDirOption = Annotated[
     typer.Option("--data-dir", help="Override the case data directory"),
 ]
 
+IKnowWhatImDoingOption = Annotated[
+    bool,
+    typer.Option(
+        "--i-know-what-im-doing",
+        help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
+    ),
+]
+
+ModelOption = Annotated[
+    str | None,
+    typer.Option("--model", help="Override the generation+embeddings model id"),
+]
+
+# Bundle commands only (mcm/perfmon/eustack). `report`'s --format is a
+# different option: different enum, different help text. Do not alias it in.
+BundleFormatOption = Annotated[
+    BundleFormat,
+    typer.Option("--format", help="Report format: md (default) or json"),
+]
+
 
 def _case_store(case: str, config: SiftConfig) -> CaseStore:
     """Open an existing case or exit 1 with a helpful message.
@@ -413,13 +433,7 @@ def _config_with_model(data_dir: Path | None, model: str | None) -> SiftConfig:
 
 def analyze(
     case: str,
-    i_know_what_im_doing: Annotated[
-        bool,
-        typer.Option(
-            "--i-know-what-im-doing",
-            help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
-        ),
-    ] = False,
+    i_know_what_im_doing: IKnowWhatImDoingOption = False,
     no_label: Annotated[
         bool,
         typer.Option(
@@ -436,10 +450,7 @@ def analyze(
             "embedding model or batch knob (DET-01, D-07)",
         ),
     ] = False,
-    model: Annotated[
-        str | None,
-        typer.Option("--model", help="Override the generation+embeddings model id"),
-    ] = None,
+    model: ModelOption = None,
     hint: Annotated[
         str | None,
         typer.Option(
@@ -671,10 +682,7 @@ def tui(case: str, data_dir: DataDirOption = None) -> None:
 
 def mcm(
     case: str,
-    fmt: Annotated[
-        BundleFormat,
-        typer.Option("--format", help="Report format: md (default) or json"),
-    ] = BundleFormat.md,
+    fmt: BundleFormatOption = BundleFormat.md,
     data_dir: DataDirOption = None,
 ) -> None:
     """Write the MCM forensics bundle for a case (MCM-05, D-10).
@@ -699,10 +707,7 @@ def mcm(
 
 def perfmon(
     case: str,
-    fmt: Annotated[
-        BundleFormat,
-        typer.Option("--format", help="Report format: md (default) or json"),
-    ] = BundleFormat.md,
+    fmt: BundleFormatOption = BundleFormat.md,
     data_dir: DataDirOption = None,
 ) -> None:
     """Write the perfmon correlation bundle for a case (PERF-06, D-17).
@@ -729,10 +734,7 @@ def perfmon(
 
 def eustack(
     case: str,
-    fmt: Annotated[
-        BundleFormat,
-        typer.Option("--format", help="Report format: md (default) or json"),
-    ] = BundleFormat.md,
+    fmt: BundleFormatOption = BundleFormat.md,
     data_dir: DataDirOption = None,
 ) -> None:
     """Write the eu-stack thread-dump analysis bundle for a case (EUS-09).
@@ -883,17 +885,8 @@ def eval_(
             help="Add an advisory local-model judge score (never affects the gate)",
         ),
     ] = False,
-    i_know_what_im_doing: Annotated[
-        bool,
-        typer.Option(
-            "--i-know-what-im-doing",
-            help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
-        ),
-    ] = False,
-    model: Annotated[
-        str | None,
-        typer.Option("--model", help="Override the generation+embeddings model id"),
-    ] = None,
+    i_know_what_im_doing: IKnowWhatImDoingOption = False,
+    model: ModelOption = None,
     data_dir: DataDirOption = None,
 ) -> None:
     """Run the golden-case evaluation suite and print the metric table (EVAL-02).
@@ -996,17 +989,8 @@ def doctor(
         str | None,
         typer.Argument(help="Optional case: check the server dim against its index"),
     ] = None,
-    i_know_what_im_doing: Annotated[
-        bool,
-        typer.Option(
-            "--i-know-what-im-doing",
-            help="Allow a non-loopback/non-RFC1918 inference endpoint (LLM-02)",
-        ),
-    ] = False,
-    model: Annotated[
-        str | None,
-        typer.Option("--model", help="Override the generation+embeddings model id"),
-    ] = None,
+    i_know_what_im_doing: IKnowWhatImDoingOption = False,
+    model: ModelOption = None,
     data_dir: DataDirOption = None,
 ) -> None:
     """Verify the local inference endpoints and vector support (fail-fast).
