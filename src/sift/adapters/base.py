@@ -37,9 +37,18 @@ ISO_TS_RE = re.compile(
 
 
 class Adapter(Protocol):
-    """SPEC.md §5.2 verbatim — FROZEN after Phase 1."""
+    """SPEC.md §5.2, plus one capability flag — otherwise FROZEN after Phase 1.
+
+    ``streams_offsets`` is True when ``parse`` yields events in ascending byte
+    order carrying ``byte_offset``/``byte_len`` attrs that map to the input
+    stream, so ``pipeline/ingest.py`` can advance its progress bar per batch
+    rather than only when the file completes. ``ConfigurableAdapter`` defaults
+    it to False, so an adapter opts in by declaring it and ``ingest.py`` never
+    names a concrete adapter class (ADR 0025).
+    """
 
     name: str
+    streams_offsets: bool
 
     def sniff(self, path: Path) -> float: ...  # 0.0-1.0 confidence this file is mine
 
@@ -192,6 +201,9 @@ class ConfigurableAdapter:
     """
 
     name: str  # overridden per concrete adapter
+    # Opt-in, so a new adapter inherits the safe answer and only an adapter
+    # that genuinely streams on-disk offsets overrides it (ADR 0025).
+    streams_offsets: bool = False
 
     def __init__(self) -> None:
         self.input_root: Path | None = None

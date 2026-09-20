@@ -36,6 +36,8 @@ _DOMAIN_ADAPTERS = ("journald", "dsserrors", "eustack", "dssperfmon")
 class DummyAdapter:
     """Sniffs a fixed confidence; parses nothing."""
 
+    streams_offsets = False
+
     def __init__(self, name: str, score: float) -> None:
         self.name = name
         self.score = score
