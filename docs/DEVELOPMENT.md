@@ -111,9 +111,10 @@ src/sift/
                     the EXCLUDED_FROM_RANKING source-kind seam
   adapters/         pluggable parsers (base.py holds the frozen Adapter protocol);
                     five shipped: genericlog, journald, dsserrors, eustack, dssperfmon
-  pipeline/         dedup, cluster, salience, retrieve, hypothesise; mcm + mcm_facts
-                    (MCM denial episodes), perfmon + perfmon_facts (DSSPerformanceMonitor),
-                    eustack + eustack_facts + eustack_vocabulary (thread dumps),
+  pipeline/         ingest, dedup, cluster, salience, retrieve, hypothesise, analysers;
+                    mcm + mcm_facts (MCM denial episodes), perfmon + perfmon_facts
+                    (DSSPerformanceMonitor), eustack + eustack_facts +
+                    eustack_progression + eustack_vocabulary (thread dumps),
                     taskmap.py, and _shared.py for the helpers several stages need
   llm/              client.py — the ONLY module that opens HTTP; bringup.py turns
                     a SiftConfig into a guarded client for every caller; budget.py
@@ -319,8 +320,10 @@ Most adapters produce diagnostic events that should flow through the whole
 pipeline. Some do not. `dssperfmon` emits periodic monitoring samples —
 thousands of near-identical PDH-CSV rows that carry no incident signal to
 dedup, cluster, salience or hypothesis excerpts, and would dominate template
-counts if ranked. `eustack` joined it in v1.3, once the deterministic eu-stack
-analysis that replaced ranked thread-dump events had shipped. Both must stay
+counts if ranked. `eustack` joined the same set in v1.3, for a parallel reason
+rather than the same one: thread records are a population census rather than
+diagnostics, and the deterministic `sift eustack` analyser plus its fact block
+replaced them for ranking purposes. Both must stay
 fully **citable** (a hypothesis can reference a sample, and `sift show events`
 lists them) while being **held out of ranking**.
 
@@ -336,9 +339,12 @@ The store's ranking-facing readers filter by this set; the citation- and
 display-facing readers deliberately do not, so exclusion never means the events
 disappear. Exclusion is a property of the *source kind*, owned in `store.py`
 and never caller-supplied — which is why it lives in exactly one place rather
-than being threaded as a flag through every pipeline stage. If your adapter
-produces monitoring or telemetry data rather than incidents, add its name here;
-otherwise leave the set alone. This is the only pipeline-adjacent edit a new
+than being threaded as a flag through every pipeline stage. The test for
+membership is not "is this telemetry" but "are these events non-diagnostic, and
+would thousands of near-identical rows dominate template counts". Periodic
+monitoring samples qualify, and so does a census that a deterministic analyser
+already reads better than ranking can. If your adapter produces either, add its
+name here; otherwise leave the set alone. This is the only pipeline-adjacent edit a new
 adapter is permitted to make.
 
 ## Walkthrough: working on prompts
