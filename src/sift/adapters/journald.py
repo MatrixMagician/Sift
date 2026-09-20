@@ -37,11 +37,11 @@ from sift.adapters.base import (
     open_bytes,
     read_head,
 )
-from sift.models import Event, event_id
+from sift.models import Event, Severity, TsConfidence, event_id
 
 # syslog severities 0..7 → the six-value store CHECK set; anything else →
 # "unknown" (never fabricate a severity that would violate store.py:150).
-_PRIORITY_SEVERITY: dict[int, str] = {
+_PRIORITY_SEVERITY: dict[int, Severity] = {
     0: "fatal", 1: "fatal", 2: "fatal",   # emerg, alert, crit
     3: "error",                           # err
     4: "warn",                            # warning
@@ -68,7 +68,7 @@ def _priority_level(value: object) -> int | None:
     return None
 
 
-def _severity(priority: object) -> str:
+def _severity(priority: object) -> Severity:
     """PRIORITY → six-value severity; missing/invalid/out-of-range → unknown.
 
     A repeated PRIORITY field (merged journals) arrives as a JSON array; take
@@ -160,8 +160,8 @@ class JournaldAdapter(ConfigurableAdapter):
             line_offset: int,
             byte_len: int,
             ts: datetime | None,
-            ts_confidence: str,
-            severity: str,
+            ts_confidence: TsConfidence,
+            severity: Severity,
             component: str | None,
             session: str | None,
             message: str,
@@ -249,7 +249,7 @@ class JournaldAdapter(ConfigurableAdapter):
         self.last_stats = stats
 
 
-def _parse_ts(value: object) -> tuple[datetime | None, str]:
+def _parse_ts(value: object) -> tuple[datetime | None, TsConfidence]:
     """``__REALTIME_TIMESTAMP`` (µs since epoch) → (aware UTC, "exact");
     absent/invalid → (None, "missing"). A valid entry lacking the field still
     parses — its bytes are covered, not unknown_fallback."""

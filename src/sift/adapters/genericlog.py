@@ -34,7 +34,7 @@ from sift.adapters.base import (
     read_head,
     to_utc,
 )
-from sift.models import Event, event_id
+from sift.models import Event, Severity, TsConfidence, event_id
 
 # Epoch plausibility window: 2000-01-01 .. 2100-01-01 (Pitfall 5 — a bare
 # 10/13-digit number is only a timestamp if it lands in a sane era).
@@ -65,7 +65,7 @@ _SEVERITY_RE = re.compile(
     r"\b(FATAL|CRITICAL|CRIT|ERROR|ERR|WARNING|WARN|INFO|NOTICE|DEBUG|TRACE|FINE)\b",
     re.IGNORECASE,
 )
-_SEVERITY_MAP = {
+_SEVERITY_MAP: dict[str, Severity] = {
     "FATAL": "fatal",
     "CRITICAL": "fatal",
     "CRIT": "fatal",
@@ -81,7 +81,7 @@ _SEVERITY_MAP = {
 }
 
 
-def _severity(text: str) -> str:
+def _severity(text: str) -> Severity:
     """Case-insensitive token scan; never fabricate a severity (RESEARCH A2)."""
     m = _SEVERITY_RE.search(text)
     return _SEVERITY_MAP[m.group(1).upper()] if m else "unknown"
@@ -157,7 +157,7 @@ _SYSLOG_IDX = 1
 
 def _match_ts(
     text: str, mtime: float, override_tz: str | None, locked: int | None
-) -> tuple[int, datetime, str, int] | None:
+) -> tuple[int, datetime, TsConfidence, int] | None:
     """Return (prefix_end, aware-UTC datetime, confidence, ladder index) or None.
 
     ``locked`` is the per-file format fast path: the last-matched ladder entry

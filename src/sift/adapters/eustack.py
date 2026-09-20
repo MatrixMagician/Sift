@@ -53,7 +53,7 @@ from sift.adapters.threaddump import (
 from sift.adapters.threaddump import (
     iter_frames as iter_frames,  # re-exported: pipeline.eustack imports it from here
 )
-from sift.models import Event, event_id
+from sift.models import Event, TsConfidence, event_id
 
 # Record-accumulation safety caps: on breach the open thread closes and a
 # severity="unknown" continuation event opens — bounded memory for a
@@ -97,7 +97,9 @@ _SNIFF_FRAMES: tuple[tuple[DumpGrammar, re.Pattern[str]], ...] = tuple(
 _condense_symbol = eu_symbol
 
 
-def _match_ts(text: str, override_tz: str | None) -> tuple[datetime, str] | None:
+def _match_ts(
+    text: str, override_tz: str | None
+) -> tuple[datetime, TsConfidence] | None:
     """Parse a leading ISO 8601 dump-time stamp -> (aware-UTC dt, confidence).
 
     Thin wrapper over the shared ``base.match_iso_ts``, dropping the prefix
@@ -168,7 +170,7 @@ class EustackAdapter(ConfigurableAdapter):
         stats = ParseStats(path=relpath)
         current: _Record | None = None
         dump_ts: datetime | None = None
-        dump_ts_confidence = "missing"
+        dump_ts_confidence: TsConfidence = "missing"
         offset = 0
         line_no = 0
 

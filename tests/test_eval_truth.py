@@ -21,6 +21,7 @@ from sift.eval.metrics import (
     retrieval_hit_rate,
 )
 from sift.eval.truth import ExpectEustack, Truth, load_truth
+from sift.models import Confidence
 from sift.store import StoredHypothesis
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ def _hyp(
     index: int = 0,
     title: str = "",
     narrative: str = "",
-    confidence: str = "high",
+    confidence: Confidence = "high",
     citations_valid: bool = True,
 ) -> StoredHypothesis:
     return StoredHypothesis(

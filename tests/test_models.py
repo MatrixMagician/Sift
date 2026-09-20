@@ -143,5 +143,8 @@ def test_hypothesis_set_json_schema_is_a_dict() -> None:
     schema = HypothesisSet.model_json_schema()
     assert isinstance(schema, dict)
     # Nested Hypothesis inlines under $defs (self-contained, no external $ref)
-    # so the 04-04 constrained-decoding path can send it directly.
-    assert "Hypothesis" in schema.get("$defs", {})
+    # so the 04-04 constrained-decoding path can send it directly. Hypothesis is
+    # the ONLY entry: a PEP 695 ``type`` alias on a field would add a second
+    # $defs entry and a $ref in its place, which the llama.cpp schema converter
+    # has historically tripped over.
+    assert list(schema.get("$defs", {})) == ["Hypothesis"]

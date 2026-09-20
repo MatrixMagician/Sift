@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from sift.models import Event, event_id
+from sift.models import Event, Severity, event_id
 from sift.pipeline import dedup
 from sift.store import (
     CaseStore,
@@ -26,7 +26,7 @@ def _ev(
     ts: datetime | None = datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC),
     line_start: int = 1,
     raw: str = "raw",
-    severity: str | None = None,
+    severity: Severity | None = None,
     message: str = "msg",
     source: str = "genericlog",
 ) -> Event:

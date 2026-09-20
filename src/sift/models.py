@@ -13,6 +13,29 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+# The two event vocabularies, spelled once. These are the SAME sets the
+# events-table CHECK constraints enforce (store.py migration 1); the Literal is
+# the copy pyright checks at every construction site, so an unrecognised
+# severity is now a type error at the adapter rather than an insert failure
+# several stages later.
+#
+# Severity is declared MOST SEVERE FIRST and that order is load-bearing:
+# pipeline/_shared.SEVERITY_RANK derives the numeric rank from it, so reordering
+# these members silently reorders every ranking stage.
+#
+# Plain aliases, not PEP 695 ``type`` statements, for two reasons. ``get_args``
+# reads the members directly. And Pydantic inlines a plain alias into a model's
+# JSON schema, where a PEP 695 alias becomes a ``$defs`` entry plus a ``$ref``
+# the llama.cpp schema converter has historically tripped over.
+TsConfidence = Literal["exact", "inferred", "missing"]
+Severity = Literal["fatal", "error", "warn", "info", "debug", "unknown"]
+
+# Hypothesis confidence, likewise CHECK-enforced on the hypotheses table. Named
+# so the persisted row (store.StoredHypothesis) is held to the same three values
+# the model must return, instead of widening back to str on the way through the
+# store.
+Confidence = Literal["high", "medium", "low"]
+
 
 @dataclass(frozen=True)
 class Event:
@@ -21,12 +44,12 @@ class Event:
     event_id: str  # deterministic: sha256(source_file, byte_offset)[:16]
     case_id: str
     ts: datetime | None  # UTC; None if genuinely unparseable
-    ts_confidence: str  # "exact" | "inferred" | "missing"
+    ts_confidence: TsConfidence
     source: str  # adapter name, e.g. "dsserrors"
     source_file: str  # relative path within the case input dir
     line_start: int  # 1-based, inclusive
     line_end: int
-    severity: str  # "fatal"|"error"|"warn"|"info"|"debug"|"unknown"
+    severity: Severity
     component: str | None  # adapter-specific, e.g. "MCM", unit name
     thread: str | None
     session: str | None  # e.g. MSTR SID, systemd invocation ID
@@ -65,7 +88,7 @@ class Hypothesis(BaseModel):
 
     title: str
     narrative: str
-    confidence: Literal["high", "medium", "low"]
+    confidence: Confidence
     confidence_reasoning: str
     supporting_event_ids: list[str]
     contradicting_evidence: str | None
