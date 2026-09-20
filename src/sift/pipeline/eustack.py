@@ -408,6 +408,26 @@ def enclosing_application_frame(
     return None
 
 
+def _lock_site_for(group: SignatureGroup) -> str:
+    """The lock site one `blocked-on-lock` signature group converges on.
+
+    The single walk-and-sentinel step behind both lock tables: the global one
+    `analyse_saturation` builds and the per-PU one `analyse_pu_health` builds.
+    Two copies of it could disagree about the same threads.
+
+    `frame_index` is structurally non-None on a `blocked-on-lock` group:
+    `classify_signature()` sets it whenever a rule matched, and `unclassified`
+    is the sole role without one. Asserted rather than silently skipped, so a
+    future role change that drops `frame_index` fails loudly instead of quietly
+    dropping threads out of the count.
+    """
+    assert group.frame_index is not None, (
+        "blocked-on-lock groups always carry a matched frame_index"
+    )
+    found = enclosing_application_frame(group.frames, group.frame_index)
+    return found if found is not None else UNKNOWN_LOCK_SITE
+
+
 class PuAttribution(BaseModel):
     """Which processing unit a signature serves, and the frame that says so.
 
@@ -830,10 +850,10 @@ class PuHealth(BaseModel):
     # job, so this figure has no defensible zero point (see analyse_saturation
     # and the config docstring for the measurement that settled it).
     blocked_pct: float
-    # Where this PU's lock-waiting threads converge, if any — the same
-    # enclosing-application-frame walk analyse_saturation uses, so the PU
-    # table and the lock-site table can never name different sites for the
-    # same threads.
+    # Where this PU's lock-waiting threads converge, if any — derived through
+    # _lock_site_for, the single enclosing-application-frame walk
+    # analyse_saturation also calls, so the PU table and the lock-site table
+    # can never name different sites for the same threads.
     lock_sites: tuple[LockSite, ...] = ()
 
 
@@ -877,13 +897,9 @@ def analyse_pu_health(analysis: EustackAnalysis) -> tuple[PuHealth, ...]:
         signature_counts[key] += 1
         by_role[key][group.role] += group.thread_count
         if group.role == "blocked-on-lock":
-            # Reuses analyse_saturation's own walk and sentinel rather than a
+            # _lock_site_for is the same call analyse_saturation makes, not a
             # second derivation, so the two tables cannot disagree.
-            assert group.frame_index is not None, (
-                "blocked-on-lock groups always carry a matched frame_index"
-            )
-            found = enclosing_application_frame(group.frames, group.frame_index)
-            site = found if found is not None else UNKNOWN_LOCK_SITE
+            site = _lock_site_for(group)
             lock_totals[key][site] += group.thread_count
             lock_signature_counts[key][site] += 1
 
@@ -1011,21 +1027,14 @@ def analyse_saturation(
 
     # --- Lock convergence (EUS-04, D-03/D-04) ---
     # Filter to blocked-on-lock signatures and walk each to its enclosing
-    # application frame. `frame_index` is structurally non-None here:
-    # classify_signature() sets it only when a rule matched, and
-    # `unclassified` is the sole role without one — assert rather than
-    # silently skip so pyright is satisfied and a future role change without
-    # frame_index fails loudly instead of quietly dropping threads.
+    # application frame through _lock_site_for, the same call analyse_pu_health
+    # makes for its per-PU table.
     lock_totals: defaultdict[str, int] = defaultdict(int)
     lock_signature_counts: defaultdict[str, int] = defaultdict(int)
     for group in analysis.signatures:
         if group.role != "blocked-on-lock":
             continue
-        assert group.frame_index is not None, (
-            "blocked-on-lock groups always carry a matched frame_index"
-        )
-        found = enclosing_application_frame(group.frames, group.frame_index)
-        site = found if found is not None else UNKNOWN_LOCK_SITE
+        site = _lock_site_for(group)
         lock_totals[site] += group.thread_count
         lock_signature_counts[site] += 1
 
