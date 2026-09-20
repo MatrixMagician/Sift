@@ -121,24 +121,11 @@ class HypothesesScreen(CaseScreen):
             format_progress(progress)
         )
 
-    def action_verdict(self) -> None:
-        """v: capture a verdict for the highlighted hypothesis (R003)."""
-        if self.table.row_count == 0:
-            return
-        key = self.table.coordinate_to_cell_key(
-            self.table.cursor_coordinate
-        ).row_key.value
-        if key is None:
-            return
+    def _verdict_target(self, key: str) -> tuple[TargetSpec, str] | None:
         hyp = self._hyps.get(key)
         if hyp is None:
-            return
-        self.capture_verdict(
-            self._store,
-            TargetSpec("hypothesis", key),
-            hyp.title,
-            self._paint_recorded,
-        )
+            return None
+        return TargetSpec("hypothesis", key), hyp.title
 
     def _paint_recorded(self, recorded: RecordedVerdict) -> None:
         """The R012 commit gate, plus the landing progress-line repaint."""
