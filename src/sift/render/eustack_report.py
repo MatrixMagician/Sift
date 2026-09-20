@@ -14,7 +14,7 @@ mirroring ``render/perfmon_report.py``'s three-function shape verbatim:
   re-run (D-13). No wall-clock field anywhere in the bundle.
 - ``write_eustack_signatures_csv`` — exactly one CSV, one row per signature
   (D-04), via stdlib ``csv.writer``. Every string cell passes through
-  ``_csv_safe`` (imported from ``render.perfmon_report``, never
+  ``_csv_safe`` (imported from ``render._util``, never
   reimplemented — D-06).
 
 Pure ``EustackBundle -> str`` / ``-> file``: no store re-read, no recompute,
