@@ -24,6 +24,7 @@ only. It must NOT import from ``sift.pipeline.hypothesise`` or ``sift.cli``
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from sift.pipeline._shared import load_prompt
@@ -53,17 +54,27 @@ _TOP_N = 5
 _MAX_EPISODES = 8
 
 
+def _worst_severity_rank(severities: Iterable[str]) -> int:
+    """The worst ``_SEVERITY_ORDER`` rank among ``severities`` (lower = more severe).
+
+    An empty iterable, and any severity outside the vocabulary, ranks last
+    rather than raising. Shared with ``perfmon_facts._group_severity_rank``:
+    the constant and the ``min()`` reading it cross the module boundary
+    together, so the two cap selections cannot grade severity differently.
+    """
+    return min(
+        (_SEVERITY_ORDER.get(s, len(_SEVERITY_ORDER)) for s in severities),
+        default=len(_SEVERITY_ORDER),
+    )
+
+
 def _episode_severity_rank(ea: EpisodeAnalysis) -> int:
     """The episode's worst diagnostic-flag rank (lower = more severe).
 
-    Reuses ``_SEVERITY_ORDER`` (critical < warn < info); an episode with no
-    graded flags sorts last. Used to keep the most severe episodes when the
-    ``_MAX_EPISODES`` cap drops surplus ones.
+    Used to keep the most severe episodes when the ``_MAX_EPISODES`` cap drops
+    surplus ones.
     """
-    return min(
-        (_SEVERITY_ORDER.get(f.severity, len(_SEVERITY_ORDER)) for f in ea.flags),
-        default=len(_SEVERITY_ORDER),
-    )
+    return _worst_severity_rank(f.severity for f in ea.flags)
 
 
 def _load_mcm_fragment() -> str:
