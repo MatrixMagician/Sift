@@ -77,11 +77,6 @@ def _episode_severity_rank(ea: EpisodeAnalysis) -> int:
     return _worst_severity_rank(f.severity for f in ea.flags)
 
 
-def _load_mcm_fragment() -> str:
-    """Load the versioned MCM fragment from package data (CLI-02)."""
-    return load_prompt(_MCM_FILE)
-
-
 def render_mcm_facts(analysis: McmAnalysis) -> tuple[str, set[str]]:
     """Render the MCM fact block and the set of ids it makes citable.
 
@@ -140,4 +135,4 @@ def render_mcm_facts(analysis: McmAnalysis) -> tuple[str, set[str]]:
                     f"granted {granted_mb:,.1f} MB"
                 )
 
-    return _load_mcm_fragment().replace(_MCM_LINES_SLOT, "\n".join(lines)), ids
+    return load_prompt(_MCM_FILE).replace(_MCM_LINES_SLOT, "\n".join(lines)), ids
