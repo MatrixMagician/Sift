@@ -8,7 +8,7 @@ to component, ``_PID``/``_COMM`` to attrs, ``_SYSTEMD_INVOCATION_ID`` to
 session.
 
 Byte offsets are computed on the raw decompressed byte stream (via
-``_byte_lines``, reused from genericlog so a monster single line is force-split
+``base.byte_lines``, shared so a monster single line is force-split
 at the same MAX_EVENT_BYTES DoS cap), never on decoded text — ``event_id``
 determinism depends on it (a plain and gzip copy of the same export yield
 identical ids).
@@ -30,8 +30,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
-from sift.adapters.base import ConfigurableAdapter, ParseStats, open_bytes, read_head
-from sift.adapters.genericlog import byte_lines
+from sift.adapters.base import (
+    ConfigurableAdapter,
+    ParseStats,
+    byte_lines,
+    open_bytes,
+    read_head,
+)
 from sift.models import Event, event_id
 
 # syslog severities 0..7 → the six-value store CHECK set; anything else →
@@ -186,7 +191,7 @@ class JournaldAdapter(ConfigurableAdapter):
         with open_bytes(path) as stream:
             # journald is UTF-8 so a plain byte split (the defaults) suffices;
             # byte_lines still force-splits a monster line at MAX_EVENT_BYTES
-            # (T-05-10 DoS cap, inherited from genericlog).
+            # (T-05-10 DoS cap, shared from ``base``).
             for bline in byte_lines(stream):
                 line_offset = offset
                 offset += len(bline)  # every byte counted, newline too

@@ -5,7 +5,7 @@ capped: a perfmon series is only useful whole, and Phase 13's correlator reads
 every point. The PDH header line is metadata, not an Event (D-01).
 
 Parsing uses stdlib ``csv`` on a *single row at a time*; the read loop is
-``genericlog.byte_lines`` over the raw decompressed byte stream, so
+``base.byte_lines`` over the raw decompressed byte stream, so
 ``offset += len(bline)`` accounts every byte before any decode and ``event_id``
 stays deterministic across re-ingest (D-20). No regular expression is imported
 anywhere in this module, which discharges the ReDoS surface by construction —
@@ -31,12 +31,12 @@ from pathlib import Path
 from sift.adapters.base import (
     ConfigurableAdapter,
     ParseStats,
+    byte_lines,
     open_bytes,
     read_head,
     to_utc,
     tz_override_for,
 )
-from sift.adapters.genericlog import byte_lines
 from sift.models import Event, event_id
 
 # Anchored literal sniff marker — a byte comparison, no scan and no regex

@@ -16,7 +16,6 @@ Per-run configuration travels on the adapter instance (``input_root``,
 signature is frozen. Set by the ingest orchestrator before ``parse``.
 """
 
-import io
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
@@ -25,8 +24,11 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 from sift.adapters.base import (
+    MAX_EVENT_BYTES,
+    MAX_EVENT_LINES,
     ConfigurableAdapter,
     ParseStats,
+    byte_lines,
     open_bytes,
     parse_iso_prefix,
     read_head,
@@ -38,13 +40,6 @@ from sift.models import Event, event_id
 # 10/13-digit number is only a timestamp if it lands in a sane era).
 EPOCH_MIN = 946684800
 EPOCH_MAX = 4102444800
-
-# D-06 safety caps: on breach the current event closes and a new
-# severity-unknown continuation event opens (bounded memory, T-03-01).
-MAX_EVENT_LINES = 256
-MAX_EVENT_BYTES = 65536
-
-_CHUNK = 65536
 
 # syslog RFC3164: "Jul  9 03:14:15" at line start, followed by whitespace.
 # Parsed by hand (not strptime) because strptime defaults to year 1900 and
@@ -211,54 +206,6 @@ def _decode(raw: bytes, encoding: str) -> str:
             return raw.decode("cp1252", errors="replace")
     return raw.decode(encoding, errors="replace")
 
-
-def byte_lines(
-    stream: io.BufferedIOBase, nl: bytes = b"\n", initial: bytes = b"", unit: int = 1
-) -> Iterator[bytes]:
-    """Yield byte lines (terminator included) split on ``nl``.
-
-    ``initial`` seeds the buffer with bytes already consumed for BOM
-    detection, so BOM bytes stay part of the first line's span (Pitfall 7).
-    A newline-less run longer than MAX_EVENT_BYTES is force-split so a single
-    monster line cannot slurp unbounded memory (T-03-01).
-
-    ``unit`` is the encoding's code-unit width in bytes (2 for UTF-16): a
-    newline match only counts at a unit-aligned offset from the stream start,
-    so non-ASCII UTF-16 content (e.g. U+0A41 then U+0100, encoding
-    ``... 41 0A 00 01 ...``) can never fake a newline straddling two
-    characters and misalign every subsequent line.
-    """
-    buf = initial
-    consumed = 0  # bytes already yielded; keeps alignment to the stream start
-    eof = False
-    while True:
-        i = buf.find(nl)
-        while i >= 0 and (consumed + i) % unit:
-            i = buf.find(nl, i + 1)
-        if 0 <= i and i + len(nl) <= MAX_EVENT_BYTES:
-            end = i + len(nl)
-            yield buf[:end]
-            consumed += end
-            buf = buf[end:]
-            continue
-        if len(buf) >= MAX_EVENT_BYTES:
-            # ponytail: force-split may bisect a 2-byte utf-16 newline at the
-            # exact cap boundary; acceptable — the cap already makes the
-            # region a severity-unknown continuation event. (MAX_EVENT_BYTES
-            # is even, so unit alignment survives the force-split.)
-            yield buf[:MAX_EVENT_BYTES]
-            consumed += MAX_EVENT_BYTES
-            buf = buf[MAX_EVENT_BYTES:]
-            continue
-        if eof:
-            break
-        chunk = stream.read(_CHUNK)
-        if not chunk:
-            eof = True
-        else:
-            buf += chunk
-    if buf:
-        yield buf
 
 
 @dataclass

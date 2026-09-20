@@ -33,14 +33,16 @@ from datetime import datetime
 from pathlib import Path
 
 from sift.adapters.base import (
+    MAX_EVENT_BYTES,
+    MAX_EVENT_LINES,
     ConfigurableAdapter,
     ParseStats,
+    byte_lines,
     match_iso_ts,
     open_bytes,
     read_head,
     tz_override_for,
 )
-from sift.adapters.genericlog import MAX_EVENT_BYTES, MAX_EVENT_LINES, byte_lines
 from sift.adapters.threaddump import (
     GRAMMARS,
     DumpGrammar,
@@ -56,7 +58,7 @@ from sift.models import Event, event_id
 # severity="unknown" continuation event opens — bounded memory for a
 # monster/never-terminated thread block (Pitfall 5 / T-05-30). The caps and the
 # byte-line splitter (with its own MAX_EVENT_BYTES force-split) are shared from
-# genericlog (IN-01) to avoid drifting verbatim copies.
+# ``base`` (IN-01) to avoid drifting verbatim copies.
 
 # Condensed message: the first few frame symbols (SPEC "condensed top frames").
 CONDENSED_FRAMES = 5
@@ -237,8 +239,8 @@ class EustackAdapter(ConfigurableAdapter):
                     # Windows would yield zero threads and fall to genericlog
                     # with full reported coverage. Stripped AFTER the byte
                     # accounting above, so byte_offset/byte_len and therefore
-                    # event_id stay computed over the raw stream (genericlog's
-                    # own Pitfall 7 rule, applied here).
+                    # event_id stay computed over the raw stream (the shared
+                    # byte_lines Pitfall 7 rule, applied here).
                     decoded = decoded.removeprefix("\ufeff")
                 text = decoded.rstrip("\r\n")
                 header_grammar = grammar_for_header(text)
