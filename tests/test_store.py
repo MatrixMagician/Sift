@@ -74,6 +74,23 @@ def test_reingest_idempotent(tmp_path: Path) -> None:
     assert len(store.query_events()) == 2
 
 
+def test_check_violation_raises_rather_than_vanishing(tmp_path: Path) -> None:
+    """A severity outside the vocabulary must fail loudly, not be dropped.
+
+    ``INSERT OR IGNORE`` applies to EVERY constraint on the statement, so the
+    conflict clause that makes re-ingest idempotent used to swallow CHECK
+    violations too: the row disappeared, ``insert_events`` returned a smaller
+    number, and no caller could tell that apart from a duplicate.
+    """
+    store = CaseStore(tmp_path / "case.db")
+    # The Literal is what stops this reaching the store in real code. What is
+    # under test is the store's own behaviour when something gets past it.
+    bad = _ev(severity="warning")  # pyright: ignore[reportArgumentType]
+    with pytest.raises(sqlite3.IntegrityError):
+        store.insert_events([bad])
+    assert store.query_events() == []
+
+
 def test_query_events_deterministic_order(tmp_path: Path) -> None:
     store = CaseStore(tmp_path / "case.db")
     t1 = datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC)

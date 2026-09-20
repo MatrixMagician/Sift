@@ -761,7 +761,13 @@ class CaseStore:
             self._conn.execute(f"RELEASE {name}")
 
     def insert_events(self, events: Iterable[Event]) -> int:
-        """INSERT OR IGNORE; returns the number of NEWLY inserted rows (INGST-02)."""
+        """Insert, ignoring only an event_id collision; returns NEW rows (INGST-02).
+
+        The conflict clause names ``event_id`` on purpose. ``INSERT OR IGNORE``
+        would apply to every constraint on the statement, so a severity or
+        ts_confidence outside its CHECK vocabulary would be dropped silently
+        and read back as a duplicate that was correctly skipped.
+        """
         rows = [
             (
                 e.event_id,
@@ -786,8 +792,9 @@ class CaseStore:
         ]
         before = self._conn.total_changes
         self._conn.executemany(
-            f"INSERT OR IGNORE INTO events ({_EVENT_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
-            f"VALUES ({_placeholders(_EVENT_FIELDS)})",
+            f"INSERT INTO events ({_EVENT_COLUMNS}) "  # noqa: S608 — column list is a module constant, values are all ?
+            f"VALUES ({_placeholders(_EVENT_FIELDS)}) "
+            "ON CONFLICT (event_id) DO NOTHING",
             rows,
         )
         return self._conn.total_changes - before
