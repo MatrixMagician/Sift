@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 import zstandard
 
-from sift.models import Event
+from sift.models import Event, Severity, TsConfidence
 
 GZIP_MAGIC = b"\x1f\x8b"
 ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
@@ -168,8 +168,8 @@ class RecordBase:
     offset: int
     line_start: int
     ts: datetime | None
-    ts_confidence: str
-    severity: str
+    ts_confidence: TsConfidence
+    severity: Severity
     line_end: int = 0
     byte_len: int = 0
     message_lines: list[str] = field(default_factory=list[str])
@@ -217,7 +217,7 @@ class ConfigurableAdapter:
         ).as_posix()
 
 
-def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, str]:
+def to_utc(dt: datetime, override_tz: str | None) -> tuple[datetime, TsConfidence]:
     """Normalise to aware UTC, returning (datetime, ts_confidence) per D-05."""
     if dt.tzinfo is not None:
         return dt.astimezone(UTC), "exact"
@@ -243,7 +243,7 @@ def parse_iso_prefix(text: str) -> tuple[int, datetime] | None:
 
 def match_iso_ts(
     text: str, override_tz: str | None
-) -> tuple[int, datetime, str] | None:
+) -> tuple[int, datetime, TsConfidence] | None:
     """Return (prefix_end, aware-UTC datetime, ts_confidence) or None.
 
     An offset-bearing stamp -> ``exact``; a naive stamp -> ``inferred`` after

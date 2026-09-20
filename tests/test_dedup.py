@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sift.models import Event, event_id
+from sift.models import Event, Severity, event_id
 from sift.pipeline import dedup
 from sift.store import CaseStore
 
@@ -20,7 +20,7 @@ def _dev(
     offset: int,
     message: str,
     *,
-    severity: str = "info",
+    severity: Severity = "info",
     with_ts: bool = True,
 ) -> Event:
     ts = _BASE + timedelta(seconds=offset) if with_ts else None

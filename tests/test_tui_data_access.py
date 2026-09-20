@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sift.models import Event, event_id
+from sift.models import Event, Severity, event_id
 from sift.store import CaseStore
 from sift.tui.data_access import EventPager, EventRow
 
@@ -17,7 +17,7 @@ _BASE_TS = datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC)
 def _ev(
     offset: int,
     ts: datetime | None = _BASE_TS,
-    severity: str = "info",
+    severity: Severity = "info",
     source_file: str = "app.log",
     message: str = "msg",
 ) -> Event:

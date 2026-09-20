@@ -37,7 +37,7 @@ from sift.adapters.base import (
     to_utc,
     tz_override_for,
 )
-from sift.models import Event, event_id
+from sift.models import Event, TsConfidence, event_id
 
 # Anchored literal sniff marker — a byte comparison, no scan and no regex
 # (T-12-01). 0.95 sits above dsserrors' 0.8 because the marker is unambiguous:
@@ -183,7 +183,7 @@ def _fallback_event(
     line_no: int,
     host: str,
     ts: datetime | None,
-    ts_confidence: str,
+    ts_confidence: TsConfidence,
     attrs: dict[str, str],
     text: str,
 ) -> Event:
@@ -362,6 +362,7 @@ class DssperfmonAdapter(ConfigurableAdapter):
                 # no zone, and attaching one here would bypass to_utc and the
                 # --tz override, which is exactly what ADR 0012 forbids.
                 ts: datetime | None
+                ts_confidence: TsConfidence
                 try:
                     naive = datetime.strptime(row[0], TS_FORMAT)  # noqa: DTZ007
                 except ValueError:

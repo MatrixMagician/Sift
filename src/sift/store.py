@@ -29,7 +29,7 @@ import numpy as np
 import sqlite_vec  # pyright: ignore[reportMissingTypeStubs] — pre-v1, no stubs
 import zstandard
 
-from sift.models import Event
+from sift.models import Confidence, Event
 from sift.render._util import sanitise
 
 _RAW_ZSTD_THRESHOLD = 4096  # UTF-8 encoded bytes (STORE-02)
@@ -643,7 +643,9 @@ class StoredHypothesis:
     hyp_index: int
     title: str
     narrative: str
-    confidence: str  # 'high' | 'medium' | 'low' (CHECK-enforced on insert)
+    # Narrow on the way out as well as in: the hypotheses CHECK constraint is
+    # what makes a stored value one of the three, so nothing else need re-check.
+    confidence: Confidence
     confidence_reasoning: str
     supporting_event_ids: list[str]
     contradicting_evidence: str | None

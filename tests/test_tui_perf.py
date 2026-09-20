@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-from sift.models import Event, event_id
+from sift.models import Event, Severity, event_id
 from sift.render.markdown import render_markdown
 from sift.store import CaseStore, StoredHypothesis
 from sift.tui.app import SiftApp
@@ -42,7 +42,7 @@ VERDICT_COUNT = 300
 _VERDICT_CYCLE = ("confirmed", "rejected", "uncertain")
 _BATCH = 20_000
 _BASE = datetime(2026, 7, 16, 0, 0, 0, tzinfo=UTC)
-_SEVERITIES = ("info", "warning", "error", "unknown")
+_SEVERITIES: tuple[Severity, ...] = ("info", "warn", "error", "unknown")
 
 
 def _event(i: int) -> Event:

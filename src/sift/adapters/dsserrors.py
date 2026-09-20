@@ -40,7 +40,7 @@ from sift.adapters.base import (
     read_head,
     tz_override_for,
 )
-from sift.models import Event, event_id
+from sift.models import Event, Severity, TsConfidence, event_id
 
 # Record-accumulation safety caps: on breach the open event closes and a
 # severity="unknown" continuation event opens — bounded memory for a
@@ -72,7 +72,7 @@ _MCM_SIZE_RE = re.compile(r"\bSize=(\d+)")
 
 # Exhaustive severity map (Pitfall 4): only the six store-CHECK values, default
 # unknown; a severity is never fabricated.
-_DSS_SEVERITY = {
+_DSS_SEVERITY: dict[str, Severity] = {
     "FATAL": "fatal",
     "SEVERE": "fatal",
     "CRITICAL": "fatal",
@@ -102,7 +102,7 @@ _SNIFF_STRINGS = (
 )
 
 
-def _severity_from(text: str) -> str:
+def _severity_from(text: str) -> Severity:
     """First recognised bracketed severity tag; else unknown (never fabricate)."""
     for m in _SEV_TAG_RE.finditer(text):
         sev = _DSS_SEVERITY.get(m.group(1).upper())
@@ -203,7 +203,7 @@ class DsserrorsAdapter(ConfigurableAdapter):
             )
 
         def start_timestamped(
-            line_offset: int, text: str, dt_utc: datetime, confidence: str
+            line_offset: int, text: str, dt_utc: datetime, confidence: TsConfidence
         ) -> _Record:
             rec = _Record(
                 offset=line_offset,

@@ -28,7 +28,7 @@ from sift.commands import (
     run_show_hypotheses,
     run_show_templates,
 )
-from sift.models import Event, event_id
+from sift.models import Event, Severity, event_id
 from sift.store import (
     CaseStore,
     Cluster,
@@ -41,7 +41,7 @@ _BASE = datetime(2026, 7, 16, 10, 0, 0, tzinfo=UTC)
 
 
 def _ev(
-    source_file: str, offset: int, severity: str, message: str, second: int
+    source_file: str, offset: int, severity: Severity, message: str, second: int
 ) -> Event:
     return Event(
         event_id=event_id(source_file, offset),
