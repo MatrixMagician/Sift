@@ -11,10 +11,17 @@ and ``csv_safe`` the single spreadsheet-formula guard (T-13-CSVINJ). They live
 here — not in ``markdown.py`` / ``perfmon_report.py`` — so sibling renderers
 share them through the utility module instead of importing each other's
 private symbols.
+
+``render_model_json`` is the single canonical model-to-JSON serialisation,
+shared by the MCM, perfmon and eu-stack report renderers so its ``ensure_ascii``
+security control cannot be lost from one of them.
 """
 
 import html
+import json
 import unicodedata
+
+from pydantic import BaseModel
 
 
 def sanitise(text: str) -> str:
@@ -49,6 +56,27 @@ def mb_bytes(granted_bytes: int) -> float:
     the same row.
     """
     return round(granted_bytes / 1024**2, 3)
+
+
+def render_model_json(doc: BaseModel) -> str:
+    """Serialise a report model to canonical, key-sorted, ASCII-safe JSON.
+
+    ``ensure_ascii=True`` is a security control, not a cosmetic choice: it
+    backslash-u-escapes every non-ASCII code point, so no raw C1/Cf
+    terminal-injection byte survives into the JSON artefact (T-13-JSONESC).
+    ``sort_keys`` and the trailing newline are what make the artefact
+    byte-identical on re-run. One implementation for all three report
+    renderers, so a later edit cannot drop the control from one of them.
+    """
+    return (
+        json.dumps(
+            doc.model_dump(mode="json"),
+            sort_keys=True,
+            ensure_ascii=True,
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 # Markdown structural metacharacters that could inject headings, emphasis,

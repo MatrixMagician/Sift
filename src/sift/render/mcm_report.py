@@ -28,15 +28,16 @@ load-bearing, not polish.
 from __future__ import annotations
 
 import csv
-import json
 from typing import TYPE_CHECKING
 
 # Reuse the load-bearing markdown escaping (sanitise + Markdown/HTML escape) —
 # NOT a second implementation (RESEARCH Security V5). ``md_field`` wraps
 # ``render._util.sanitise``; the shared implementation lives in ``_util`` so
-# sibling renderers never import each other's private symbols.
+# sibling renderers never import each other's private symbols. The canonical
+# JSON serialisation is shared from there for the same reason.
 from sift.render._util import mb_bytes as _mb_bytes
 from sift.render._util import md_field as _field
+from sift.render._util import render_model_json as _render_model_json
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -221,9 +222,10 @@ def render_mcm_json(analysis: McmAnalysis) -> str:
     ``ensure_ascii=True`` backslash-u-escapes every non-ASCII code point so the
     JSON report carries no raw C1/Cf terminal-injection byte (the ``json_out``
     precedent); ``sort_keys`` + trailing newline make it byte-identical on re-run.
+    All three come from the shared ``_util.render_model_json``, so this renderer
+    and its perfmon/eu-stack siblings cannot drift apart on any of them.
     """
-    doc = analysis.model_dump(mode="json")
-    return json.dumps(doc, sort_keys=True, ensure_ascii=True, indent=2) + "\n"
+    return _render_model_json(analysis)
 
 
 def write_attribution_csv(analysis: McmAnalysis, path: Path) -> None:
