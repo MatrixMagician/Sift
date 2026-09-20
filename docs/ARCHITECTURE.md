@@ -120,6 +120,12 @@ Identity is computed by `models.event_id(source_file, byte_offset)`:
 hashlib.sha256(f"{source_file}\x00{byte_offset}".encode()).hexdigest()[:16]
 ```
 
+The diagram traces the dataflow, not the file tree. Helpers that every stage
+reaches into are left out to keep the arrows readable: `pipeline/_shared.py`,
+`pipeline/eustack_vocabulary.py`, `pipeline/taskmap.py` (which is its own
+`sift taskmap` entry point rather than a stage of `analyze`), and
+`render/_util.py`. `ls src/sift/pipeline/` is the authority on what exists.
+
 `source_file` is the case-relative POSIX path (the compressed file's own path for `.gz`/`.zst`
 inputs) and `byte_offset` is the 0-based offset of the event's first byte in the *decompressed*
 stream. The NUL separator prevents concatenation ambiguity. The function depends on nothing else —
@@ -185,10 +191,12 @@ attached: `embedding_dim`, `embedding_metric`, `embedding_model`, `embedding_con
 `triage_timeline_summary`, `triage_unexplained_signals`, `triage_raw`). The three
 `embedding_*` batch-layout keys are provenance only, recorded so a divergent
 re-run is diagnosable (ADR 0014) — they overwrite unconditionally on every
-`analyze`, unlike `embedding_dim`'s mismatch guard. `ingest` writes plainer
-bookkeeping alongside them (`created_at`, `input_dir`, `adapter_overrides`,
-`parse_coverage`, `template_groups_stale`); `grep -n 'set_meta(' src/` is the
-current list, since `meta` is a key-value table rather than a fixed schema.
+`analyze`, unlike `embedding_dim`'s mismatch guard. Plainer bookkeeping keys
+sit alongside them (`created_at`, `input_dir`, `adapter_overrides`,
+`parse_coverage`, `template_groups_stale`), written from several places across
+`new`, `ingest` and the pipeline stages. `grep -n 'set_meta(' src/` is the
+current list and the current set of writers, since `meta` is a key-value table
+rather than a fixed schema.
 
 The KB namespace is deliberately separate: `kb_chunks` has no `event_id` column anywhere, so a KB
 row structurally *cannot* become citable evidence. See
