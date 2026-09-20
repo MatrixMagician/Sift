@@ -38,9 +38,11 @@ from typing import TYPE_CHECKING
 from sift.pipeline._shared import load_prompt
 
 # Shared, not copied: mcm_facts._SEVERITY_ORDER (critical first; an unknown
-# severity sorts last rather than raising) is the single display-order source.
+# severity sorts last rather than raising) is the single display-order source,
+# and _worst_severity_rank the single min() reading it.
 from sift.pipeline.mcm_facts import (
     _SEVERITY_ORDER,  # pyright: ignore[reportPrivateUsage]
+    _worst_severity_rank,  # pyright: ignore[reportPrivateUsage]
 )
 from sift.pipeline.perfmon import MCM_DENIAL_COUNTER
 from sift.render._util import sanitise
@@ -82,14 +84,12 @@ _MAX_GROUPS = 8
 def _group_severity_rank(group: TrendGroup) -> int:
     """The group's worst hazard-severity rank (lower = more severe).
 
-    Reuses ``_SEVERITY_ORDER`` (critical < warn < info); a group with no hazards
-    sorts last. Used to keep the most severe groups when the ``_MAX_GROUPS`` cap
-    drops surplus ones — a direct copy of ``mcm_facts._episode_severity_rank``.
+    Used to keep the most severe groups when the ``_MAX_GROUPS`` cap drops
+    surplus ones. No longer a copy of ``mcm_facts._episode_severity_rank``: both
+    call the shared ``mcm_facts._worst_severity_rank``, so the two caps cannot
+    grade severity differently.
     """
-    return min(
-        (_SEVERITY_ORDER.get(h.severity, len(_SEVERITY_ORDER)) for h in group.hazards),
-        default=len(_SEVERITY_ORDER),
-    )
+    return _worst_severity_rank(h.severity for h in group.hazards)
 
 
 def _load_perfmon_fragment() -> str:
