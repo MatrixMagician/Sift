@@ -309,6 +309,7 @@ def test_adapter_flag_beats_overlapping_config_glob(
 
     class _RecordingAdapter:
         name = "recording"
+        streams_offsets = False
 
         def __init__(self) -> None:
             self.parsed: list[str] = []

@@ -31,7 +31,6 @@ from rich.progress import (
 
 from sift import adapters
 from sift.adapters.base import ConfigurableAdapter
-from sift.adapters.genericlog import GenericLogAdapter
 from sift.pipeline import dedup
 from sift.render._util import sanitise as _sanitise
 
@@ -162,12 +161,14 @@ def run_ingest(case: str, config: SiftConfig, store: CaseStore) -> None:
                             file_adapter.tz_overrides = dict(config.timezones)
                         # T-02-05: stream events in bounded batches — a 100 MB
                         # file never materialises all its Event objects at
-                        # once. Decompressed-stream offsets do not map to
-                        # on-disk bytes for .gz/.zst, so those advance
-                        # whole-file on completion.
-                        track_offsets = isinstance(
-                            file_adapter, GenericLogAdapter
-                        ) and path.suffix not in (".gz", ".zst")
+                        # once. The adapter declares whether its offsets track
+                        # the stream (ADR 0025); the suffix test stays here
+                        # because a decompressed stream's offsets do not map
+                        # to on-disk bytes whatever the adapter promises.
+                        track_offsets = (
+                            file_adapter.streams_offsets
+                            and path.suffix not in (".gz", ".zst")
+                        )
                         new_count = 0
                         parsed_count = 0
                         for batch in batched(

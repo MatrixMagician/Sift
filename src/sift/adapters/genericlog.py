@@ -217,6 +217,7 @@ class GenericLogAdapter(ConfigurableAdapter):
     """
 
     name = "genericlog"
+    streams_offsets = True
 
     def sniff(self, path: Path) -> float:
         # Low-but-nonzero so genericlog never outcompetes a domain adapter,
