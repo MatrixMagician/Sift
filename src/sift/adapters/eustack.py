@@ -37,6 +37,7 @@ from sift.adapters.base import (
     MAX_EVENT_LINES,
     ConfigurableAdapter,
     ParseStats,
+    RecordBase,
     byte_lines,
     match_iso_ts,
     open_bytes,
@@ -111,14 +112,9 @@ def _match_ts(text: str, override_tz: str | None) -> tuple[datetime, str] | None
 
 
 @dataclass
-class _Record:
+class _Record(RecordBase):
     """Accumulator for one in-progress event."""
 
-    offset: int
-    line_start: int
-    ts: datetime | None
-    ts_confidence: str
-    severity: str
     is_thread: bool = False
     is_fallback: bool = False
     thread: str | None = None
@@ -126,15 +122,11 @@ class _Record:
     # than per file so a concatenation of captures in different formats parses,
     # and so a thread's frames are always read with the grammar that opened it.
     grammar: DumpGrammar | None = None
-    line_end: int = 0
-    byte_len: int = 0
     # Bytes of an otherwise-fallback preamble that carried genuinely-parsed
     # signal (the dump-time timestamp line) — credited as parsed, not fallback
     # (IN-03), so coverage isn't understated on a region the adapter extracts
     # a real, thread-stamping value from.
     parsed_bytes: int = 0
-    message_lines: list[str] = field(default_factory=list[str])
-    raw_parts: list[str] = field(default_factory=list[str])
     frames: list[str] = field(default_factory=list[str])
 
 
@@ -218,12 +210,6 @@ class EustackAdapter(ConfigurableAdapter):
                 raw=raw,
             )
 
-        def add_line(rec: _Record, text: str, decoded: str, blen: int) -> None:
-            rec.message_lines.append(text)
-            rec.raw_parts.append(decoded)
-            rec.line_end = line_no
-            rec.byte_len += blen
-
         with open_bytes(path) as stream:
             # eu-stack output is UTF-8: a plain b"\n" byte split suffices;
             # byte_lines still force-splits a monster line at MAX_EVENT_BYTES
@@ -264,7 +250,7 @@ class EustackAdapter(ConfigurableAdapter):
                         thread=thread_id,
                         grammar=header_grammar,
                     )
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
                 elif current is not None:
                     # Continuation of the thread (a frame) OR of the preamble —
                     # unless a safety cap would be breached, in which case the
@@ -284,7 +270,7 @@ class EustackAdapter(ConfigurableAdapter):
                             severity="unknown",
                             is_fallback=True,
                         )
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
                     if (
                         current.is_thread
                         and current.grammar is not None
@@ -315,7 +301,7 @@ class EustackAdapter(ConfigurableAdapter):
                         severity="unknown",
                         is_fallback=True,
                     )
-                    add_line(current, text, decoded, len(bline))
+                    current.add_line(text, decoded, len(bline), line_no)
                     ts_result = _match_ts(text, override_tz)
                     if ts_result is not None:
                         dump_ts, dump_ts_confidence = ts_result
