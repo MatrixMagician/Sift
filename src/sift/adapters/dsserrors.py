@@ -29,21 +29,23 @@ from datetime import datetime
 from pathlib import Path
 
 from sift.adapters.base import (
+    MAX_EVENT_BYTES,
+    MAX_EVENT_LINES,
     ConfigurableAdapter,
     ParseStats,
+    byte_lines,
     match_iso_ts,
     open_bytes,
     read_head,
     tz_override_for,
 )
-from sift.adapters.genericlog import MAX_EVENT_BYTES, MAX_EVENT_LINES, byte_lines
 from sift.models import Event, event_id
 
 # Record-accumulation safety caps: on breach the open event closes and a
 # severity="unknown" continuation event opens — bounded memory for a
 # never-terminated MCM dump (Pitfall 5 / T-05-20). The caps and the byte-line
 # splitter (with its own MAX_EVENT_BYTES force-split) are shared from
-# genericlog (IN-01) to avoid drifting verbatim copies.
+# ``base`` (IN-01) to avoid drifting verbatim copies.
 
 # Anchored, linear-scan token regexes — no ReDoS (mirrors dedup discipline).
 # The leading ISO timestamp is matched by the shared base.match_iso_ts.
