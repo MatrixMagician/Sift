@@ -17,7 +17,7 @@ uv sync
 ```
 
 `uv sync` creates `.venv/`, installs the runtime dependencies and the `dev`
-dependency group (`pytest`, `ruff`, `pyright`, `respx`), and installs `sift`
+dependency group (`pytest`, `pytest-asyncio`, `ruff`, `pyright`, `respx`), and installs `sift`
 itself in editable mode via the `uv_build` backend. There is no separate
 "editable install" step — edits under `src/sift/` take effect immediately.
 
@@ -99,7 +99,8 @@ Do not start work on the next milestone while the current one's tests are red.
 src/sift/
   cli.py            Typer app — flag parsing, case opening, exit. One of the two
                     adapters at the case-command seam (ADR 0019); the other is
-                    the TUI. Still holds the doctor/eval/new/list/delete bodies
+                    the TUI. Still holds the doctor/eval/new/list/delete/taskmap
+                    bodies
   commands/         the typer-free case-command bodies: run_x(store, config, ...)
                     -> ExitCode. show, analyze, report, validate, mcm, perfmon,
                     eustack; _exit.py owns the exit-code vocabulary, parse.py the
@@ -111,10 +112,13 @@ src/sift/
   adapters/         pluggable parsers (base.py holds the frozen Adapter protocol);
                     five shipped: genericlog, journald, dsserrors, eustack, dssperfmon
   pipeline/         dedup, cluster, salience, retrieve, hypothesise; mcm + mcm_facts
-                    (MCM denial episodes), perfmon + perfmon_facts (DSSPerformanceMonitor)
+                    (MCM denial episodes), perfmon + perfmon_facts (DSSPerformanceMonitor),
+                    eustack + eustack_facts + eustack_vocabulary (thread dumps),
+                    taskmap.py, and _shared.py for the helpers several stages need
   llm/              client.py — the ONLY module that opens HTTP; bringup.py turns
                     a SiftConfig into a guarded client for every caller; budget.py
-  render/           markdown (primary), json_out, mcm_report, perfmon_report, pdf (extra)
+  render/           markdown (primary), json_out, mcm_report, perfmon_report,
+                    eustack_report, _util (the shared escaping and JSON path), pdf (extra)
   prompts/          versioned *.md prompt templates, loaded as package data
   eval/             golden-case harness behind `sift eval`
 tests/              pytest suite; tests/perf and tests/fixtures alongside
@@ -133,8 +137,9 @@ case store is the single seam between stages; this section is only a map.
 - **British English** in documentation and user-facing strings ("normalise",
   "artefact", "licence").
 - **Boring technology.** The dependency set is deliberately small: stdlib,
-  httpx, Pydantic, sqlite-vec, scikit-learn, Typer, zstandard. Anything beyond
-  it needs a justification in the pull request, and probably an ADR. No vendor
+  httpx, Pydantic, sqlite-vec, scikit-learn, Typer (with rich), textual for the
+  review TUI, zstandard, and pyyaml for the eval harness' truth files. Anything
+  beyond it needs a justification in the pull request, and probably an ADR. No vendor
   SDKs — the LLM client is hand-rolled httpx precisely so Sift controls the
   request shape.
 - **Prompts are data, not code.** Every prompt lives as a Markdown template in
@@ -267,9 +272,12 @@ Points that are not optional:
   of the same file must yield identical ids.
 - **Populate `ParseStats`** (`total_bytes`, `unknown_fallback_bytes`,
   `event_count`, plus any timezone-inference `notes`) and assign it to
-  `self.last_stats` before returning. The CLI reads it to report real per-file
-  coverage; an adapter that leaves it `None` is reported as unmeasured rather
-  than fabricated as 100%.
+  `self.last_stats` before returning. This is not optional. `ingest.py` falls
+  back to `coverage = 1.0` when `last_stats` is `None`, so an adapter that
+  forgets to set it reports a fabricated 100% rather than admitting it did not
+  measure. The fallback exists for a non-`ConfigurableAdapter`, which has no
+  `last_stats` to read; nothing currently stops a `ConfigurableAdapter` from
+  landing in it (issue #26).
 - **Never fabricate a severity** outside the six-value set — `store.py` enforces
   it with a CHECK constraint.
 - **Normalise timestamps through `to_utc` / `tz_override_for`** so the shared
@@ -311,16 +319,17 @@ Most adapters produce diagnostic events that should flow through the whole
 pipeline. Some do not. `dssperfmon` emits periodic monitoring samples —
 thousands of near-identical PDH-CSV rows that carry no incident signal to
 dedup, cluster, salience or hypothesis excerpts, and would dominate template
-counts if ranked. They must stay fully **citable** (a hypothesis can reference
-a sample, and `sift show events` lists them) while being **held out of
-ranking**.
+counts if ranked. `eustack` joined it in v1.3, once the deterministic eu-stack
+analysis that replaced ranked thread-dump events had shipped. Both must stay
+fully **citable** (a hypothesis can reference a sample, and `sift show events`
+lists them) while being **held out of ranking**.
 
 That is the sole case in which adding a source touches an existing file, and it
-is a deliberately single seam: one entry in the `EXCLUDED_FROM_RANKING`
-frozenset in `src/sift/store.py`.
+is a deliberately single seam: one entry per excluded source kind in the
+`EXCLUDED_FROM_RANKING` frozenset in `src/sift/store.py`.
 
 ```python
-EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon"})
+EXCLUDED_FROM_RANKING: frozenset[str] = frozenset({"dssperfmon", "eustack"})
 ```
 
 The store's ranking-facing readers filter by this set; the citation- and
