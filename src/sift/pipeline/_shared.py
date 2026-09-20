@@ -2,13 +2,18 @@
 
 Small, dependency-free utilities several pipeline stages would otherwise
 re-implement verbatim: the versioned-prompt loader (CLI-02), the frozen
-severity rank and the sha256[:16] short-hash idiom.
+severity rank, the representative-group sort key reading it, and the
+sha256[:16] short-hash idiom.
 """
 
 from __future__ import annotations
 
 import hashlib
 import importlib.resources
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sift.store import TemplateGroup
 
 _PROMPT_PACKAGE = "sift.prompts"
 
@@ -23,6 +28,18 @@ SEVERITY_RANK = {
     "debug": 1,
     "unknown": 0,
 }
+
+
+def salience_key(group: TemplateGroup) -> tuple[int, int]:
+    """The (severity rank, count) key that picks a cluster's representative group.
+
+    The key only, never the whole selection: the three consumers feed it
+    different inputs and return different things — the representative group
+    itself (the cluster signature), its exemplar text (the label excerpt) and
+    its first exemplar event id (the hypothesis citation). Sharing the key is
+    what stops those three answers diverging on the same cluster.
+    """
+    return (SEVERITY_RANK.get(group.severity_max, 0), group.count)
 
 
 def load_prompt(filename: str) -> str:

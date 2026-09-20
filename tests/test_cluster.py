@@ -24,7 +24,7 @@ from sift.llm.client import Endpoint, InferenceClient
 from sift.models import Event, event_id
 from sift.pipeline import cluster, dedup
 from sift.pipeline._shared import short_hash
-from sift.store import CaseStore
+from sift.store import CaseStore, TemplateGroup
 
 Handler = Callable[[httpx.Request], httpx.Response]
 _BASE = datetime(2026, 7, 17, 9, 0, 0, tzinfo=UTC)
@@ -1180,3 +1180,54 @@ def test_reuse_survives_batch_knob_change(tmp_path: Path) -> None:
         assert forced.reused_count == 0
     finally:
         store.close()
+
+
+def _group(template: str, severity: str, count: int) -> TemplateGroup:
+    return TemplateGroup(
+        template_id=short_hash(template),
+        template=template,
+        count=count,
+        first_ts=None,
+        last_ts=None,
+        severity_max=severity,
+        exemplar_event_ids=[event_id("case.log", count)],
+    )
+
+
+def test_cluster_severity_comes_from_the_representative_group() -> None:
+    """The signature and the severity are read off ONE group.
+
+    ``_build_clusters`` picks the representative by ``_shared.salience_key``
+    (severity rank, then count) and takes ``severity_max`` from it rather than
+    running a second maximum over the members. The busiest group here is also
+    the least severe, so a cluster whose severity was computed independently of
+    its signature would show ``warn`` against a ``fatal`` group's template.
+    """
+    members = [
+        _group("busy but benign <NUM>", "warn", 100),
+        _group("rare and fatal <NUM>", "fatal", 1),
+        _group("middling error <NUM>", "error", 50),
+    ]
+    clusters = cluster._build_clusters(  # pyright: ignore[reportPrivateUsage]
+        members, [0, 0, 0]
+    )
+
+    assert len(clusters) == 1
+    assert clusters[0].signature == "rare and fatal <NUM>"
+    assert clusters[0].severity_max == "fatal"
+    assert clusters[0].count == 151
+
+
+def test_equal_severity_representative_is_broken_by_count() -> None:
+    """The key's second term decides when severity ties, so the loudest of two
+    equally severe groups supplies the signature."""
+    members = [
+        _group("quiet error <NUM>", "error", 3),
+        _group("loud error <NUM>", "error", 9),
+    ]
+    clusters = cluster._build_clusters(  # pyright: ignore[reportPrivateUsage]
+        members, [0, 0]
+    )
+
+    assert clusters[0].signature == "loud error <NUM>"
+    assert clusters[0].severity_max == "error"
